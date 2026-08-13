@@ -1,0 +1,362 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   I'AM GEORGIA — DESIGN TOKENS
+   Single source of truth for colour, type, spacing, radius, shadow, motion.
+   Components consume these tokens; no component hardcodes a hex value.
+
+   The palette is derived from the I'am Georgia logo: a warm orange mark on
+   warm white. Orange is the brand signature, not the page. The intended
+   distribution is roughly 60% warm neutrals, 25% charcoal + photography,
+   10% brand orange, 5% supporting accents.
+   ========================================================================== */
+
+@theme {
+  /* --- Brand orange ---------------------------------------------------
+     500 is the logo colour and the anchor for the whole system. */
+  --color-brand-50: #fff0e8;
+  --color-brand-100: #ffdece;
+  --color-brand-200: #fbc1a4;
+  --color-brand-300: #f59e75;
+  --color-brand-400: #f0804e;
+  --color-brand-500: #eb6830;
+  --color-brand-600: #c8501f;
+  --color-brand-700: #b4471b;
+  --color-brand-800: #8e3714;
+  --color-brand-900: #66270e;
+
+  /* Semantic brand aliases — prefer these over the numeric scale. */
+  --color-brand: var(--color-brand-500);
+  /* Hover/pressed. Reaches 4.5:1 with white, so button labels gain contrast
+     on interaction rather than losing it. */
+  --color-brand-hover: var(--color-brand-600);
+  /* Orange *text* on light surfaces. The logo orange only reaches 3.3:1 on
+     warm white, which fails AA for body-size text, so small orange type uses
+     this darker shade (5.4:1). Fills, icons and buttons still use --color-brand. */
+  --color-brand-text: var(--color-brand-700);
+  /* Brand-tinted surface for highlights, selected filters and info panels. */
+  --color-brand-soft: var(--color-brand-50);
+
+  /* --- Neutrals -------------------------------------------------------
+     Warm throughout — the interface should never feel like cold #FFF. */
+  --color-background: #fff9f3;
+  --color-surface: #ffffff;
+  --color-surface-soft: #fff0e8;
+  --color-surface-earth: #f1e8de;
+  --color-sand: #e8d6c2;
+  --color-line: #e8ded4;
+
+  /* Text scale: ink → body → muted → subtle.
+     Every tier clears AA (4.5:1) as small text on --color-background and
+     --color-surface, which is where body copy actually lives. `subtle` is the
+     floor at 4.60:1: it must not be used on --color-surface-earth or
+     --color-sand, where it drops below AA — reach for --color-muted there. */
+  --color-ink: #20201d;
+  --color-ink-soft: #2e2e29;
+  --color-body: #4a463f;
+  --color-muted: #625f59;
+  --color-subtle: #78716a;
+
+  /* Foreground colours for dark sections. */
+  --color-on-dark: #fff9f3;
+  --color-on-dark-muted: #cfc7be;
+
+  /* --- Supporting accents --------------------------------------------- */
+  /* Nature and mountain contexts only — never competing with the brand. */
+  --color-accent-green: #496458;
+  /* Ratings and premium markers only. Never a background.
+     Deepened from the #c89a5b reference: stars are the primary visual carrier
+     of a rating, and at #c89a5b they sat at 2.6:1 on white — below the 3:1
+     floor for meaningful non-text marks, and visibly washed out on cream. */
+  --color-accent-gold: #b8873f;
+  /* The lighter original, which needs a dark ground to read as gold. */
+  --color-accent-gold-on-dark: #c89a5b;
+
+  /* --- Semantic states -------------------------------------------------
+     Deliberately outside the brand palette so status never reads as branding.
+     A field in error must not look like a call to action, so nothing here is
+     allowed to borrow the brand orange.
+
+     Each state keeps the reference hue for fills and icons, plus a darker
+     `-text` shade where the same state has to carry small type on a light
+     surface. Same split as --color-brand / --color-brand-text. */
+  /* Nudged one step down from the #3f7d5a reference. Success is used as small
+     text ("Breakfast included"), and the reference shade fell to 4.4:1 once it
+     landed on a soft or earth panel rather than plain white. */
+  --color-success: #3a7353;
+  --color-warning: #d28a32; /* fills and icons only (2.7:1 as text) */
+  --color-warning-text: #9c621c;
+  --color-error: #c94b42; /* fills, borders, icons */
+  --color-error-text: #b83f37;
+  /* Errors surfaced inside dark sections — the footer newsletter is the one
+     place a form sits on charcoal, where #c94b42 falls to 3.5:1. */
+  --color-error-on-dark: #e0776d;
+  --color-info: #47758a;
+
+  /* --- Typography ----------------------------------------------------
+     The Georgian and Hebrew faces sit ahead of the generic fallbacks but
+     behind the Latin faces. A browser walks the stack per character, so Latin
+     text still renders in Fraunces/Inter while Georgian and Hebrew resolve to
+     a designed face instead of whatever the OS would otherwise substitute. */
+  --font-display: var(--font-fraunces), var(--font-georgian), var(--font-hebrew),
+    ui-serif, Georgia, serif;
+  --font-sans: var(--font-inter), var(--font-georgian), var(--font-hebrew),
+    ui-sans-serif, system-ui, sans-serif;
+
+  /* --- Radius -------------------------------------------------------- */
+  /* Restrained. Editorial surfaces stay crisp; only chips go fully round. */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+
+  /* --- Shadow -------------------------------------------------------- */
+  /* Warm-tinted rather than neutral grey, to sit correctly on cream. */
+  --shadow-card: 0 1px 2px rgb(32 32 29 / 0.04), 0 8px 24px -12px rgb(32 32 29 / 0.12);
+  --shadow-lift: 0 2px 4px rgb(32 32 29 / 0.05), 0 20px 40px -16px rgb(32 32 29 / 0.22);
+  --shadow-modal: 0 32px 80px -24px rgb(32 32 29 / 0.45);
+
+  /* --- Motion -------------------------------------------------------- */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out-soft: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* --- Layout -------------------------------------------------------- */
+  --container-page: 84rem; /* 1344px — primary content width */
+  --container-prose: 46rem; /* long-form reading measure */
+}
+
+/* ==========================================================================
+   BASE
+   ========================================================================== */
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+
+  ::selection {
+    background-color: var(--color-brand);
+    color: #ffffff;
+  }
+
+  /* One consistent focus ring across the whole product. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand-600);
+    outline-offset: 3px;
+    border-radius: var(--radius-xs);
+  }
+
+  /* Fraunces is a variable font — keep the optical size tied to display use. */
+  .font-display,
+  [class*="type-display"],
+  [class*="type-h"] {
+    font-variation-settings: "SOFT" 0, "WONK" 0;
+  }
+}
+
+/* ==========================================================================
+   TYPE SCALE
+   Semantic classes so hierarchy stays consistent across every page.
+   Fluid sizing means mobile gets its own proportions, not a shrunk desktop.
+   ========================================================================== */
+
+@layer components {
+  .type-display {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: clamp(2.75rem, 7vw, 5.75rem);
+    line-height: 0.98;
+    letter-spacing: -0.025em;
+  }
+
+  .type-h1 {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: clamp(2.25rem, 5vw, 3.75rem);
+    line-height: 1.04;
+    letter-spacing: -0.022em;
+  }
+
+  .type-h2 {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: clamp(1.875rem, 3.6vw, 2.75rem);
+    line-height: 1.1;
+    letter-spacing: -0.018em;
+  }
+
+  .type-h3 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: clamp(1.375rem, 2.2vw, 1.75rem);
+    line-height: 1.2;
+    letter-spacing: -0.012em;
+  }
+
+  .type-h4 {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: 1.0625rem;
+    line-height: 1.35;
+    letter-spacing: -0.006em;
+  }
+
+  .type-body-lg {
+    font-size: 1.125rem;
+    line-height: 1.65;
+  }
+
+  .type-body {
+    font-size: 1rem;
+    line-height: 1.65;
+  }
+
+  .type-body-sm {
+    font-size: 0.9375rem;
+    line-height: 1.6;
+  }
+
+  .type-caption {
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    letter-spacing: 0.005em;
+  }
+
+  /* Editorial overline used above section headings. */
+  .type-eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+}
+
+/* ==========================================================================
+   UTILITIES
+   ========================================================================== */
+
+/* Cinematic scrim for text sitting over photography. Two stops read better
+   than a flat overlay because the image keeps its depth. Kept neutral-dark —
+   an orange wash over photography would cheapen it. */
+@utility scrim-bottom {
+  background-image: linear-gradient(
+    to top,
+    rgb(32 32 29 / 0.88) 0%,
+    rgb(32 32 29 / 0.55) 28%,
+    rgb(32 32 29 / 0.12) 62%,
+    rgb(32 32 29 / 0) 100%
+  );
+}
+
+@utility scrim-full {
+  background-image: linear-gradient(
+    to top,
+    rgb(32 32 29 / 0.8) 0%,
+    rgb(32 32 29 / 0.4) 45%,
+    rgb(32 32 29 / 0.28) 100%
+  );
+}
+
+/* Second pass for left-aligned hero copy. These two stack, so the values are
+   kept low deliberately — composited they reach roughly 0.6 behind the
+   headline and 0.4 over the open right-hand side of the photograph. */
+@utility scrim-side {
+  background-image: linear-gradient(
+    to right,
+    rgb(32 32 29 / 0.5) 0%,
+    rgb(32 32 29 / 0.2) 50%,
+    rgb(32 32 29 / 0) 85%
+  );
+}
+
+/* ---- Hero entrance -------------------------------------------------------
+   Deliberately CSS rather than JS: the headline is the LCP element and must
+   paint without waiting for hydration. `both` fill means the reduced-motion
+   rule below lands it on the final frame instead of hiding it. */
+
+@keyframes hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes hero-zoom {
+  from {
+    opacity: 0;
+    transform: scale(1.08);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@utility animate-hero-rise {
+  animation: hero-rise 0.9s var(--ease-out-soft) both;
+}
+
+@utility animate-hero-zoom {
+  animation: hero-zoom 1.8s var(--ease-out-soft) both;
+}
+
+/* Hides scrollbars on mobile swipe rails without removing scrollability. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Clamp helpers for card copy. */
+@utility line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@utility line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ==========================================================================
+   REDUCED MOTION
+   Users who opt out still get the complete experience — just without travel.
+   Framer Motion reads the same preference via useReducedMotion.
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
