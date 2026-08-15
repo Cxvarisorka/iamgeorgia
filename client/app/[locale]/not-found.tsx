@@ -3,6 +3,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
+import { Footer } from "@/components/layout/Footer";
+import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/Button";
 import { Container } from "@/components/ui/Container";
 import { getI18n } from "@/lib/i18n/server";
@@ -13,9 +15,18 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t.notFound.metaTitle };
 }
 
+/**
+ * Rendered for any URL that matches no route, so it sits above the `(site)`
+ * group and does not inherit its header and footer. It brings its own, rather
+ * than pushing the chrome back up into the root layout where the admin panel
+ * would inherit it too.
+ */
 export default async function NotFound() {
   const { t, path } = await getI18n();
   return (
+    <>
+      <Header />
+      <main id="main" className="flex-1">
     <section className="relative flex min-h-[86svh] items-center overflow-hidden bg-ink">
       <Image
         src="/images/about/landscape.jpg"
@@ -81,5 +92,8 @@ export default async function NotFound() {
         </nav>
       </Container>
     </section>
+      </main>
+      <Footer />
+    </>
   );
 }

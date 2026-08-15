@@ -1,20 +1,25 @@
+import { localise, localiseAll } from "./i18n/merge";
+import { tourContent } from "./i18n/tours";
+import type { Locale } from "@/lib/i18n/config";
 import type { Tour, TourCategory } from "@/types";
 
-/** Filter vocabulary shared by the tours index controls. */
-export const tourCategories: { value: TourCategory; label: string }[] = [
-  { value: "adventure", label: "Adventure" },
-  { value: "culture", label: "Culture" },
-  { value: "wine", label: "Wine" },
-  { value: "nature", label: "Nature" },
-  { value: "city", label: "City" },
+/**
+ * Filter vocabulary shared by the tours index controls.
+ *
+ * Values only — the words come from `t.tours.categories` and
+ * `t.tours.durations`, keyed by exactly these strings.
+ */
+export const tourCategories: TourCategory[] = [
+  "adventure",
+  "culture",
+  "wine",
+  "nature",
+  "city",
 ];
 
-export const tourDurations = [
-  { value: "1", label: "Day trip" },
-  { value: "2-3", label: "2–3 days" },
-  { value: "4-6", label: "4–6 days" },
-  { value: "7", label: "7+ days" },
-];
+export type TourDurationBucket = "1" | "2-3" | "4-6" | "7";
+
+export const tourDurations: TourDurationBucket[] = ["1", "2-3", "4-6", "7"];
 
 export const tours: Tour[] = [
   {
@@ -72,7 +77,7 @@ export const tours: Tour[] = [
         title: "Tbilisi to Stepantsminda",
         description:
           "Drive north on the Georgian Military Road, stopping at Ananuri fortress and the Friendship Monument. Arrive in the valley by mid-afternoon and take a short acclimatisation walk along the Chkheri river.",
-        meals: ["Dinner"],
+        meals: ["dinner"],
         accommodation: "Family guesthouse, Stepantsminda",
       },
       {
@@ -80,7 +85,7 @@ export const tours: Tour[] = [
         title: "Gergeti church and the glacier terrace",
         description:
           "An early start for the ridge, reaching the church before the crowds. Continue past the Sabertse saddle onto the moraine below the glacier — around seven hours' walking and 1,200 m of ascent. Descend the same way.",
-        meals: ["Breakfast", "Dinner"],
+        meals: ["breakfast", "dinner"],
         accommodation: "Family guesthouse, Stepantsminda",
       },
       {
@@ -88,7 +93,7 @@ export const tours: Tour[] = [
         title: "Gveleti falls and return",
         description:
           "A gentler morning walk into the Dariali gorge to the Gveleti waterfalls, then the drive back to Tbilisi with a late lunch stop in Pasanauri.",
-        meals: ["Breakfast"],
+        meals: ["breakfast"],
         accommodation: "—",
       },
     ],
@@ -150,7 +155,7 @@ export const tours: Tour[] = [
         title: "Tbilisi to Telavi and Alaverdi",
         description:
           "Drive east across the Gombori pass into the Alazani valley. Visit Alaverdi Cathedral and its monastic cellar, then a family marani for a qvevri tasting and lunch under the vines. Continue to Sighnaghi for sunset on the ramparts.",
-        meals: ["Lunch", "Dinner"],
+        meals: ["lunch", "dinner"],
         accommodation: "Boutique guesthouse, Sighnaghi",
       },
       {
@@ -158,7 +163,7 @@ export const tours: Tour[] = [
         title: "Bodbe, Tsinandali and the road home",
         description:
           "Morning at Bodbe Monastery, then Tsinandali Estate for its garden and cellar. A final tasting of Saperavi before the drive back to Tbilisi.",
-        meals: ["Breakfast", "Lunch"],
+        meals: ["breakfast", "lunch"],
         accommodation: "—",
       },
     ],
@@ -219,7 +224,7 @@ export const tours: Tour[] = [
         title: "Arrival in Mestia",
         description:
           "Fly or drive into Mestia. Afternoon walk through the tower quarter and the Svaneti Museum of History and Ethnography.",
-        meals: ["Dinner"],
+        meals: ["dinner"],
         accommodation: "Guesthouse, Mestia",
       },
       {
@@ -227,7 +232,7 @@ export const tours: Tour[] = [
         title: "Chalaadi Glacier",
         description:
           "A three-hour return walk from the Mestiachala valley through birch forest to the glacier snout. Afternoon free, or continue to the Koruldi lakes by 4x4.",
-        meals: ["Breakfast", "Dinner"],
+        meals: ["breakfast", "dinner"],
         accommodation: "Guesthouse, Mestia",
       },
       {
@@ -235,7 +240,7 @@ export const tours: Tour[] = [
         title: "Mestia to Ushguli",
         description:
           "The rough valley road to Ushguli — four hours of river crossings and switchbacks, with stops in Ipari and Kala. Arrive under Shkhara in the afternoon.",
-        meals: ["Breakfast", "Dinner"],
+        meals: ["breakfast", "dinner"],
         accommodation: "Guesthouse, Ushguli",
       },
       {
@@ -243,14 +248,14 @@ export const tours: Tour[] = [
         title: "Shkhara glacier walk",
         description:
           "A full-day walk up the Enguri valley to the Shkhara glacier amphitheatre and back — around 18 km on gentle gradients.",
-        meals: ["Breakfast", "Dinner"],
+        meals: ["breakfast", "dinner"],
         accommodation: "Guesthouse, Ushguli",
       },
       {
         day: 5,
         title: "Return",
         description: "Drive back to Mestia for the flight, or continue by road to Zugdidi and Tbilisi.",
-        meals: ["Breakfast"],
+        meals: ["breakfast"],
         accommodation: "—",
       },
     ],
@@ -368,7 +373,7 @@ export const tours: Tour[] = [
         title: "Tbilisi to Vardzia",
         description:
           "Drive south-west via Borjomi and Akhaltsikhe, visiting Rabati Castle. Continue past Khertvisi to Vardzia for the late afternoon, when the cliff face turns gold. Return to Borjomi for the night.",
-        meals: ["Dinner"],
+        meals: ["dinner"],
         accommodation: "Hotel, Borjomi",
       },
       {
@@ -376,7 +381,7 @@ export const tours: Tour[] = [
         title: "Borjomi and return",
         description:
           "Morning in Borjomi central park — the mineral spring and funicular — then the drive back to Tbilisi via Uplistsikhe cave town.",
-        meals: ["Breakfast"],
+        meals: ["breakfast"],
         accommodation: "—",
       },
     ],
@@ -436,7 +441,7 @@ export const tours: Tour[] = [
         title: "Tbilisi to Juta",
         description:
           "Drive north to Juta at 2,200 m, Georgia's highest year-round village. Short acclimatisation walk towards the Chaukhi amphitheatre.",
-        meals: ["Dinner"],
+        meals: ["dinner"],
         accommodation: "Guesthouse, Juta",
       },
       {
@@ -444,7 +449,7 @@ export const tours: Tour[] = [
         title: "Chaukhi base and the amphitheatre",
         description:
           "A full acclimatisation day beneath the massif, walking to the base of the towers and back. Around six hours.",
-        meals: ["Breakfast", "Dinner"],
+        meals: ["breakfast", "dinner"],
         accommodation: "Guesthouse, Juta",
       },
       {
@@ -452,7 +457,7 @@ export const tours: Tour[] = [
         title: "The pass to Roshka",
         description:
           "The crossing: a steep 1,100 m climb to the 3,338 m pass, then a long descent past the Abudelauri lakes to Roshka. Eight to nine hours.",
-        meals: ["Breakfast", "Dinner"],
+        meals: ["breakfast", "dinner"],
         accommodation: "Mountain guesthouse, Roshka",
       },
       {
@@ -460,7 +465,7 @@ export const tours: Tour[] = [
         title: "Khevsureti and return",
         description:
           "Morning at the Roshka boulder field, then the long drive back to Tbilisi through the Khevsureti valleys.",
-        meals: ["Breakfast"],
+        meals: ["breakfast"],
         accommodation: "—",
       },
     ],
@@ -519,7 +524,7 @@ export const tours: Tour[] = [
         title: "Tbilisi to Martvili and Kutaisi",
         description:
           "Drive west to Martvili canyon for the boat trip through the gorge, then on to Kutaisi with an afternoon stop at Gelati Monastery.",
-        meals: ["Breakfast"],
+        meals: ["breakfast"],
         accommodation: "Hotel, Kutaisi",
       },
       {
@@ -527,7 +532,7 @@ export const tours: Tour[] = [
         title: "Okatse, Prometheus and return",
         description:
           "The Okatse canyon walkway in the morning, Prometheus Cave after lunch, then the drive back to Tbilisi.",
-        meals: ["Breakfast"],
+        meals: ["breakfast"],
         accommodation: "—",
       },
     ],
@@ -588,7 +593,7 @@ export const tours: Tour[] = [
         title: "Tbilisi to Omalo",
         description:
           "Drive east to Kakheti, then the six-hour 4x4 climb over the Abano Pass into Tusheti. Arrive in Upper Omalo by evening.",
-        meals: ["Dinner"],
+        meals: ["dinner"],
         accommodation: "Guesthouse, Omalo",
       },
       {
@@ -596,35 +601,35 @@ export const tours: Tour[] = [
         title: "Omalo and Keselo",
         description:
           "An acclimatisation day exploring the Keselo tower complex above Omalo and the ridge walk to Shenako.",
-        meals: ["Breakfast", "Dinner"],
+        meals: ["breakfast", "dinner"],
         accommodation: "Guesthouse, Omalo",
       },
       {
         day: 3,
         title: "Omalo to Dartlo",
         description: "A six-hour walk down the Pirikiti Alazani valley to Dartlo, the finest tower village in Tusheti.",
-        meals: ["Breakfast", "Dinner"],
+        meals: ["breakfast", "dinner"],
         accommodation: "Guesthouse, Dartlo",
       },
       {
         day: 4,
         title: "Dartlo, Chesho and Parsma",
         description: "A loop further up the valley to Chesho and Parsma, with shepherd stops along the way.",
-        meals: ["Breakfast", "Dinner"],
+        meals: ["breakfast", "dinner"],
         accommodation: "Guesthouse, Dartlo",
       },
       {
         day: 5,
         title: "Return over the pass",
         description: "The long drive back over Abano into Kakheti, finishing at a wine estate near Telavi.",
-        meals: ["Breakfast", "Dinner"],
+        meals: ["breakfast", "dinner"],
         accommodation: "Wine estate, Kakheti",
       },
       {
         day: 6,
         title: "Kakheti to Tbilisi",
         description: "A morning tasting at the estate, then the two-hour drive back to the capital.",
-        meals: ["Breakfast"],
+        meals: ["breakfast"],
         accommodation: "—",
       },
     ],
@@ -733,7 +738,7 @@ export const tours: Tour[] = [
         title: "A day across the city",
         description:
           "Begin at the bathhouses and climb to Narikala, then descend through the old town for a bakery stop. Cross to Dezerter Bazaar with a chef, take a long courtyard lunch, and finish among the Soviet-modern landmarks on the left bank.",
-        meals: ["Lunch"],
+        meals: ["lunch"],
         accommodation: "—",
       },
     ],
@@ -747,12 +752,23 @@ export const tours: Tour[] = [
   },
 ];
 
-export function getTourBySlug(slug: string): Tour | undefined {
-  return tours.find((tour) => tour.slug === slug);
+/** Every tour in one language. Prices, ratings and day counts do not move. */
+export function localisedTours(locale: Locale): Tour[] {
+  return localiseAll(tours, locale, tourContent);
 }
 
-export function getToursByDestination(destinationSlug: string): Tour[] {
-  return tours.filter((tour) => tour.destinationSlug === destinationSlug);
+export function getTourBySlug(slug: string, locale?: Locale): Tour | undefined {
+  const base = tours.find((tour) => tour.slug === slug);
+  if (!base || !locale) return base;
+  return localise(base, locale, tourContent);
 }
 
-export const featuredTours = tours.filter((tour) => tour.featured);
+export function getToursByDestination(destinationSlug: string, locale?: Locale): Tour[] {
+  const matches = tours.filter((tour) => tour.destinationSlug === destinationSlug);
+  return locale ? localiseAll(matches, locale, tourContent) : matches;
+}
+
+export function featuredTours(locale?: Locale): Tour[] {
+  const matches = tours.filter((tour) => tour.featured);
+  return locale ? localiseAll(matches, locale, tourContent) : matches;
+}

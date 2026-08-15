@@ -3,8 +3,6 @@ import { Fraunces, Inter, Noto_Sans_Georgian, Noto_Sans_Hebrew } from "next/font
 import { notFound } from "next/navigation";
 
 import "../globals.css";
-import { Footer } from "@/components/layout/Footer";
-import { Header } from "@/components/layout/Header";
 import { site } from "@/constants/site";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { isLocale, locales, localeMeta, localePath } from "@/lib/i18n/config";
@@ -106,20 +104,14 @@ export default async function RootLayout(props: LayoutProps<"/[locale]">) {
       className={`${fraunces.variable} ${inter.variable} ${notoGeorgian.variable} ${notoHebrew.variable} h-full antialiased`}
       data-locale={locale}
     >
+      {/*
+        The root layout deliberately holds no chrome. Marketing pages get the
+        header and footer from `(site)/layout.tsx`; the admin panel is a
+        different product surface with its own shell. Both are route groups, so
+        neither appears in a URL.
+      */}
       <body className="flex min-h-full flex-col">
-        <LocaleProvider locale={locale} dictionary={t}>
-          <a
-            href="#main"
-            className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:start-4 focus:z-200 focus:rounded-sm focus:bg-brand focus:px-4 focus:py-2.5 focus:text-sm focus:text-on-dark"
-          >
-            {t.a11y.skipToContent}
-          </a>
-          <Header />
-          <main id="main" className="flex-1">
-            {props.children}
-          </main>
-          <Footer />
-        </LocaleProvider>
+        <LocaleProvider locale={locale} dictionary={t}>{props.children}</LocaleProvider>
       </body>
     </html>
   );

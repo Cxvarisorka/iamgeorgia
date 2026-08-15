@@ -5,9 +5,21 @@ export function cn(...classes: (string | false | null | undefined)[]): string {
   return classes.filter(Boolean).join(" ");
 }
 
-/** Indicative prices only — this prototype never transacts. */
-export function formatPrice(amount: number, currency = "USD"): string {
-  return new Intl.NumberFormat("en-US", {
+/**
+ * Indicative prices only — this prototype never transacts.
+ *
+ * `intlLocale` comes from `getI18n()` / `useI18n()`, so the grouping separator
+ * and the position of the currency symbol follow the reader's language:
+ * $1,240 in English, 1 240 $ in Russian. It defaults to English rather than
+ * being required, because a handful of call sites price things outside a
+ * locale context (sitemaps, structured data) and must stay canonical.
+ */
+export function formatPrice(
+  amount: number,
+  intlLocale = "en-US",
+  currency = "USD",
+): string {
+  return new Intl.NumberFormat(intlLocale, {
     style: "currency",
     currency,
     maximumFractionDigits: 0,

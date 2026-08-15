@@ -4,11 +4,18 @@ export type TourCategory = "adventure" | "culture" | "wine" | "nature" | "city";
 
 export type Difficulty = "Easy" | "Moderate" | "Challenging";
 
+/**
+ * Meals are a closed vocabulary rather than free text: the same three words
+ * recur across every itinerary day of every tour, so they belong in the UI
+ * dictionary (`t.tours.mealNames`) and travel through the data as keys.
+ */
+export type MealKey = "breakfast" | "lunch" | "dinner";
+
 export interface ItineraryDay {
   day: number;
   title: string;
   description: string;
-  meals: string[];
+  meals: MealKey[];
   accommodation: string;
 }
 

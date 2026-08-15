@@ -1,9 +1,12 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
 import { Clock, Users } from "lucide-react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Rating } from "@/components/ui/Rating";
+import { useI18n, useLocalePath } from "@/lib/i18n/provider";
 import type { Tour } from "@/types";
 import { cn, formatPrice } from "@/lib/utils";
 
@@ -16,11 +19,13 @@ interface TourCardProps {
 }
 
 export function TourCard({ tour, variant = "default", className, priority }: TourCardProps) {
+  const { t, intlLocale } = useI18n();
+  const path = useLocalePath();
   const isFeature = variant === "feature";
 
   return (
     <article className={cn("group", className)}>
-      <Link href={`/tours/${tour.slug}`} className="block focus-visible:outline-offset-8">
+      <Link href={path(`/tours/${tour.slug}`)} className="block focus-visible:outline-offset-8">
         <div
           className={cn(
             "relative overflow-hidden rounded-sm bg-line",
@@ -36,7 +41,7 @@ export function TourCard({ tour, variant = "default", className, priority }: Tou
             className="object-cover transition-transform duration-700 ease-(--ease-out-soft) group-hover:scale-[1.04]"
           />
           <div className="absolute top-4 left-4">
-            <Badge tone="light">{tour.category}</Badge>
+            <Badge tone="light">{t.tours.categories[tour.category]}</Badge>
           </div>
         </div>
 
@@ -65,8 +70,10 @@ export function TourCard({ tour, variant = "default", className, priority }: Tou
           <div className="mt-5 flex items-end justify-between gap-4 border-t border-line pt-4">
             <Rating value={tour.rating} reviewCount={tour.reviewCount} />
             <p className="text-right">
-              <span className="type-caption block text-muted">From</span>
-              <span className="type-h4 text-ink">{formatPrice(tour.priceFrom)}</span>
+              <span className="type-caption block text-muted">{t.common.from}</span>
+              <span className="type-h4 text-ink">
+                {formatPrice(tour.priceFrom, intlLocale)}
+              </span>
             </p>
           </div>
         </div>

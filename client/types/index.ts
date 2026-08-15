@@ -3,3 +3,5 @@ export type * from "./destination";
 export type * from "./tour";
 export type * from "./hotel";
 export type * from "./experience";
+export type * from "./transfer";
+export type * from "./admin";
