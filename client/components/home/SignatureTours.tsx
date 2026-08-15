@@ -6,8 +6,8 @@ import { featuredTours } from "@/data/tours";
 import { getI18n } from "@/lib/i18n/server";
 
 export async function SignatureTours() {
-  const { t, path } = await getI18n();
-  const [lead, ...rest] = featuredTours;
+  const { t, path, locale } = await getI18n();
+  const [lead, ...rest] = featuredTours(locale);
 
   return (
     <section className="py-24 lg:py-32">

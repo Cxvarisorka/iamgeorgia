@@ -43,6 +43,25 @@ export function HotelCardSkeleton() {
   );
 }
 
+/** Matches the horizontal TransferCard used on the transfer results page. */
+export function TransferCardSkeleton() {
+  return (
+    <div className="flex flex-col gap-5 border border-line bg-surface p-4 sm:flex-row sm:p-5">
+      <Skeleton className="h-28 w-full shrink-0 sm:w-48 lg:w-56" />
+      <div className="flex flex-1 flex-col gap-3 py-1">
+        <Skeleton className="h-5 w-32" />
+        <Skeleton className="h-6 w-1/2" />
+        <Skeleton className="h-3 w-3/4" />
+        <Skeleton className="h-3 w-2/3" />
+        <div className="mt-auto flex items-end justify-between pt-4">
+          <Skeleton className="h-9 w-36" />
+          <Skeleton className="h-11 w-32" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function GridSkeleton({ count = 6 }: { count?: number }) {
   return (
     <div className="grid gap-x-8 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">

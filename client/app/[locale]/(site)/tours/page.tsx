@@ -7,7 +7,7 @@ import { Container } from "@/components/ui/Container";
 import { PageHero } from "@/components/ui/PageHero";
 import { getI18n } from "@/lib/i18n/server";
 import { SectionHeading } from "@/components/ui/SectionHeading";
-import { featuredTours, tours } from "@/data/tours";
+import { featuredTours, localisedTours } from "@/data/tours";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -15,9 +15,12 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function ToursPage() {
-  const { t } = await getI18n();
+  const { t, locale } = await getI18n();
+  const tours = localisedTours(locale);
+  // Regions come off the translated records, so the filter reads in the same
+  // language as the cards it filters.
   const regions = [...new Set(tours.map((tour) => tour.location))].sort();
-  const [spotlight] = featuredTours;
+  const [spotlight] = featuredTours(locale);
 
   return (
     <>
@@ -33,9 +36,9 @@ export default async function ToursPage() {
         <Container>
           <Reveal>
             <SectionHeading
-              eyebrow="Journey of the season"
-              title="Three days beneath Mount Kazbek"
-              description="Our most requested trek, and the one our guides argue over leading."
+              eyebrow={t.tours.spotlightEyebrow}
+              title={t.tours.spotlightTitle}
+              description={t.tours.spotlightDescription}
             />
           </Reveal>
           <Reveal className="mt-12">

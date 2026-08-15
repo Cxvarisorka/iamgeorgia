@@ -6,20 +6,38 @@
  * path — components run it through `localePath` to add the locale segment.
  */
 
+import { CarFront } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+
 import { stripLocale } from "@/lib/i18n/config";
 import type { UiDictionary } from "@/lib/i18n/ui/en";
 
-export type NavKey = "tours" | "destinations" | "hotels" | "experiences" | "about";
+export type NavKey =
+  | "tours"
+  | "destinations"
+  | "hotels"
+  | "transfers"
+  | "experiences"
+  | "about";
 
 export interface NavItem {
   key: NavKey;
   href: string;
+  /**
+   * Optional glyph. The nav is otherwise deliberately text-only — an icon here
+   * marks an item as a different *kind* of thing rather than another editorial
+   * section. Transfers is a point-to-point transport service sitting among
+   * inspiration-led sections, and the car reads that distinction instantly.
+   * The label always accompanies it; the icon never carries meaning alone.
+   */
+  icon?: LucideIcon;
 }
 
 export const primaryNavigation: NavItem[] = [
   { key: "tours", href: "/tours" },
   { key: "destinations", href: "/destinations" },
   { key: "hotels", href: "/hotels" },
+  { key: "transfers", href: "/transfers", icon: CarFront },
   { key: "experiences", href: "/experiences" },
   { key: "about", href: "/about" },
 ];
@@ -46,6 +64,7 @@ export function footerNavigation(t: UiDictionary): FooterGroup[] {
         { label: t.nav.tours, href: "/tours" },
         { label: t.nav.destinations, href: "/destinations" },
         { label: t.nav.hotels, href: "/hotels" },
+        { label: t.nav.transfers, href: "/transfers" },
         { label: t.nav.experiences, href: "/experiences" },
       ],
     },

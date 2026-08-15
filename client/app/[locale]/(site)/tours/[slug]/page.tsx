@@ -13,7 +13,8 @@ import { MediaGallery } from "@/components/ui/MediaGallery";
 import { Rating } from "@/components/ui/Rating";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { ShareSave } from "@/components/ui/ShareSave";
-import { getTourBySlug, tours } from "@/data/tours";
+import { getTourBySlug, localisedTours, tours } from "@/data/tours";
+import { getI18n } from "@/lib/i18n/server";
 import { relatedBySlug } from "@/lib/utils";
 import type { TourCategory } from "@/types";
 
@@ -27,10 +28,12 @@ export function generateStaticParams() {
   return tours.map((tour) => ({ slug: tour.slug }));
 }
 
-export async function generateMetadata(props: PageProps<"/[locale]/tours/[slug]">): Promise<Metadata> {
-  const { slug } = await props.params;
-  const tour = getTourBySlug(slug);
-  if (!tour) return { title: "Tour not found" };
+export async function generateMetadata(
+  props: PageProps<"/[locale]/tours/[slug]">,
+): Promise<Metadata> {
+  const [{ slug }, { t, locale }] = await Promise.all([props.params, getI18n()]);
+  const tour = getTourBySlug(slug, locale);
+  if (!tour) return { title: t.tours.notFound };
 
   return {
     title: tour.title,
@@ -44,21 +47,27 @@ export async function generateMetadata(props: PageProps<"/[locale]/tours/[slug]"
 }
 
 export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[slug]">) {
-  const { slug } = await props.params;
-  const tour = getTourBySlug(slug);
+  const [{ slug }, { t, path, locale, fill }] = await Promise.all([
+    props.params,
+    getI18n(),
+  ]);
+  const tour = getTourBySlug(slug, locale);
   if (!tour) notFound();
 
   const related = relatedBySlug(
-    tours.filter((item) => item.category === tour.category || item.destinationSlug === tour.destinationSlug),
+    localisedTours(locale).filter(
+      (item) =>
+        item.category === tour.category || item.destinationSlug === tour.destinationSlug,
+    ),
     tour.slug,
     3,
   );
 
   const facts = [
-    { icon: Clock, label: "Duration", value: tour.durationLabel },
-    { icon: Users, label: "Group size", value: tour.groupSize },
-    { icon: Gauge, label: "Difficulty", value: tour.difficulty },
-    { icon: MapPin, label: "Region", value: tour.location },
+    { icon: Clock, label: t.tours.duration, value: tour.durationLabel },
+    { icon: Users, label: t.tours.groupSize, value: tour.groupSize },
+    { icon: Gauge, label: t.tours.difficulty, value: t.tours.difficulties[tour.difficulty] },
+    { icon: MapPin, label: t.tours.region, value: tour.location },
   ];
 
   return (
@@ -66,8 +75,8 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
       <Container className="pt-8 pb-6">
         <Breadcrumbs
           items={[
-            { label: "Home", href: "/" },
-            { label: "Tours", href: "/tours" },
+            { label: t.common.home, href: path("/") },
+            { label: t.nav.tours, href: path("/tours") },
             { label: tour.title },
           ]}
         />
@@ -76,7 +85,7 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
               <Badge tone={NATURE_CATEGORIES.has(tour.category) ? "nature" : "brand"}>
-                {tour.category}
+                {t.tours.categories[tour.category]}
               </Badge>
               <Rating value={tour.rating} reviewCount={tour.reviewCount} size="md" />
             </div>
@@ -111,7 +120,7 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
             </dl>
 
             <section className="pt-12">
-              <h2 className="type-h2">About this journey</h2>
+              <h2 className="type-h2">{t.tours.about}</h2>
               <div className="mt-6 space-y-5">
                 {tour.description.map((paragraph) => (
                   <p key={paragraph.slice(0, 40)} className="type-body-lg text-body">
@@ -122,7 +131,7 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
             </section>
 
             <section className="pt-14">
-              <h2 className="type-h3">Highlights</h2>
+              <h2 className="type-h3">{t.tours.highlights}</h2>
               <ul className="mt-6 grid gap-3.5 sm:grid-cols-2">
                 {tour.highlights.map((highlight) => (
                   <li key={highlight} className="flex gap-3">
@@ -134,12 +143,15 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
             </section>
 
             <section className="pt-14">
-              <h2 className="type-h3">Itinerary</h2>
+              <h2 className="type-h3">{t.tours.itinerary}</h2>
               <Accordion
                 className="mt-6"
                 items={tour.itinerary.map((day) => ({
                   id: `day-${day.day}`,
-                  meta: tour.durationDays > 1 ? `Day ${day.day}` : "Itinerary",
+                  meta:
+                    tour.durationDays > 1
+                      ? fill(t.tours.day, { n: day.day })
+                      : t.tours.itineraryLabel,
                   title: day.title,
                   content: (
                     <div className="space-y-4">
@@ -147,13 +159,17 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
                       <dl className="flex flex-wrap gap-x-10 gap-y-2">
                         {day.meals.length > 0 && (
                           <div>
-                            <dt className="type-caption text-muted">Meals included</dt>
-                            <dd className="type-body-sm mt-0.5">{day.meals.join(", ")}</dd>
+                            <dt className="type-caption text-muted">
+                              {t.tours.mealsIncluded}
+                            </dt>
+                            <dd className="type-body-sm mt-0.5">
+                              {day.meals.map((meal) => t.tours.mealNames[meal]).join(", ")}
+                            </dd>
                           </div>
                         )}
                         {day.accommodation !== "—" && (
                           <div>
-                            <dt className="type-caption text-muted">Overnight</dt>
+                            <dt className="type-caption text-muted">{t.tours.overnight}</dt>
                             <dd className="type-body-sm mt-0.5">{day.accommodation}</dd>
                           </div>
                         )}
@@ -166,7 +182,7 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
 
             <section className="grid gap-10 pt-14 sm:grid-cols-2">
               <div>
-                <h2 className="type-h3">What&apos;s included</h2>
+                <h2 className="type-h3">{t.tours.included}</h2>
                 <ul className="mt-5 space-y-3">
                   {tour.included.map((item) => (
                     <li key={item} className="flex gap-3">
@@ -177,7 +193,7 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
                 </ul>
               </div>
               <div>
-                <h2 className="type-h3">Not included</h2>
+                <h2 className="type-h3">{t.tours.excluded}</h2>
                 <ul className="mt-5 space-y-3">
                   {tour.excluded.map((item) => (
                     <li key={item} className="flex gap-3">
@@ -190,12 +206,12 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
             </section>
 
             <section className="mt-14 border-t border-line pt-10">
-              <h2 className="type-h3">Meeting point</h2>
+              <h2 className="type-h3">{t.tours.meetingPoint}</h2>
               <p className="type-body mt-4 text-body">{tour.meetingPoint}</p>
             </section>
 
             <section className="mt-12 rounded-sm bg-surface-soft/70 p-7 lg:p-8">
-              <h2 className="type-h3">Important information</h2>
+              <h2 className="type-h3">{t.tours.importantInfo}</h2>
               <ul className="mt-5 space-y-3">
                 {tour.importantInfo.map((item) => (
                   <li key={item} className="type-body-sm flex gap-3 text-body">
@@ -220,9 +236,9 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
           <Container>
             <Reveal>
               <SectionHeading
-                eyebrow="You may also like"
-                title="Related journeys"
-                action={{ label: "All tours", href: "/tours" }}
+                eyebrow={t.tours.relatedEyebrow}
+                title={t.tours.relatedTitle}
+                action={{ label: t.actions.allTours, href: path("/tours") }}
               />
             </Reveal>
             <div className="mt-12 grid gap-x-8 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">

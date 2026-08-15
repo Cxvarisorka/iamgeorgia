@@ -29,7 +29,9 @@ import { cn } from "@/lib/utils";
 function hasImmersiveHero(pathname: string): boolean {
   const path = stripLocale(pathname);
   if (path === "/" || path === "/about") return true;
-  if (["/tours", "/destinations", "/experiences", "/hotels"].includes(path)) return true;
+  if (["/tours", "/destinations", "/experiences", "/hotels", "/transfers"].includes(path)) {
+    return true;
+  }
   return /^\/(destinations|experiences)\/[^/]+$/.test(path);
 }
 
@@ -60,12 +62,15 @@ export function Header() {
             : "border-b border-line/70 bg-background/85 backdrop-blur-md supports-[backdrop-filter]:bg-background/75",
         )}
       >
-        <div className="mx-auto flex h-18 w-full max-w-(--container-page) items-center justify-between gap-6 px-5 sm:px-8 lg:h-20 lg:px-12">
-          <Link href={path("/")} className="flex items-center gap-2.5 focus-visible:outline-offset-4">
+        <div className="mx-auto flex h-18 w-full max-w-(--container-page) items-center justify-between gap-3 px-5 sm:px-8 lg:h-20 lg:gap-5 lg:px-8 xl:gap-8 xl:px-12">
+          <Link
+            href={path("/")}
+            className="flex shrink-0 items-center gap-2.5 focus-visible:outline-offset-4"
+          >
             <Logo className="size-8 lg:size-9" />
             <span
               className={cn(
-                "font-display text-lg leading-none font-medium tracking-[0.06em] transition-colors lg:text-xl",
+                "font-display text-lg leading-none font-medium whitespace-nowrap tracking-[0.06em] transition-colors lg:text-base xl:text-lg 2xl:text-xl",
                 overImagery ? "text-on-dark" : "text-ink",
               )}
             >
@@ -73,17 +78,24 @@ export function Header() {
             </span>
           </Link>
 
-          <nav aria-label={t.a11y.primaryNav} className="hidden lg:block">
-            <ul className="flex items-center gap-9">
+          <nav aria-label={t.a11y.primaryNav} className="hidden min-w-0 lg:block">
+            {/* Six items have to clear the wordmark and the trip-planning button
+                on one line in every language, and Georgian runs roughly twice
+                the width of English ("About" → "ჩვენ შესახებ"). Two things keep
+                that honest: the labels never wrap, and the gap is fluid rather
+                than stepped, so the row tightens towards 1024px and opens out on
+                a wide screen instead of jumping at one breakpoint. */}
+            <ul className="flex items-center gap-[clamp(0.75rem,1.35vw,2.25rem)]">
               {primaryNavigation.map((item) => {
                 const active = isActivePath(pathname, item.href);
+                const Icon = item.icon;
                 return (
                   <li key={item.key}>
                     <Link
                       href={path(item.href)}
                       aria-current={active ? "page" : undefined}
                       className={cn(
-                        "relative py-2 text-sm font-medium transition-colors",
+                        "relative inline-flex items-center gap-1.5 py-2 text-[0.8125rem] font-medium whitespace-nowrap transition-colors xl:text-sm",
                         // A single hairline in brand orange is the whole active
                         // indicator — no orange pills or filled backgrounds in the nav.
                         "after:absolute after:inset-x-0 after:-bottom-0.5 after:h-px after:origin-[inline-start] after:scale-x-0 after:bg-brand after:transition-transform after:duration-300 after:ease-(--ease-out-soft) hover:after:scale-x-100",
@@ -96,6 +108,7 @@ export function Header() {
                         active && (overImagery ? "text-brand" : "text-brand-text"),
                       )}
                     >
+                      {Icon && <Icon size={15} className="shrink-0" aria-hidden />}
                       {navLabel(t, item.key)}
                     </Link>
                   </li>
@@ -104,14 +117,19 @@ export function Header() {
             </ul>
           </nav>
 
-          <div className="flex items-center gap-2 lg:gap-4">
+          <div className="flex shrink-0 items-center gap-2 lg:gap-3">
             <LanguageMenu tone={overImagery ? "light" : "dark"} />
 
+            {/* Visible from `sm` (where the nav is still behind the burger) and
+                again from `xl`, but not in the `lg` band: that is the one width
+                where six nav items and this button compete for the same row, and
+                the nav is the thing a reader needs. The mobile menu carries the
+                same action, so it is never unreachable. */}
             <Button
               href={path("/contact")}
               size="sm"
               variant={overImagery ? "light" : "primary"}
-              className="hidden sm:inline-flex"
+              className="hidden sm:inline-flex lg:hidden xl:inline-flex"
             >
               {t.actions.planYourTrip}
             </Button>

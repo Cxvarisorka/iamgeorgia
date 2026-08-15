@@ -73,33 +73,41 @@ export function MobileNavigation({ open, onClose }: MobileNavigationProps) {
 
           <nav aria-label={t.a11y.mobileNav} className="flex-1 overflow-y-auto px-5 pt-6 sm:px-8">
             <ul>
-              {primaryNavigation.map((item, index) => (
-                <motion.li
-                  key={item.key}
-                  initial={reduceMotion ? false : { opacity: 0, y: 18 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.4, delay: 0.12 + index * 0.06, ease: EASE }}
-                  className="border-b border-on-dark/12"
-                >
-                  <Link
-                    href={path(item.href)}
-                    onClick={onClose}
-                    className="group flex items-baseline justify-between gap-4 py-5"
+              {primaryNavigation.map((item, index) => {
+                const Icon = item.icon;
+                return (
+                  <motion.li
+                    key={item.key}
+                    initial={reduceMotion ? false : { opacity: 0, y: 18 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.12 + index * 0.06, ease: EASE }}
+                    className="border-b border-on-dark/12"
                   >
-                    <span>
-                      <span className="type-h2 block">{navLabel(t, item.key)}</span>
-                      <span className="type-body-sm mt-1.5 block text-on-dark/55">
-                        {navDescription(t, item.key)}
+                    <Link
+                      href={path(item.href)}
+                      onClick={onClose}
+                      className="group flex items-baseline justify-between gap-4 py-5"
+                    >
+                      <span>
+                        <span className="type-h2 flex items-center gap-3">
+                          {Icon && (
+                            <Icon size={24} className="shrink-0 text-on-dark/60" aria-hidden />
+                          )}
+                          {navLabel(t, item.key)}
+                        </span>
+                        <span className="type-body-sm mt-1.5 block text-on-dark/55">
+                          {navDescription(t, item.key)}
+                        </span>
                       </span>
-                    </span>
-                    <ArrowUpRight
-                      size={20}
-                      className="shrink-0 translate-y-1 text-on-dark/40 transition-transform duration-300 ease-(--ease-out-soft) group-hover:-translate-y-0 group-hover:translate-x-1 rtl:-scale-x-100 rtl:group-hover:-translate-x-1"
-                      aria-hidden
-                    />
-                  </Link>
-                </motion.li>
-              ))}
+                      <ArrowUpRight
+                        size={20}
+                        className="shrink-0 translate-y-1 text-on-dark/40 transition-transform duration-300 ease-(--ease-out-soft) group-hover:-translate-y-0 group-hover:translate-x-1 rtl:-scale-x-100 rtl:group-hover:-translate-x-1"
+                        aria-hidden
+                      />
+                    </Link>
+                  </motion.li>
+                );
+              })}
             </ul>
 
             <motion.div

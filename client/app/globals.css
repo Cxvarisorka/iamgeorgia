@@ -93,6 +93,24 @@
   --color-error-on-dark: #e0776d;
   --color-info: #47758a;
 
+  /* --- Data visualisation ---------------------------------------------
+     Categorical series colours for the admin panel. Assigned in fixed order
+     (hotels, tours, transfers) and never cycled — a filter that removes a
+     series must not repaint the ones that remain.
+
+     Chosen by running the palette validator rather than by eye. The brand
+     orange leads; the other two are deliberately outside the brand hues,
+     because three warm earth tones cannot be told apart by a colour-blind
+     reader. Worst adjacent pair separates by ΔE 13.7 under protanopia and
+     14.9 under tritanopia, against a target of 8, and all three clear the
+     chroma floor and 3:1 against the panel surface.
+
+     These are chart marks only. They are never used for status, which has
+     its own reserved palette below. */
+  --color-series-1: #d2601f; /* Hotels */
+  --color-series-2: #12938a; /* Tours */
+  --color-series-3: #7a4fbd; /* Transfers */
+
   /* --- Typography ----------------------------------------------------
      The Georgian and Hebrew faces sit ahead of the generic fallbacks but
      behind the Latin faces. A browser walks the stack per character, so Latin

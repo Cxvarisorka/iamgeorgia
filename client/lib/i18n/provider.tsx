@@ -18,6 +18,8 @@ interface LocaleContextValue {
   locale: Locale;
   dir: "ltr" | "rtl";
   t: UiDictionary;
+  /** For `Intl.NumberFormat` / `Intl.DateTimeFormat` — mirrors `getI18n()`. */
+  intlLocale: string;
 }
 
 const LocaleContext = createContext<LocaleContextValue | null>(null);
@@ -33,7 +35,12 @@ export function LocaleProvider({
 }) {
   return (
     <LocaleContext.Provider
-      value={{ locale, dir: localeMeta[locale].dir, t: dictionary }}
+      value={{
+        locale,
+        dir: localeMeta[locale].dir,
+        t: dictionary,
+        intlLocale: localeMeta[locale].intlLocale,
+      }}
     >
       {children}
     </LocaleContext.Provider>
