@@ -1,0 +1,206 @@
+import { apiFetch, serverFetch } from "./client";
+import type {
+  AuditEntry,
+  Invitation,
+  InvitationPreview,
+  Paginated,
+  Partner,
+  PartnerFinancial,
+  PartnerKind,
+  PartnerLink,
+  PartnerStatus,
+  PartnerSummary,
+} from "@/types/partner";
+import type { SessionUser } from "@/types/auth";
+
+/**
+ * Typed calls against the partner endpoints.
+ *
+ * Split by where they run: `list`/`get` are read paths a Server Component uses
+ * during a render, the mutations are what a Client Component fires from a
+ * button. Keeping the two apart means a browser bundle never pulls in
+ * `next/headers`, and a server render never silently makes an uncredentialed
+ * request.
+ */
+
+export interface PartnerQuery {
+  status?: PartnerStatus | PartnerStatus[];
+  kind?: PartnerKind;
+  country?: string;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+const toQueryString = (query: PartnerQuery): string => {
+  const params = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === "") continue;
+    // The server accepts `status` more than once and reads it as a set, which
+    // is what the applications queue needs.
+    for (const entry of Array.isArray(value) ? value : [value]) {
+      params.append(key, String(entry));
+    }
+  }
+
+  const search = params.toString();
+  return search ? `?${search}` : "";
+};
+
+// --- Server-side reads ------------------------------------------------------
+
+export const listPartners = (query: PartnerQuery = {}) =>
+  serverFetch<Paginated<PartnerSummary>>(`/api/admin/partners${toQueryString(query)}`);
+
+export const getPartner = (id: string) => serverFetch<Partner>(`/api/admin/partners/${id}`);
+
+export const getPartnerAudit = (id: string) =>
+  serverFetch<{ data: AuditEntry[] }>(`/api/admin/partners/${id}/audit`);
+
+export const getPartnerInvitations = (id: string) =>
+  serverFetch<{ data: Invitation[] }>(`/api/admin/partners/${id}/invitations`);
+
+export const getInvitationPreview = (token: string) =>
+  serverFetch<InvitationPreview>(`/api/invitations/${token}`);
+
+export const getOwnPartner = () => serverFetch<Partner>("/api/partner/me");
+
+export const getOwnFinancial = () => serverFetch<PartnerFinancial>("/api/partner/financial");
+
+// --- Partner self-service ----------------------------------------------------
+
+/**
+ * What a partner may change about its own company.
+ *
+ * The legal entity, registration number, partner type and country are absent
+ * on purpose: they are what the approval was granted against, and the server's
+ * allow-list drops them even if they are sent.
+ */
+export interface PartnerProfileInput {
+  name?: string;
+  legalAddress?: string;
+  city?: string;
+  phone?: string;
+  email?: string;
+  website?: string | null;
+  socialLinks?: { label: string; url: string }[];
+}
+
+export const updateOwnProfile = (body: PartnerProfileInput) =>
+  apiFetch<Partner>("/api/partner/profile", { method: "PATCH", body });
+
+export interface AccountInput {
+  firstName?: string;
+  lastName?: string;
+  position?: string | null;
+  phone?: string | null;
+}
+
+export const updateOwnAccount = (body: AccountInput) =>
+  apiFetch<SessionUser>("/api/partner/account", { method: "PATCH", body });
+
+export const saveOwnFinancial = (body: Record<string, unknown>) =>
+  apiFetch<PartnerFinancial>("/api/partner/financial", { method: "PUT", body });
+
+/** Ends every other session and hands this device a fresh cookie. */
+export const changePassword = (currentPassword: string, newPassword: string) =>
+  apiFetch<void>("/api/auth/password/change", {
+    method: "POST",
+    body: { currentPassword, newPassword },
+  });
+
+// --- Browser-side mutations -------------------------------------------------
+
+export interface AdminCreatePartnerInput {
+  mode: "invite" | "activate" | "approve";
+  company: Record<string, unknown>;
+  contact: Record<string, unknown>;
+  financial?: Record<string, unknown>;
+  commissionRateBps?: number;
+  notes?: string;
+  documents?: { label: string; received: boolean }[];
+}
+
+export interface CreatePartnerResult {
+  partner: Partner;
+  link: PartnerLink;
+  /** False when the message could not be delivered — show the link instead. */
+  emailSent: boolean;
+}
+
+export const createPartner = (body: AdminCreatePartnerInput) =>
+  apiFetch<CreatePartnerResult>("/api/admin/partners", { method: "POST", body });
+
+export const updatePartner = (id: string, body: Record<string, unknown>) =>
+  apiFetch<Partner>(`/api/admin/partners/${id}`, { method: "PATCH", body });
+
+/**
+ * Removes a partner for good.
+ *
+ * `confirm` must be the partner's own reference. The server checks it against
+ * the record, so this is a real guard rather than a UI formality — a DELETE
+ * that names the wrong partner fails instead of destroying it.
+ */
+export const deletePartner = (id: string, confirm: string) =>
+  apiFetch<{ deleted: true; reference: string; name: string }>(`/api/admin/partners/${id}`, {
+    method: "DELETE",
+    body: { confirm },
+  });
+
+export type ReviewAction = "approve" | "reject" | "suspend" | "reactivate";
+
+export const reviewPartner = (id: string, action: ReviewAction, body: Record<string, unknown> = {}) =>
+  apiFetch<Partner>(`/api/admin/partners/${id}/${action}`, { method: "POST", body });
+
+export const resendInvitation = (id: string) =>
+  apiFetch<{ link: PartnerLink; email: string; emailSent: boolean }>(
+    `/api/admin/partners/${id}/invitations`,
+    { method: "POST", body: {} },
+  );
+
+export const readFinancial = (id: string) =>
+  apiFetch<PartnerFinancial>(`/api/admin/partners/${id}/financial`);
+
+export const saveFinancial = (id: string, body: Record<string, unknown>) =>
+  apiFetch<PartnerFinancial>(`/api/admin/partners/${id}/financial`, { method: "PUT", body });
+
+// --- Public registration ----------------------------------------------------
+
+export interface RegistrationInput {
+  company: Record<string, unknown>;
+  contact: Record<string, unknown>;
+  financial: Record<string, unknown>;
+  password: string;
+}
+
+export const acceptInvitation = (token: string, body: RegistrationInput) =>
+  apiFetch<{ reference: string; status: PartnerStatus; companyName: string }>(
+    `/api/invitations/${token}/accept`,
+    { method: "POST", body },
+  );
+
+// --- Authentication ---------------------------------------------------------
+
+export const signIn = (email: string, password: string) =>
+  apiFetch<{ user: unknown; partner: Partner | null }>("/api/auth/login", {
+    method: "POST",
+    body: { email, password },
+  });
+
+export const signOut = () => apiFetch<void>("/api/auth/logout", { method: "POST" });
+
+export const readActivation = (token: string) =>
+  apiFetch<{
+    email: string;
+    firstName: string;
+    lastName: string;
+    companyName: string | null;
+    expiresAt: string;
+  }>(`/api/auth/activation/${token}`);
+
+export const setPasswordFromActivation = (token: string, password: string) =>
+  apiFetch<{ user: unknown; partner: Partner | null }>(`/api/auth/activation/${token}`, {
+    method: "POST",
+    body: { password },
+  });
