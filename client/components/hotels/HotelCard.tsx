@@ -15,7 +15,6 @@ interface HotelCardProps {
 
 /** Vertical property card, used on the homepage and destination pages. */
 export function HotelCard({ hotel, className, priority }: HotelCardProps) {
-  console.log(hotel);
   return (
     <article className={cn("group flex h-full flex-col", className)}>
       <Link

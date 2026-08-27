@@ -16,7 +16,7 @@ export interface HotelFilterState {
 export const defaultFilters: HotelFilterState = {
   propertyTypes: [],
   amenities: [],
-  maxPrice: 400,
+  maxPrice: 1500,
   minScore: 0,
 };
 
@@ -74,13 +74,13 @@ export function HotelFilters({ value, onChange }: HotelFiltersProps) {
           <span className="type-body-sm flex items-baseline justify-between text-body">
             Up to
             <span className="type-h4 tabular-nums">
-              {value.maxPrice >= 400 ? "Any" : formatPrice(value.maxPrice)}
+              {value.maxPrice >= 1500 ? "Any" : formatPrice(value.maxPrice)}
             </span>
           </span>
           <input
             type="range"
             min={60}
-            max={400}
+            max={1500}
             step={10}
             value={value.maxPrice}
             onChange={(event) => onChange({ ...value, maxPrice: Number(event.target.value) })}
@@ -89,7 +89,7 @@ export function HotelFilters({ value, onChange }: HotelFiltersProps) {
           />
           <span className="type-caption mt-2 flex justify-between text-muted tabular-nums">
             <span>{formatPrice(60)}</span>
-            <span>{formatPrice(400)}+</span>
+            <span>{formatPrice(1500)}+</span>
           </span>
         </label>
       </fieldset>

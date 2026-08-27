@@ -1,15 +1,35 @@
 "use client";
 
-import { Compass } from "lucide-react";
+import { CalendarSearch, Compass, SearchX } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { Button } from "./Button";
 import { useI18n } from "@/lib/i18n/provider";
 
+/**
+ * Icons a Server Component may ask for by name.
+ *
+ * A lucide icon is a `forwardRef` object, and React will not serialise one
+ * across the server/client boundary — `icon={CalendarSearch}` from a page
+ * throws "Only plain objects can be passed to Client Components". A string
+ * crosses fine, so a server caller names its icon and this module, which is
+ * already on the client, resolves it.
+ */
+const NAMED_ICONS = {
+  compass: Compass,
+  calendarSearch: CalendarSearch,
+  searchX: SearchX,
+} satisfies Record<string, LucideIcon>;
+
+export type EmptyStateIconName = keyof typeof NAMED_ICONS;
+
 interface EmptyStateProps {
   title: string;
   description: string;
+  /** Client callers only — a component cannot cross the RSC boundary. */
   icon?: LucideIcon;
+  /** Server callers: name the icon instead of passing it. */
+  iconName?: EmptyStateIconName;
   action?: { label: string; href: string };
   /** Rendered instead of a link when the reset is local UI state. */
   onReset?: () => void;
@@ -20,12 +40,14 @@ interface EmptyStateProps {
 export function EmptyState({
   title,
   description,
-  icon: Icon = Compass,
+  icon,
+  iconName,
   action,
   onReset,
   resetLabel,
 }: EmptyStateProps) {
   const { t } = useI18n();
+  const Icon = icon ?? (iconName ? NAMED_ICONS[iconName] : Compass);
 
   return (
     <div className="flex flex-col items-center justify-center border border-dashed border-line bg-surface-soft/40 px-6 py-20 text-center">
