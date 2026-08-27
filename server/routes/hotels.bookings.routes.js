@@ -1,0 +1,185 @@
+import { Router } from 'express';
+
+import { authenticate, optionalAuthenticate, requireAdmin } from '../middleware/auth.js';
+import { validate } from '../middleware/validate.js';
+import {
+    amendBookingSchema,
+    bookingQuerySchema,
+    cancelBookingSchema,
+    confirmBookingSchema,
+    holdSchema,
+    guestLookupSchema,
+    holdTokenParamSchema,
+    referenceParamSchema
+} from '../validation/booking.js';
+import {
+    amendBooking,
+    cancelBooking,
+    confirmBooking,
+    findBookingOr404,
+    holdOffer,
+    listBookings,
+    quoteCancellation
+} from '../services/hotel/booking.service.js';
+import { releaseHoldByToken } from '../services/hotel/availability.service.js';
+import {
+    toBookingDetail,
+    toBookingSummary,
+    toCancellationQuote,
+    toHold
+} from '../serializers/booking.js';
+
+/**
+ * Holds and bookings.
+ *
+ * `optionalAuthenticate`, because the same endpoints serve a guest checking out
+ * on the website and a partner booking through the API. What differs is the
+ * markup applied and what comes back in the response, and both are decided by
+ * the session rather than by anything in the request.
+ *
+ * Nothing here accepts an amount. The request carries identifiers, dates and
+ * people; every figure is recomputed.
+ */
+export const bookingRoutes = Router();
+
+bookingRoutes.use(optionalAuthenticate);
+
+/** Secures the rooms while the guest fills in their details. */
+bookingRoutes.post('/holds', validate({ body: holdSchema }), async (req, res) => {
+    const { hold, priced } = await holdOffer(req.valid.body.token, req.user, req);
+
+    res.status(201).json(toHold(hold, priced));
+});
+
+// Abandoning checkout gives the rooms back immediately rather than waiting for
+// the sweeper, which is the difference between a room coming back now and in
+// half a minute.
+bookingRoutes.delete('/holds/:token', validate({ params: holdTokenParamSchema }), async (req, res) => {
+    await releaseHoldByToken(req.valid.params.token);
+
+    res.status(204).end();
+});
+
+/**
+ * Confirms a booking.
+ *
+ * Idempotent: an `Idempotency-Key` header, or a key derived from the request,
+ * means a retry returns the original booking with 200 rather than making a
+ * second one with 201.
+ */
+bookingRoutes.post('/', validate({ body: confirmBookingSchema }), async (req, res) => {
+    const { booking, replayed } = await confirmBooking(
+        { ...req.valid.body, idempotencyKey: req.get('idempotency-key') ?? req.valid.body.idempotencyKey },
+        req.user,
+        req
+    );
+
+    res.status(replayed ? 200 : 201).json(toBookingDetail(booking, req.user));
+});
+
+bookingRoutes.get(
+    '/:reference',
+    validate({ params: referenceParamSchema, query: guestLookupSchema }),
+    async (req, res) => {
+        const booking = await findBookingOr404(req.valid.params.reference, req.user, req.valid.query);
+
+        res.json(toBookingDetail(booking, req.user));
+    }
+);
+
+/** What cancelling would cost, read off the frozen schedule. */
+bookingRoutes.get(
+    '/:reference/cancellation-quote',
+    validate({ params: referenceParamSchema, query: guestLookupSchema }),
+    async (req, res) => {
+        const booking = await findBookingOr404(req.valid.params.reference, req.user, req.valid.query);
+
+        res.json(toCancellationQuote(quoteCancellation(booking)));
+    }
+);
+
+/**
+ * Amends the paperwork on a booking.
+ *
+ * Deliberately narrow: the lead guest, how to reach them, and what the property
+ * should know. Nothing that was priced is reachable, so this endpoint cannot
+ * change what a booking costs — moving dates or rooms means cancelling and
+ * booking again, which is the only way the inventory and the quote stay honest.
+ */
+bookingRoutes.patch(
+    '/:reference',
+    validate({ params: referenceParamSchema, body: amendBookingSchema }),
+    async (req, res) => {
+        const booking = await amendBooking(
+            req.valid.params.reference,
+            req.valid.body,
+            req.user,
+            req
+        );
+
+        res.json(toBookingDetail(booking, req.user));
+    }
+);
+
+bookingRoutes.post(
+    '/:reference/cancel',
+    validate({ params: referenceParamSchema, body: cancelBookingSchema }),
+    async (req, res) => {
+        const { booking, quote } = await cancelBooking(
+            req.valid.params.reference,
+            req.valid.body,
+            req.user,
+            req
+        );
+
+        res.json({ ...toBookingSummary(booking, req.user), cancellation: toCancellationQuote(quote) });
+    }
+);
+
+/**
+ * A partner's own bookings.
+ *
+ * Scoped in the query rather than filtered after, so there is no path by which
+ * one partner reads another's.
+ */
+export const partnerBookingRoutes = Router();
+
+partnerBookingRoutes.use(authenticate);
+
+partnerBookingRoutes.get('/', validate({ query: bookingQuerySchema }), async (req, res) => {
+    const { bookings, ...page } = await listBookings(req.valid.query, req.user);
+
+    res.json({ data: bookings.map((booking) => toBookingSummary(booking, req.user)), ...page });
+});
+
+/** Every booking on the platform. */
+export const adminBookingRoutes = Router();
+
+adminBookingRoutes.use(authenticate, requireAdmin);
+
+adminBookingRoutes.get('/', validate({ query: bookingQuerySchema }), async (req, res) => {
+    const { bookings, ...page } = await listBookings(req.valid.query, req.user);
+
+    res.json({ data: bookings.map((booking) => toBookingSummary(booking, req.user)), ...page });
+});
+
+adminBookingRoutes.get('/:reference', validate({ params: referenceParamSchema }), async (req, res) => {
+    const booking = await findBookingOr404(req.valid.params.reference, req.user);
+
+    res.json(toBookingDetail(booking, req.user));
+});
+
+adminBookingRoutes.post(
+    '/:reference/cancel',
+    validate({ params: referenceParamSchema, body: cancelBookingSchema }),
+    async (req, res) => {
+        const { booking, quote } = await cancelBooking(
+            req.valid.params.reference,
+            req.valid.body,
+            req.user,
+            req
+        );
+
+        res.json({ ...toBookingSummary(booking, req.user), cancellation: toCancellationQuote(quote) });
+    }
+);
