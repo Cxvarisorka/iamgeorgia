@@ -1,0 +1,12 @@
+-- Enable PostGIS before any migration declares a geography column.
+--
+-- Kept in its own migration, ahead of the schema that needs it, so that the
+-- shadow database Prisma builds during `migrate dev` installs the extension
+-- while replaying history rather than failing on an unknown type.
+--
+-- Requires a superuser or a role granted rds_superuser / cloudsqlsuperuser.
+-- On a managed host where CREATE EXTENSION is not permitted, the extension has
+-- to be enabled out of band before this migration runs; the latitude and
+-- longitude columns are plain float8 and remain usable without it, so a
+-- bounding-box search is the fallback.
+CREATE EXTENSION IF NOT EXISTS postgis;

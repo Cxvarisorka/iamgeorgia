@@ -1,0 +1,2729 @@
+// Schema mirrors the domain types the client already renders from
+// `client/types` — see destination.ts, hotel.ts, tour.ts, experience.ts.
+//
+// Conventions:
+//   * Prisma models are PascalCase, Postgres tables/columns are snake_case
+//     (@map / @@map), so hand-written SQL never needs quoted identifiers.
+//   * Foreign keys point at immutable `id` columns. Every entity also keeps a
+//     unique `slug` for URL lookups, but a slug can be renamed without
+//     rewriting child rows.
+//   * Money is stored as integer cents. Floats cannot represent money exactly
+//     and whole units cannot represent $189.50.
+//   * Nested value objects that are always read whole and never queried on
+//     their own (galleries, policies, travel info) are Json, validated by the
+//     zod schemas in validation/domain.js. Anything filtered, sorted or
+//     paginated gets its own table.
+//   * Enum values are spelled exactly like the client's string unions, so the
+//     API needs no translation layer.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+  runtime  = "nodejs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum PropertyType {
+  Hotel
+  Boutique
+  Resort
+  Guesthouse
+  Lodge
+  Apartment
+  Chalet
+  Hostel
+  Villa
+
+  @@map("property_type")
+}
+
+/// Amenities were a closed enum in the prototype. They are a table now: adding
+/// "Ski Storage" must not be a schema migration, and an enum array cannot carry
+/// a per-hotel note like "Parking — 15 GEL/night".
+enum AmenityCategory {
+  General
+  FoodDrink
+  Wellness
+  Parking
+  Business
+  Family
+  Ski
+  Accessibility
+  Transportation
+
+  @@map("amenity_category")
+}
+
+/// Whether an amenity describes a property, a room, or reads sensibly as both.
+/// "Airport Shuttle" is never a room amenity; "Air Conditioning" is both.
+enum AmenityScope {
+  HOTEL
+  ROOM
+  BOTH
+
+  @@map("amenity_scope")
+}
+
+/// Standardised board codes. Global rather than per-hotel so that "show me
+/// every half-board offer in Bakuriani" is a comparable filter; each hotel adds
+/// its own inclusions and service times through HotelMealPlan.
+enum MealPlanCode {
+  RO
+  BB
+  HB
+  HB_PLUS
+  FB
+  FB_PLUS
+  AI
+  UAI
+
+  @@map("meal_plan_code")
+}
+
+enum CancellationKind {
+  FLEXIBLE
+  NON_REFUNDABLE
+  TIERED
+
+  @@map("cancellation_kind")
+}
+
+/// What a cancellation charge is a proportion of. PERCENT_* carry basis points
+/// in `chargeValue`; FIXED_AMOUNT carries minor units; NIGHTS carries a count
+/// of nights and is charged as the sum of those actual nights, not an average.
+enum ChargeBasis {
+  PERCENT_OF_TOTAL
+  PERCENT_OF_FIRST_NIGHT
+  FIXED_AMOUNT
+  NIGHTS
+
+  @@map("charge_basis")
+}
+
+/// Kept entirely separate from cancellation because in B2B the two vary
+/// independently: a non-refundable rate can still settle on a credit account
+/// thirty days after checkout.
+enum PaymentTiming {
+  PAY_NOW
+  PAY_LATER
+  DEPOSIT
+  PAY_AT_HOTEL
+  CREDIT_ACCOUNT
+
+  @@map("payment_timing")
+}
+
+enum HotelBookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+
+  @@map("hotel_booking_status")
+}
+
+enum BookingRoomStatus {
+  CONFIRMED
+  CANCELLED
+
+  @@map("booking_room_status")
+}
+
+enum HoldStatus {
+  ACTIVE
+  COMMITTED
+  RELEASED
+  EXPIRED
+
+  @@map("hold_status")
+}
+
+enum BookingGuestType {
+  ADULT
+  CHILD
+  INFANT
+
+  @@map("booking_guest_type")
+}
+
+enum TaxFeeBasis {
+  PERCENT
+  PER_NIGHT_PER_PERSON
+  PER_NIGHT_PER_ROOM
+  PER_STAY
+
+  @@map("tax_fee_basis")
+}
+
+enum RatePlanStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+
+  @@map("rate_plan_status")
+}
+
+/// PARTNER_ONLY is the B2B hook: a negotiated rate that never appears in a
+/// public search result. Nothing consumes it yet, but the column means adding
+/// partner-only pricing later is a filter, not a migration.
+enum RatePlanVisibility {
+  PUBLIC
+  PARTNER_ONLY
+
+  @@map("rate_plan_visibility")
+}
+
+enum RoomTypeStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+
+  @@map("room_type_status")
+}
+
+enum BedTypeCode {
+  SINGLE
+  TWIN
+  DOUBLE
+  QUEEN
+  KING
+  SOFA
+  BUNK
+  FUTON
+
+  @@map("bed_type_code")
+}
+
+enum BathroomType {
+  PRIVATE
+  ENSUITE
+  SHARED
+
+  @@map("bathroom_type")
+}
+
+/// How a child in an age band is charged. PERCENT_OF_ADULT and FIXED_PER_NIGHT
+/// carry their value in `chargeValue` — basis points and minor units
+/// respectively, the same integer discipline as every other rate here.
+enum ChildChargeMode {
+  FREE
+  PERCENT_OF_ADULT
+  FIXED_PER_NIGHT
+  FULL_ADULT
+
+  @@map("child_charge_mode")
+}
+
+enum DestinationType {
+  COUNTRY
+  REGION
+  CITY
+  RESORT
+
+  @@map("destination_type")
+}
+
+/// A hotel is never deleted once it has booking history, so there is no delete
+/// — there is a lifecycle. DRAFT is invisible everywhere including search;
+/// ARCHIVED is terminal.
+enum HotelStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  ARCHIVED
+
+  @@map("hotel_status")
+}
+
+/// Which AvailabilityProvider owns this hotel's inventory. Only MANUAL is
+/// implemented; the column exists so that adding a channel manager later is a
+/// new provider rather than a change to search and booking.
+enum InventorySource {
+  MANUAL
+  CHANNEL_MANAGER
+  SUPPLIER_API
+
+  @@map("inventory_source")
+}
+
+enum FileVisibility {
+  PUBLIC
+  PRIVATE
+
+  @@map("file_visibility")
+}
+
+enum FileCategory {
+  HOTEL_IMAGE
+  ROOM_IMAGE
+  AMENITY_ICON
+  CONTRACT
+  RATE_SHEET
+  INVOICE
+  VOUCHER
+  IMPORT
+  OTHER
+
+  @@map("file_category")
+}
+
+enum ImageCategory {
+  Exterior
+  Lobby
+  Restaurant
+  Pool
+  Spa
+  Room
+  Bathroom
+  View
+  Facilities
+
+  @@map("image_category")
+}
+
+enum TourCategory {
+  adventure
+  culture
+  wine
+  nature
+  city
+
+  @@map("tour_category")
+}
+
+enum Difficulty {
+  Easy
+  Moderate
+  Challenging
+
+  @@map("difficulty")
+}
+
+enum ExperienceCategory {
+  wine
+  food
+  adventure
+  culture
+  wellness
+  craft
+
+  @@map("experience_category")
+}
+
+model Destination {
+  id   String          @id @default(cuid())
+  slug String          @unique
+  name String
+  type DestinationType @default(CITY)
+
+  /// Country -> Region -> City/Resort, as a self-reference rather than three
+  /// tables: depth varies by country, and a fixed three-level shape would force
+  /// empty rows for places that do not have a meaningful region.
+  parentId String?       @map("parent_id")
+  parent   Destination?  @relation("DestinationTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children Destination[] @relation("DestinationTree")
+
+  /// Materialised ancestry, e.g. `/georgia/samtskhe-javakheti/bakuriani`.
+  /// Searching a whole country is then `path LIKE '/georgia/%'` — one index
+  /// scan per search instead of a recursive CTE. Rewritten by the service when
+  /// a destination is created or moved, which happens a few times a year.
+  path String
+
+  /// Denormalised onto every level so a country filter never walks the tree.
+  countryCode String @map("country_code") @db.Char(2)
+
+  /// Plain float8, matching what PostGIS stores internally. Coordinates are not
+  /// money: there is nothing here that decimal arithmetic would protect.
+  latitude  Float?
+  longitude Float?
+
+  /// Maintained by a trigger from latitude/longitude. Prisma can neither read
+  /// nor write a PostGIS type, which is fine — every geographic query is raw
+  /// SQL, and having one writer means the point can never disagree with the
+  /// columns it is derived from.
+  geo Unsupported("geography(Point, 4326)")?
+
+  /// IANA, e.g. `Asia/Tbilisi`. Hotels inherit this unless they override it,
+  /// and it is what turns a cancellation deadline into an absolute instant.
+  timezone String @default("Asia/Tbilisi")
+
+  /// Short editorial line used on covers and hero overlays.
+  tagline     String?
+  /// One-sentence summary for cards and metadata.
+  summary     String?
+  description String[]
+
+  /// Still plain paths: destination artwork is editorial and outside the hotel
+  /// media pipeline. Hotel and room imagery goes through FileAsset.
+  heroImage  String? @map("hero_image")
+  /// Portrait crop used by the magazine-style destination index.
+  coverImage String? @map("cover_image")
+  /// GalleryImage[]
+  gallery    Json    @default("[]")
+
+  idealFor    String[] @map("ideal_for")
+  /// Attraction[]
+  attractions Json     @default("[]")
+  /// TravelInfo
+  travelInfo  Json?    @map("travel_info")
+
+  featured Boolean @default(false)
+
+  hotels         Hotel[]
+  pricingRules   PricingRule[]
+  tours          Tour[]
+  experiences    Experience[]
+  transferPoints TransferPoint[]
+  translations   DestinationTranslation[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([parentId])
+  @@index([type, countryCode])
+  @@index([featured])
+  @@index([path])
+  @@map("destinations")
+}
+
+/// A property. Content only — no price and no availability live here, so the
+/// whole table can be cached and served publicly without touching anything
+/// commercially sensitive.
+model Hotel {
+  id           String       @id @default(cuid())
+  slug         String       @unique
+  name         String
+  propertyType PropertyType @map("property_type")
+  status       HotelStatus  @default(DRAFT)
+
+  /// The partner company that supplies this property. PartnerKind.HOTEL existed
+  /// from the start but nothing joined a supplier to a property; this is that
+  /// join, and it is what every supplier-scoped authorization check reads.
+  /// Restrict, not Cascade: deleting a partner that still has hotels must fail
+  /// loudly rather than take the inventory with it.
+  supplierId String?  @map("supplier_id")
+  supplier   Partner? @relation("PartnerHotels", fields: [supplierId], references: [id], onDelete: Restrict)
+
+  destinationId String      @map("destination_id")
+  destination   Destination @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+
+  address     String?
+  postalCode  String? @map("postal_code")
+  /// Denormalised from the destination so a country filter never joins.
+  countryCode String  @map("country_code") @db.Char(2)
+
+  latitude  Float?
+  longitude Float?
+  geo       Unsupported("geography(Point, 4326)")?
+
+  /// Wall-clock times at the property, `HH:MM`. Deliberately not timestamps:
+  /// "check-in from 14:00" is a local fact, not an instant.
+  checkInFrom   String? @map("check_in_from")
+  checkInUntil  String? @map("check_in_until")
+  checkOutFrom  String? @map("check_out_from")
+  checkOutUntil String? @map("check_out_until")
+
+  /// IANA. Inherited from the destination on create, overridable. Load-bearing:
+  /// cancellation deadlines and "is this date still bookable" are resolved in
+  /// it, and a wrong value here is an off-by-one-night bug.
+  timezone String @default("Asia/Tbilisi")
+
+  /// ISO-4217. The currency this property is contracted in; every rate and
+  /// every booking total carries a currency alongside its amount.
+  currency String @default("GEL") @db.Char(3)
+
+  phone     String?
+  email     String?
+  website   String?
+  languages String[]
+
+  /// Which AvailabilityProvider owns this hotel's inventory, and whatever that
+  /// provider needs to identify the property upstream.
+  sourceType  InventorySource @default(MANUAL) @map("source_type")
+  externalRef Json?           @map("external_ref")
+
+  /// Official star classification, 1-5.
+  starRating  Int   @map("star_rating")
+  /// Guest score out of 10, as travellers expect from booking platforms.
+  guestScore  Float @default(0) @map("guest_score")
+  reviewCount Int   @default(0) @map("review_count")
+
+  shortDescription String?  @map("short_description")
+  summary          String?
+  description      String[]
+
+  /// ReviewCategoryScore[]
+  categoryScores Json @default("[]") @map("category_scores")
+  /// HotelPolicies — prose, read whole, never queried. The machine-readable
+  /// cancellation terms live in CancellationPolicy/CancellationRule.
+  policies       Json @default("{}")
+  /// NearbyPlace[]
+  nearby         Json @default("[]")
+
+  featuredImageId String?    @map("featured_image_id")
+  featuredImage   FileAsset? @relation("HotelFeaturedImage", fields: [featuredImageId], references: [id], onDelete: SetNull)
+
+  /// Whether this property is sold to the public at all. Everything is B2B by
+  /// default — partners see the whole ACTIVE catalogue — and a hotel appears
+  /// to anonymous visitors only when this is switched on deliberately.
+  b2cEnabled Boolean @default(false) @map("b2c_enabled")
+
+  /// Lowest nightly rate across rate plans, in minor units. A denormalised
+  /// cache for the un-dated browse page only — never used to quote or to book,
+  /// because a "from" price with no dates is not an offer.
+  priceFromCents    Int?    @map("price_from_cents")
+  priceFromCurrency String? @map("price_from_currency") @db.Char(3)
+
+  featured Boolean @default(false)
+
+  reviews              Review[]
+  roomTypes            RoomType[]
+  childPolicy          ChildPolicy?
+  mealPlans            HotelMealPlan[]
+  cancellationPolicies CancellationPolicy[]
+  paymentPolicies      PaymentPolicy[]
+  taxFees              HotelTaxFee[]
+  bookings             HotelBooking[]
+  pricingRules         PricingRule[]
+  amenities            HotelAmenity[]
+  images               HotelImage[]
+  documents            HotelDocument[]
+  translations         HotelTranslation[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([destinationId, status])
+  @@index([supplierId])
+  @@index([status, featured])
+  @@index([countryCode])
+  @@index([priceFromCents])
+  @@map("hotels")
+}
+
+model Review {
+  id      String @id @default(cuid())
+  hotelId String @map("hotel_id")
+  hotel   Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  author   String
+  country  String
+  date     DateTime
+  /// Hotel reviews use the 10-point scale.
+  score    Float
+  title    String
+  body     String
+  tripType String   @map("trip_type")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([hotelId, date])
+  @@map("reviews")
+}
+
+model Tour {
+  id       String @id @default(cuid())
+  slug     String @unique
+  title    String
+  location String
+
+  destinationId String      @map("destination_id")
+  destination   Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+
+  category    TourCategory
+  summary     String
+  description String[]
+  image       String
+  /// GalleryImage[]
+  gallery     Json         @default("[]")
+
+  durationDays  Int        @map("duration_days")
+  durationLabel String     @map("duration_label")
+  groupSize     String     @map("group_size")
+  difficulty    Difficulty
+
+  /// Indicative "from" price per person, in cents.
+  priceFromCents Int   @map("price_from_cents")
+  /// 5-point star rating.
+  rating         Float
+  reviewCount    Int   @default(0) @map("review_count")
+
+  highlights    String[]
+  included      String[]
+  excluded      String[]
+  meetingPoint  String   @map("meeting_point")
+  importantInfo String[] @map("important_info")
+
+  featured Boolean @default(false)
+
+  itinerary ItineraryDay[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([destinationId])
+  @@index([category])
+  @@index([featured])
+  @@map("tours")
+}
+
+model ItineraryDay {
+  id     String @id @default(cuid())
+  tourId String @map("tour_id")
+  tour   Tour   @relation(fields: [tourId], references: [id], onDelete: Cascade)
+
+  day           Int
+  title         String
+  description   String
+  meals         String[]
+  accommodation String
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tourId, day])
+  @@map("itinerary_days")
+}
+
+model Experience {
+  id       String @id @default(cuid())
+  slug     String @unique
+  title    String
+  location String
+
+  destinationId String      @map("destination_id")
+  destination   Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+
+  category    ExperienceCategory
+  summary     String
+  description String[]
+  image       String
+  /// GalleryImage[]
+  gallery     Json               @default("[]")
+
+  duration    String
+  groupSize   String @map("group_size")
+  /// Per-person price in cents.
+  priceCents  Int    @map("price_cents")
+  /// 5-point star rating.
+  rating      Float
+  reviewCount Int    @default(0) @map("review_count")
+
+  highlights   String[]
+  /// ExpectationStep[]
+  whatToExpect Json     @default("[]") @map("what_to_expect")
+  included     String[]
+
+  featured Boolean @default(false)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([destinationId])
+  @@index([category])
+  @@index([featured])
+  @@map("experiences")
+}
+
+// ---------------------------------------------------------------------------
+// Rooms.
+//
+// RoomType is the physical product and the thing inventory is counted on. It is
+// deliberately not "a room": individual numbered rooms are not modelled,
+// because no supplier in the pipeline assigns them at booking time and doing so
+// would triple the inventory write path for nothing. Adding them later is a
+// child table of RoomType and touches neither search nor booking.
+//
+// What is *not* here matters as much: no price, no meal plan, no cancellation
+// terms. Those belong to RatePlan, which arrives in Phase 3. One Deluxe Double
+// sold four ways is one RoomType and four RatePlans, and collapsing that
+// distinction is what forces duplicate room types and, from there, oversold
+// inventory.
+// ---------------------------------------------------------------------------
+
+model RoomType {
+  id      String @id @default(cuid())
+  hotelId String @map("hotel_id")
+  hotel   Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  /// The supplier's own code for this room. Unique per hotel, and what a
+  /// channel-manager mapping will key on later.
+  code        String
+  name        String
+  description String?
+
+  status      RoomTypeStatus @default(ACTIVE)
+  sortOrder   Int            @default(0) @map("sort_order")
+  roomSizeSqm Int?           @map("room_size_sqm")
+
+  /// Occupancy. All four are stored and all four are checked, because
+  /// maxOccupancy is not maxAdults + maxChildren: a room may allow two adults
+  /// and two children but only three people in total.
+  maxOccupancy Int @map("max_occupancy")
+  maxAdults    Int @map("max_adults")
+  maxChildren  Int @default(0) @map("max_children")
+  minAdults    Int @default(1) @map("min_adults")
+
+  /// The occupancy the base rate assumes. Anything above it prices as an extra
+  /// person; anything below may qualify for a single-occupancy rate.
+  standardOccupancy Int @default(2) @map("standard_occupancy")
+
+  /// How many rollaways or cots can actually be put in the room. This is a
+  /// physical fact about the room, not a pricing rule.
+  extraBedCapacity Int @default(0) @map("extra_bed_capacity")
+
+  bathroomType   BathroomType @default(PRIVATE) @map("bathroom_type")
+  smokingAllowed Boolean      @default(false) @map("smoking_allowed")
+  accessible     Boolean      @default(false)
+
+  beds         RoomBed[]
+  ratePlans    RatePlan[]
+  inventory    RoomInventory[]
+  holds        BookingHold[]
+  bookingRooms HotelBookingRoom[]
+  amenities    RoomTypeAmenity[]
+  images       RoomTypeImage[]
+  translations RoomTypeTranslation[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([hotelId, code])
+  @@index([hotelId, status])
+  @@map("room_types")
+}
+
+/// The bed vocabulary. A reference table so that "1 King + 1 Sofa" is data a
+/// search can reason about rather than a string a human has to read.
+model BedType {
+  id     String      @id @default(cuid())
+  code   BedTypeCode @unique
+  name   String
+  /// How many people this bed sleeps. Summed to give a room's real capacity.
+  sleeps Int         @default(1)
+  icon   String?
+
+  sortOrder Int @default(0) @map("sort_order")
+
+  rooms RoomBed[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("bed_types")
+}
+
+/// One line of a bed configuration: "2 x Twin".
+///
+/// `groupIndex` expresses *alternatives*. Group 0 might be one King plus a sofa
+/// bed and group 1 two Twins plus a sofa bed — the same room, offered either
+/// way. Without it, a room that can be made up as a double or a twin has to be
+/// duplicated as two RoomTypes, and duplicated room types are exactly what
+/// oversells inventory. The admin UI only writes group 0 today; the column
+/// means adding the choice later is a UI change, not a migration.
+model RoomBed {
+  id         String   @id @default(cuid())
+  roomTypeId String   @map("room_type_id")
+  roomType   RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  bedTypeId  String   @map("bed_type_id")
+  bedType    BedType  @relation(fields: [bedTypeId], references: [id], onDelete: Restrict)
+
+  quantity   Int @default(1)
+  groupIndex Int @default(0) @map("group_index")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([roomTypeId, groupIndex, bedTypeId])
+  @@index([bedTypeId])
+  @@map("room_beds")
+}
+
+model RoomTypeAmenity {
+  roomTypeId String   @map("room_type_id")
+  roomType   RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  amenityId  String   @map("amenity_id")
+  amenity    Amenity  @relation(fields: [amenityId], references: [id], onDelete: Cascade)
+
+  note String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([roomTypeId, amenityId])
+  @@index([amenityId])
+  @@map("room_type_amenities")
+}
+
+model RoomTypeImage {
+  id          String    @id @default(cuid())
+  roomTypeId  String    @map("room_type_id")
+  roomType    RoomType  @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  fileAssetId String    @map("file_asset_id")
+  fileAsset   FileAsset @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+
+  caption   String?
+  sortOrder Int     @default(0) @map("sort_order")
+  /// At most one per room type, enforced by a partial unique index.
+  isCover   Boolean @default(false) @map("is_cover")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([roomTypeId, fileAssetId])
+  @@index([roomTypeId, sortOrder])
+  @@map("room_type_images")
+}
+
+model RoomTypeTranslation {
+  id         String   @id @default(cuid())
+  roomTypeId String   @map("room_type_id")
+  roomType   RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  locale     String
+
+  name        String?
+  description String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([roomTypeId, locale])
+  @@map("room_type_translations")
+}
+
+/// How a property treats children.
+///
+/// Platform defaults are seeded for every hotel (infant 0-2, child 3-11, adult
+/// 12+) and any hotel may override them. Age is always evaluated at check-in;
+/// a child having a birthday mid-stay does not reprice, which is the industry
+/// norm and is stated explicitly so nobody has to guess later.
+model ChildPolicy {
+  id      String @id @default(cuid())
+  hotelId String @unique @map("hotel_id")
+  hotel   Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  infantMaxAge Int @default(2) @map("infant_max_age")
+  childMaxAge  Int @default(11) @map("child_max_age")
+
+  /// Whether an infant takes one of the room's occupancy slots. Usually not —
+  /// a cot is not a bed — and getting this wrong silently shrinks every family
+  /// room in the catalogue.
+  childrenCountTowardOccupancy Boolean @default(false) @map("children_count_toward_occupancy")
+
+  maxChildrenFreePerRoom Int? @map("max_children_free_per_room")
+
+  bands ChildPolicyBand[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("child_policies")
+}
+
+model ChildPolicyBand {
+  id            String      @id @default(cuid())
+  childPolicyId String      @map("child_policy_id")
+  childPolicy   ChildPolicy @relation(fields: [childPolicyId], references: [id], onDelete: Cascade)
+
+  minAge Int    @map("min_age")
+  maxAge Int    @map("max_age")
+  label  String
+
+  chargeMode  ChildChargeMode @default(FREE) @map("charge_mode")
+  /// Basis points for PERCENT_OF_ADULT, minor units for FIXED_PER_NIGHT,
+  /// ignored otherwise.
+  chargeValue Int             @default(0) @map("charge_value")
+
+  requiresExtraBed Boolean @default(false) @map("requires_extra_bed")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([childPolicyId, minAge])
+  @@map("child_policy_bands")
+}
+
+// ---------------------------------------------------------------------------
+// The commercial model.
+//
+// RatePlan is the join point of the whole thing: a RoomType sold with a
+// particular board, under particular cancellation terms, on particular payment
+// terms. It is the unit a guest actually books.
+//
+// The alternative — flattening `breakfastIncluded` and a `cancellation` string
+// onto the room, as the prototype did — forces a duplicate RoomType for every
+// commercial variant. Duplicate room types then duplicate inventory, and
+// duplicated inventory oversells. That is the whole reason this table exists.
+//
+// Cancellation rules are structured rather than prose so a refund can be
+// computed rather than read. The customer-facing description is kept alongside,
+// because the two serve different readers.
+// ---------------------------------------------------------------------------
+
+model MealPlan {
+  id          String       @id @default(cuid())
+  code        MealPlanCode @unique
+  name        String
+  description String?
+  sortOrder   Int          @default(0) @map("sort_order")
+  isActive    Boolean      @default(true) @map("is_active")
+
+  hotels    HotelMealPlan[]
+  ratePlans RatePlan[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("meal_plans")
+}
+
+/// What a particular property means by a board code.
+///
+/// "HB" is a standard; "Dinner 18:00-21:30, drinks not included" is this
+/// hotel's version of it. Both are needed — the code to compare across
+/// properties, the prose to set expectations for the guest.
+model HotelMealPlan {
+  id         String   @id @default(cuid())
+  hotelId    String   @map("hotel_id")
+  hotel      Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  mealPlanId String   @map("meal_plan_id")
+  mealPlan   MealPlan @relation(fields: [mealPlanId], references: [id], onDelete: Restrict)
+
+  description  String?
+  inclusions   String[]
+  /// { breakfast: "07:00-10:00", dinner: "18:00-21:30" }
+  serviceTimes Json     @default("{}") @map("service_times")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([hotelId, mealPlanId])
+  @@index([mealPlanId])
+  @@map("hotel_meal_plans")
+}
+
+/// A cancellation policy, as rules a computer can evaluate.
+///
+/// `hotelId` is nullable: a null policy is a platform template every hotel can
+/// start from, so a new property is not faced with a blank form.
+model CancellationPolicy {
+  id      String  @id @default(cuid())
+  hotelId String? @map("hotel_id")
+  hotel   Hotel?  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  name String
+  kind CancellationKind
+
+  /// What the guest reads. The rules decide the money; this decides the
+  /// wording, and neither is derived from the other.
+  description String?
+  isActive    Boolean @default(true) @map("is_active")
+
+  rules            CancellationRule[]
+  ratePlans        RatePlan[]
+  transferVehicles TransferVehicle[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([hotelId, isActive])
+  @@map("cancellation_policies")
+}
+
+/// One tier of a policy: "from this many hours before check-in and inward,
+/// this much is charged".
+///
+/// Hours rather than days because a deadline is a wall-clock instant at the
+/// property — "14 days before" means 14 days before check-in *time*, and
+/// storing days would leave the time of day to be guessed at cancellation.
+model CancellationRule {
+  id       String             @id @default(cuid())
+  policyId String             @map("policy_id")
+  policy   CancellationPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  hoursBeforeCheckIn Int         @map("hours_before_check_in")
+  chargeBasis        ChargeBasis @map("charge_basis")
+  /// Basis points for the PERCENT_* bases, minor units for FIXED_AMOUNT, a
+  /// count of nights for NIGHTS.
+  chargeValue        Int         @map("charge_value")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([policyId, hoursBeforeCheckIn])
+  @@map("cancellation_rules")
+}
+
+model PaymentPolicy {
+  id      String  @id @default(cuid())
+  hotelId String? @map("hotel_id")
+  hotel   Hotel?  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  name   String
+  timing PaymentTiming
+
+  /// Deposit as basis points of the total, for DEPOSIT timing.
+  depositBps                  Int? @map("deposit_bps")
+  balanceDueDaysBeforeCheckIn Int? @map("balance_due_days_before_check_in")
+
+  description String?
+  isActive    Boolean @default(true) @map("is_active")
+
+  ratePlans RatePlan[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([hotelId, isActive])
+  @@map("payment_policies")
+}
+
+/// The sellable offer.
+model RatePlan {
+  id         String   @id @default(cuid())
+  roomTypeId String   @map("room_type_id")
+  roomType   RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+
+  code       String
+  name       String
+  status     RatePlanStatus     @default(ACTIVE)
+  visibility RatePlanVisibility @default(PUBLIC)
+  sortOrder  Int                @default(0) @map("sort_order")
+
+  mealPlanId String   @map("meal_plan_id")
+  mealPlan   MealPlan @relation(fields: [mealPlanId], references: [id], onDelete: Restrict)
+
+  cancellationPolicyId String             @map("cancellation_policy_id")
+  cancellationPolicy   CancellationPolicy @relation(fields: [cancellationPolicyId], references: [id], onDelete: Restrict)
+
+  paymentPolicyId String        @map("payment_policy_id")
+  paymentPolicy   PaymentPolicy @relation(fields: [paymentPolicyId], references: [id], onDelete: Restrict)
+
+  /// ISO-4217, and the currency every Rate under this plan is quoted in.
+  currency String @db.Char(3)
+
+  /// The occupancy the base rate covers. Above it, extra-person pricing
+  /// applies; below it, a single-occupancy rate may.
+  baseOccupancy Int  @default(2) @map("base_occupancy")
+  minAdults     Int? @map("min_adults")
+  maxAdults     Int? @map("max_adults")
+  maxChildren   Int? @map("max_children")
+
+  /// When this plan may be sold at all, as opposed to which nights it covers.
+  sellableFrom  DateTime? @map("sellable_from") @db.Date
+  sellableUntil DateTime? @map("sellable_until") @db.Date
+
+  restrictions RatePlanRestriction[]
+  rates        Rate[]
+  holds        BookingHold[]
+  bookingRooms HotelBookingRoom[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([roomTypeId, code])
+  @@index([roomTypeId, status])
+  @@index([mealPlanId])
+  @@map("rate_plans")
+}
+
+/// Booking restrictions that vary by date.
+///
+/// Restrictions that essentially never vary — occupancy caps — stay as columns
+/// on the plan. These are the ones a revenue manager changes for a weekend or a
+/// holiday: a two-night minimum over New Year, no arrivals on a changeover day.
+model RatePlanRestriction {
+  id         String   @id @default(cuid())
+  ratePlanId String   @map("rate_plan_id")
+  ratePlan   RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+
+  startDate DateTime @map("start_date") @db.Date
+  endDate   DateTime @map("end_date") @db.Date
+
+  minStay           Int?    @map("min_stay")
+  maxStay           Int?    @map("max_stay")
+  minAdvanceDays    Int?    @map("min_advance_days")
+  maxAdvanceDays    Int?    @map("max_advance_days")
+  /// Closed to arrival / departure: the stay may span this date but may not
+  /// begin or end on it. Changeover days at ski resorts work exactly this way.
+  closedToArrival   Boolean @default(false) @map("closed_to_arrival")
+  closedToDeparture Boolean @default(false) @map("closed_to_departure")
+  stopSell          Boolean @default(false) @map("stop_sell")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([ratePlanId, startDate, endDate])
+  @@map("rate_plan_restrictions")
+}
+
+// ---------------------------------------------------------------------------
+// Inventory and pricing: one row per night.
+//
+// These are the two tables everything else in the module exists to serve, and
+// the two that grow: a thousand hotels with five room types, three rate plans
+// and a two-year horizon is roughly eleven million rate rows. Both are
+// therefore deliberately narrow, and both are keyed by (parent, date) with no
+// separate id — the natural key is the only key anything ever looks them up by,
+// and dropping the surrogate saves a column and an index on every row.
+//
+// Availability is NOT stored. `total - blocked - booked - held` is derived on
+// read, because a fifth number is a fifth thing that can disagree with the
+// other four. What *is* stored is a CHECK constraint saying those four can
+// never add up to an oversell, which is the last line of defence beneath the
+// conditional UPDATE the booking path uses.
+// ---------------------------------------------------------------------------
+
+model RoomInventory {
+  roomTypeId String   @map("room_type_id")
+  roomType   RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  /// A calendar night at the property, never an instant.
+  date       DateTime @db.Date
+
+  totalUnits   Int @map("total_units")
+  /// Out of service: maintenance, owner use, a room held back for staff.
+  blockedUnits Int @default(0) @map("blocked_units")
+  bookedUnits  Int @default(0) @map("booked_units")
+  /// Checkout in progress. A counter rather than a join to booking_holds so
+  /// that the no-oversell CHECK can see it; the sweeper keeps it honest.
+  heldUnits    Int @default(0) @map("held_units")
+
+  stopSell          Boolean @default(false) @map("stop_sell")
+  minStay           Int?    @map("min_stay")
+  closedToArrival   Boolean @default(false) @map("closed_to_arrival")
+  closedToDeparture Boolean @default(false) @map("closed_to_departure")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@id([roomTypeId, date])
+  @@index([date])
+  @@map("room_inventory")
+}
+
+/// The price of one rate plan on one night.
+///
+/// Seasonal, weekend and holiday pricing are all just rows with different
+/// values — there is no season engine and no rule evaluation at request time.
+/// The bulk editors generate the rows; the read path stays an indexed range
+/// scan.
+model Rate {
+  ratePlanId String   @map("rate_plan_id")
+  ratePlan   RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  date       DateTime @db.Date
+
+  currency String @db.Char(3)
+
+  /// What the supplier charges us. Never serialized to a guest.
+  netCents  Int  @map("net_cents")
+  /// A fixed selling price that overrides the markup. Null means derive.
+  sellCents Int? @map("sell_cents")
+
+  extraAdultCents      Int? @map("extra_adult_cents")
+  extraChildCents      Int? @map("extra_child_cents")
+  /// Used when one guest occupies a room priced for two.
+  singleOccupancyCents Int? @map("single_occupancy_cents")
+
+  /// Priced but not for sale on this date.
+  closed Boolean @default(false)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@id([ratePlanId, date])
+  @@index([date])
+  @@map("rates")
+}
+
+/// Taxes and fees a property adds on top of the room rate.
+///
+/// Modelled now rather than later because a booking freezes its totals, and
+/// retrofitting a tax into snapshots that were taken without one is not
+/// possible. `includedInRate` is what decides whether the guest has already
+/// paid it or owes it at the desk, and getting that wrong is a complaint at
+/// check-out rather than a rounding error.
+model HotelTaxFee {
+  id      String @id @default(cuid())
+  hotelId String @map("hotel_id")
+  hotel   Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  name  String
+  basis TaxFeeBasis
+  /// Basis points for PERCENT, minor units otherwise.
+  value Int
+
+  currency String @db.Char(3)
+
+  includedInRate    Boolean @default(false) @map("included_in_rate")
+  appliesToChildren Boolean @default(true) @map("applies_to_children")
+
+  /// Optional seasonal window; null on both means always.
+  startDate DateTime? @map("start_date") @db.Date
+  endDate   DateTime? @map("end_date") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([hotelId])
+  @@map("hotel_tax_fees")
+}
+
+// ---------------------------------------------------------------------------
+// Holds and bookings.
+//
+// Two ideas carry this whole section:
+//
+//   1. **A hold is a claim on inventory, and the counter is the enforcement.**
+//      `room_inventory.held_units` is what the no-oversell CHECK can see; the
+//      hold row is the record of who holds it and until when. The sweeper keeps
+//      the two in step, and the reconciler proves they are.
+//
+//   2. **A booking is a snapshot, not a join.** Hotels rename rooms, retire rate
+//      plans and tighten cancellation terms. A booking has to keep saying what
+//      was sold, at what price, under what conditions — six months later, after
+//      all of that has changed. So the foreign keys are there for reporting and
+//      the snapshot is there for truth.
+// ---------------------------------------------------------------------------
+
+/// Inventory claimed by a checkout in progress.
+model BookingHold {
+  id    String @id @default(cuid())
+  token String @unique
+
+  roomTypeId String   @map("room_type_id")
+  roomType   RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  ratePlanId String   @map("rate_plan_id")
+  ratePlan   RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+
+  checkIn  DateTime @map("check_in") @db.Date
+  checkOut DateTime @map("check_out") @db.Date
+  quantity Int      @default(1)
+
+  adults    Int
+  childAges Int[] @map("child_ages")
+
+  /// What was quoted when the hold was taken. Compared against a fresh quote at
+  /// confirmation, so a price that moved is a question rather than a surprise.
+  quotedNetCents  Int    @map("quoted_net_cents")
+  quotedSellCents Int    @map("quoted_sell_cents")
+  currency        String @db.Char(3)
+
+  status    HoldStatus @default(ACTIVE)
+  expiresAt DateTime   @map("expires_at")
+
+  bookingId String?       @unique @map("booking_id")
+  booking   HotelBooking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  createdByUserId String?  @map("created_by_user_id")
+  createdByUser   User?    @relation("HoldCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  partnerId       String?  @map("partner_id")
+  partner         Partner? @relation("PartnerHolds", fields: [partnerId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// The sweeper's index: find every ACTIVE hold past its expiry, cheaply.
+  @@index([status, expiresAt])
+  @@index([roomTypeId, checkIn])
+  @@map("booking_holds")
+}
+
+model HotelBooking {
+  id String @id @default(cuid())
+
+  /// The public reference, e.g. BKG-000001. Drawn from a Postgres sequence and
+  /// never the primary key — an id is an implementation detail that must not
+  /// appear in something a guest quotes over the phone.
+  reference String @unique
+
+  status HotelBookingStatus @default(PENDING)
+
+  /// Derived from the request, unique, and what makes a retried confirmation
+  /// return the original booking instead of making a second one.
+  idempotencyKey String? @unique @map("idempotency_key")
+
+  /// The buyer. Null for a direct guest booking, set for a B2B partner.
+  partnerId      String?  @map("partner_id")
+  partner        Partner? @relation("PartnerBookings", fields: [partnerId], references: [id], onDelete: SetNull)
+  bookedByUserId String?  @map("booked_by_user_id")
+  bookedByUser   User?    @relation("BookingBookedBy", fields: [bookedByUserId], references: [id], onDelete: SetNull)
+
+  /// Kept for reporting. `hotelSnapshot` is what the voucher reads.
+  hotelId String @map("hotel_id")
+  hotel   Hotel  @relation(fields: [hotelId], references: [id], onDelete: Restrict)
+
+  checkIn  DateTime @map("check_in") @db.Date
+  checkOut DateTime @map("check_out") @db.Date
+  nights   Int
+
+  currency               String @db.Char(3)
+  netTotalCents          Int    @map("net_total_cents")
+  sellTotalCents         Int    @map("sell_total_cents")
+  taxTotalCents          Int    @default(0) @map("tax_total_cents")
+  payableAtPropertyCents Int    @default(0) @map("payable_at_property_cents")
+  markupBps              Int    @map("markup_bps")
+
+  /// Reserved for partner-currency quoting: the rate used, and when it was
+  /// taken. Without them an invoice cannot be reproduced after the rate moves.
+  fxRate   Decimal?  @map("fx_rate") @db.Decimal(18, 8)
+  fxRateAt DateTime? @map("fx_rate_at")
+
+  leadGuestName   String  @map("lead_guest_name")
+  leadGuestEmail  String  @map("lead_guest_email")
+  leadGuestPhone  String? @map("lead_guest_phone")
+  specialRequests String? @map("special_requests")
+
+  /// Name, address, phone, check-in times and time zone as they were. A voucher
+  /// printed next year must still describe the property that was booked.
+  hotelSnapshot Json @map("hotel_snapshot")
+
+  confirmedAt             DateTime? @map("confirmed_at")
+  cancelledAt             DateTime? @map("cancelled_at")
+  cancellationChargeCents Int?      @map("cancellation_charge_cents")
+  cancellationReason      String?   @map("cancellation_reason")
+
+  /// Where it came from: web, partner API, admin.
+  source String @default("web")
+
+  rooms HotelBookingRoom[]
+  hold  BookingHold?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([hotelId, checkIn])
+  @@index([partnerId, createdAt])
+  @@index([status, checkIn])
+  @@map("hotel_bookings")
+}
+
+/// One room, as it was sold.
+model HotelBookingRoom {
+  id        String       @id @default(cuid())
+  bookingId String       @map("booking_id")
+  booking   HotelBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  /// SetNull, not Restrict: these are for reporting. If a room type is ever
+  /// hard-deleted the booking must survive, which is what the snapshot is for.
+  roomTypeId String?   @map("room_type_id")
+  roomType   RoomType? @relation(fields: [roomTypeId], references: [id], onDelete: SetNull)
+  ratePlanId String?   @map("rate_plan_id")
+  ratePlan   RatePlan? @relation(fields: [ratePlanId], references: [id], onDelete: SetNull)
+
+  roomTypeName         String  @map("room_type_name")
+  ratePlanName         String  @map("rate_plan_name")
+  mealPlanCode         String  @map("meal_plan_code")
+  mealPlanName         String  @map("meal_plan_name")
+  bedConfigurationText String? @map("bed_configuration_text")
+
+  adults    Int
+  childAges Int[] @map("child_ages")
+
+  netSubtotalCents  Int @map("net_subtotal_cents")
+  sellSubtotalCents Int @map("sell_subtotal_cents")
+
+  /// What the guest was told, in words.
+  cancellationSummary String? @map("cancellation_summary")
+
+  /// The tiers, resolved to absolute instants at the moment of confirmation.
+  /// This is the single most important snapshot in the system: cancelling is a
+  /// lookup here, so a hotel that tightens its terms in March cannot change
+  /// what a guest who booked in January is owed.
+  cancellationSchedule Json @map("cancellation_schedule")
+
+  status BookingRoomStatus @default(CONFIRMED)
+
+  nights HotelBookingNight[]
+  guests BookingGuest[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([bookingId])
+  @@index([roomTypeId])
+  @@map("hotel_booking_rooms")
+}
+
+/// The price of each night, frozen.
+///
+/// A total alone cannot support a partial cancellation, an amendment that drops
+/// a night, or an invoice line — all of which need to know what each night cost.
+model HotelBookingNight {
+  bookingRoomId String           @map("booking_room_id")
+  bookingRoom   HotelBookingRoom @relation(fields: [bookingRoomId], references: [id], onDelete: Cascade)
+  date          DateTime         @db.Date
+
+  netCents  Int @map("net_cents")
+  sellCents Int @map("sell_cents")
+  taxCents  Int @default(0) @map("tax_cents")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([bookingRoomId, date])
+  @@map("hotel_booking_nights")
+}
+
+model BookingGuest {
+  id            String           @id @default(cuid())
+  bookingRoomId String           @map("booking_room_id")
+  bookingRoom   HotelBookingRoom @relation(fields: [bookingRoomId], references: [id], onDelete: Cascade)
+
+  type      BookingGuestType @default(ADULT)
+  firstName String           @map("first_name")
+  lastName  String           @map("last_name")
+  /// Age at check-in, frozen. A birthday during the stay does not reprice.
+  age       Int?
+  isLead    Boolean          @default(false) @map("is_lead")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([bookingRoomId])
+  @@map("booking_guests")
+}
+
+/// Who pays what markup.
+///
+/// The resolver behind `resolveMarkupBps` has always been a seam: every caller
+/// went through it while it simply returned the partner commission rate. This
+/// table is what fills it in, and adding it changed no call site.
+///
+/// A rule matches when every field it *does* set matches the request; a null
+/// field means "any". The most specific match wins, so a rate negotiated for
+/// one partner at one hotel beats that partner's blanket rate, which beats the
+/// hotel default, which beats the platform default. `priority` breaks ties
+/// between rules of equal specificity, highest first.
+model PricingRule {
+  id String @id @default(cuid())
+
+  /// The buyer. Null means the rule applies to every buyer.
+  partnerId String?  @map("partner_id")
+  partner   Partner? @relation("PartnerPricingRules", fields: [partnerId], references: [id], onDelete: Cascade)
+
+  hotelId String? @map("hotel_id")
+  hotel   Hotel?  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  destinationId String?      @map("destination_id")
+  destination   Destination? @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+
+  /// Basis points added to the net rate: 1500 = 15%.
+  markupBps Int @map("markup_bps")
+
+  label    String?
+  priority Int     @default(0)
+  isActive Boolean @default(true) @map("is_active")
+
+  validFrom  DateTime? @map("valid_from") @db.Date
+  validUntil DateTime? @map("valid_until") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([partnerId, isActive])
+  @@index([hotelId, isActive])
+  @@map("pricing_rules")
+}
+
+// ---------------------------------------------------------------------------
+// Amenities, media and translations.
+//
+// Three conventions worth stating, because each replaces something the
+// prototype did inline:
+//   * Amenities are rows, not an enum array. Filtering "hotels with a pool" is
+//     then an index scan on a join table, and adding one is an INSERT rather
+//     than a schema migration.
+//   * Media is a FileAsset plus typed join tables. A single polymorphic
+//     association table was rejected: it cannot carry a foreign key, so an
+//     orphan would be undetectable and every cascade would be hand-written.
+//   * Translations are per-entity tables with every prose field nullable, so a
+//     missing translation degrades to English for that one field. This is the
+//     contract client/data/i18n/merge.ts already implements.
+// ---------------------------------------------------------------------------
+
+model Amenity {
+  id       String          @id @default(cuid())
+  /// Stable machine key, e.g. `skiStorage`. Referenced by seeds and by the
+  /// client icon map, so renaming one is a data migration.
+  code     String          @unique
+  name     String
+  category AmenityCategory
+  scope    AmenityScope    @default(HOTEL)
+  /// Icon identifier the client resolves. Never a URL and never an SVG blob.
+  icon     String?
+
+  sortOrder Int     @default(0) @map("sort_order")
+  isActive  Boolean @default(true) @map("is_active")
+
+  hotels       HotelAmenity[]
+  roomTypes    RoomTypeAmenity[]
+  translations AmenityTranslation[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([category, isActive])
+  @@map("amenities")
+}
+
+model HotelAmenity {
+  hotelId   String  @map("hotel_id")
+  hotel     Hotel   @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  amenityId String  @map("amenity_id")
+  amenity   Amenity @relation(fields: [amenityId], references: [id], onDelete: Cascade)
+
+  /// Per-property qualifier: "Parking, 15 GEL per night", "Pool, summer only".
+  note String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([hotelId, amenityId])
+  @@index([amenityId])
+  @@map("hotel_amenities")
+}
+
+/// One uploaded object. The row holds metadata and an object key; the bytes
+/// live in object storage. There is deliberately no URL column: a public URL is
+/// composed from config at serialization time and a private one is signed on
+/// demand, so changing CDN or provider is a config change, not a migration.
+model FileAsset {
+  id String @id @default(cuid())
+
+  /// Generated, never derived from the upload. This is what makes path
+  /// traversal, filename collisions and unicode filename tricks impossible.
+  objectKey String @unique @map("object_key")
+  bucket    String
+
+  /// Kept for display in the admin panel only. Never used to build a key.
+  originalFilename String @map("original_filename")
+  /// The sniffed type, not the declared one.
+  mimeType         String @map("mime_type")
+  sizeBytes        Int    @map("size_bytes")
+  checksumSha256   String @map("checksum_sha256")
+
+  width  Int?
+  height Int?
+
+  category   FileCategory
+  visibility FileVisibility
+
+  /// PENDING while variants are still being written, READY once usable, FAILED
+  /// when processing gave up. Readers filter on READY.
+  status String @default("PENDING")
+
+  altText String? @map("alt_text")
+
+  uploadedByUserId String? @map("uploaded_by_user_id")
+  uploadedByUser   User?   @relation("FileUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  /// Owning company, for supplier authorization. Null means platform-owned.
+  partnerId String?  @map("partner_id")
+  partner   Partner? @relation("PartnerFiles", fields: [partnerId], references: [id], onDelete: SetNull)
+
+  /// Soft delete: an asset referenced by a booking voucher must not vanish
+  /// because someone tidied a gallery.
+  deletedAt DateTime? @map("deleted_at")
+
+  variants          ImageVariant[]
+  hotelImages       HotelImage[]
+  roomTypeImages    RoomTypeImage[]
+  hotelDocuments    HotelDocument[]
+  featuredForHotels Hotel[]         @relation("HotelFeaturedImage")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([category, visibility])
+  @@index([partnerId])
+  @@index([checksumSha256])
+  @@index([status])
+  @@map("file_assets")
+}
+
+/// A derived rendition of an image: one row per size and format. Stored rather
+/// than resized on request, so the CDN serves a real object.
+model ImageVariant {
+  id          String    @id @default(cuid())
+  fileAssetId String    @map("file_asset_id")
+  fileAsset   FileAsset @relation(fields: [fileAssetId], references: [id], onDelete: Cascade)
+
+  /// thumb | card | gallery | original
+  variant   String
+  /// webp | avif | jpeg
+  format    String
+  objectKey String @unique @map("object_key")
+
+  width     Int
+  height    Int
+  sizeBytes Int @map("size_bytes")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([fileAssetId, variant, format])
+  @@map("image_variants")
+}
+
+model HotelImage {
+  id          String    @id @default(cuid())
+  hotelId     String    @map("hotel_id")
+  hotel       Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  fileAssetId String    @map("file_asset_id")
+  fileAsset   FileAsset @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+
+  category  ImageCategory @default(Exterior)
+  caption   String?
+  sortOrder Int           @default(0) @map("sort_order")
+  /// At most one per hotel, enforced by a partial unique index in the
+  /// migration. Prisma cannot express an index with a WHERE clause.
+  isCover   Boolean       @default(false) @map("is_cover")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([hotelId, fileAssetId])
+  @@index([hotelId, sortOrder])
+  @@map("hotel_images")
+}
+
+/// Contracts, rate sheets and anything else that must never have a public URL.
+model HotelDocument {
+  id          String    @id @default(cuid())
+  hotelId     String    @map("hotel_id")
+  hotel       Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  fileAssetId String    @map("file_asset_id")
+  fileAsset   FileAsset @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+
+  docType    String    @map("doc_type")
+  label      String?
+  validUntil DateTime? @map("valid_until") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([hotelId, fileAssetId])
+  @@index([hotelId, docType])
+  @@map("hotel_documents")
+}
+
+/// Prose in a non-default locale. Every field is nullable and the serializer
+/// merges only the ones that are set, so a half-finished translation reads
+/// translated where it exists and English everywhere else. Nothing that is not
+/// language, such as ids, slugs, prices or coordinates, is duplicated here.
+model HotelTranslation {
+  id      String @id @default(cuid())
+  hotelId String @map("hotel_id")
+  hotel   Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  locale  String
+
+  name             String?
+  shortDescription String?  @map("short_description")
+  summary          String?
+  description      String[]
+  /// HotelPolicies
+  policies         Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([hotelId, locale])
+  @@map("hotel_translations")
+}
+
+model DestinationTranslation {
+  id            String      @id @default(cuid())
+  destinationId String      @map("destination_id")
+  destination   Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+  locale        String
+
+  name        String?
+  tagline     String?
+  summary     String?
+  description String[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([destinationId, locale])
+  @@map("destination_translations")
+}
+
+model AmenityTranslation {
+  id        String  @id @default(cuid())
+  amenityId String  @map("amenity_id")
+  amenity   Amenity @relation(fields: [amenityId], references: [id], onDelete: Cascade)
+  locale    String
+
+  name String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([amenityId, locale])
+  @@map("amenity_translations")
+}
+
+// ---------------------------------------------------------------------------
+// Accounts, partners and the audit trail.
+//
+// Two conventions from above are deliberately broken here, both for the same
+// reason — an audit trail that disappears with the record it describes is not
+// an audit trail:
+//   * AuditLog references its entity by plain (type, id) strings rather than a
+//     foreign key, so deleting a partner leaves its history intact.
+//   * Actor and reviewer foreign keys use onDelete: SetNull, not Cascade.
+// Session and AuthToken store only the sha256 of a token, never the token, so
+// a database dump cannot be replayed as a live link.
+// ---------------------------------------------------------------------------
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  PARTNER_OWNER
+  PARTNER_ADMIN
+  PARTNER_AGENT
+  PARTNER_FINANCE
+
+  @@map("role")
+}
+
+enum PartnerStatus {
+  INVITED
+  REGISTRATION_IN_PROGRESS
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  SUSPENDED
+
+  @@map("partner_status")
+}
+
+enum PartnerKind {
+  HOTEL
+  TOUR_OPERATOR
+  TRANSPORT
+  EXPERIENCE
+
+  @@map("partner_kind")
+}
+
+enum TokenPurpose {
+  ACCOUNT_ACTIVATION
+  PASSWORD_RESET
+
+  @@map("token_purpose")
+}
+
+enum AuditAction {
+  PARTNER_INVITED
+  PARTNER_CREATED
+  PARTNER_UPDATED
+  PARTNER_REGISTRATION_SUBMITTED
+  PARTNER_APPROVED
+  PARTNER_REJECTED
+  PARTNER_SUSPENDED
+  PARTNER_REACTIVATED
+  PARTNER_DELETED
+  PARTNER_FINANCIAL_VIEWED
+  PARTNER_FINANCIAL_UPDATED
+  INVITATION_RESENT
+  INVITATION_REVOKED
+  USER_ACTIVATED
+  USER_PROFILE_UPDATED
+  USER_PASSWORD_CHANGED
+  USER_LOGIN_FAILED
+  HOTEL_CREATED
+  HOTEL_UPDATED
+  HOTEL_PUBLISHED
+  HOTEL_UNPUBLISHED
+  HOTEL_ARCHIVED
+  HOTEL_DELETED
+  DESTINATION_CREATED
+  DESTINATION_UPDATED
+  DESTINATION_DELETED
+  AMENITY_CREATED
+  AMENITY_UPDATED
+  MEDIA_UPLOADED
+  MEDIA_DELETED
+  PRIVATE_FILE_ACCESSED
+  ROOM_TYPE_CREATED
+  ROOM_TYPE_UPDATED
+  ROOM_TYPE_ARCHIVED
+  CHILD_POLICY_UPDATED
+  RATE_PLAN_CREATED
+  RATE_PLAN_UPDATED
+  RATE_PLAN_ARCHIVED
+  CANCELLATION_POLICY_CREATED
+  CANCELLATION_POLICY_UPDATED
+  PAYMENT_POLICY_CREATED
+  PAYMENT_POLICY_UPDATED
+  HOTEL_MEAL_PLAN_UPDATED
+  INVENTORY_UPDATED
+  RATE_UPDATED
+  TAX_FEE_UPDATED
+  BOOKING_CREATED
+  BOOKING_CANCELLED
+  BOOKING_AMENDED
+  HOLD_EXPIRED
+  INVENTORY_RECONCILED
+  PRICING_RULE_CREATED
+  PRICING_RULE_UPDATED
+  PRICING_RULE_DELETED
+  TRANSFER_POINT_CREATED
+  TRANSFER_POINT_UPDATED
+  TRANSFER_POINT_DELETED
+  TRANSFER_PROVIDER_CREATED
+  TRANSFER_PROVIDER_UPDATED
+  TRANSFER_VEHICLE_CREATED
+  TRANSFER_VEHICLE_UPDATED
+  TRANSFER_VEHICLE_ARCHIVED
+  TRANSFER_ROUTE_CREATED
+  TRANSFER_ROUTE_UPDATED
+  TRANSFER_ROUTE_PUBLISHED
+  TRANSFER_ROUTE_UNPUBLISHED
+  TRANSFER_ROUTE_ARCHIVED
+  TRANSFER_ROUTE_PRICED
+  TRANSFER_EXTRA_UPDATED
+  TRANSFER_BLACKOUT_CREATED
+  TRANSFER_BLACKOUT_DELETED
+  TRANSFER_BOOKING_CREATED
+  TRANSFER_BOOKING_CANCELLED
+  TRANSFER_BOOKING_AMENDED
+
+  @@map("audit_action")
+}
+
+/// Everyone who can sign in. One table rather than separate admin and partner
+/// tables: one login endpoint, one session mechanism, one unique email. Admins
+/// carry no partnerId, partner roles always do — enforced by a CHECK constraint
+/// added in the migration, because an admin attached to a company would be an
+/// authorization bug that only surfaced at read time.
+model User {
+  id           String  @id @default(cuid())
+  email        String  @unique
+  /// Null until the invitee or invited admin sets one through an activation link.
+  passwordHash String? @map("password_hash")
+  role         Role
+
+  firstName String  @map("first_name")
+  lastName  String  @map("last_name")
+  position  String?
+  phone     String?
+
+  /// The one user an admin corresponds with. Later a partner will have several
+  /// employees; exactly one of them stays the primary contact.
+  isPrimaryContact Boolean   @default(false) @map("is_primary_contact")
+  isActive         Boolean   @default(true) @map("is_active")
+  lastLoginAt      DateTime? @map("last_login_at")
+
+  partnerId String?  @map("partner_id")
+  partner   Partner? @relation("PartnerMembers", fields: [partnerId], references: [id], onDelete: Cascade)
+
+  sessions          Session[]
+  authTokens        AuthToken[]
+  auditLogs         AuditLog[]
+  invitationsSent   Invitation[]   @relation("InvitationInvitedBy")
+  partnersApproved  Partner[]      @relation("PartnerApprovedBy")
+  partnersRejected  Partner[]      @relation("PartnerRejectedBy")
+  partnersSuspended Partner[]      @relation("PartnerSuspendedBy")
+  filesUploaded     FileAsset[]    @relation("FileUploadedBy")
+  bookingsMade      HotelBooking[] @relation("BookingBookedBy")
+  holdsCreated      BookingHold[]  @relation("HoldCreatedBy")
+
+  transferBookingsMade TransferBooking[] @relation("TransferBookingBookedBy")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([partnerId])
+  @@index([role])
+  @@map("users")
+}
+
+/// An opaque server-side session. Kept in the database rather than signed into
+/// a JWT so that suspending a partner ends its sessions on the next request
+/// instead of whenever the token happens to expire.
+model Session {
+  id        String @id @default(cuid())
+  tokenHash String @unique @map("token_hash")
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  ip        String?
+  userAgent String?   @map("user_agent")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// Single-use links that set a password: account activation and password reset.
+model AuthToken {
+  id        String       @id @default(cuid())
+  tokenHash String       @unique @map("token_hash")
+  purpose   TokenPurpose
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("auth_tokens")
+}
+
+/// A partner company. Only `name` and `kind` are required, because an admin
+/// drafting an invitation knows those and nothing else yet; the registration
+/// schema requires the rest before a partner can reach PENDING_APPROVAL.
+model Partner {
+  id String @id @default(cuid())
+
+  /// The public Partner ID, e.g. PTR-000001. Drawn from a Postgres sequence,
+  /// immutable, and never the primary key — the id is an implementation detail
+  /// that must not appear in a URL a partner quotes over the phone.
+  reference String @unique
+
+  name      String
+  legalName String?       @map("legal_name")
+  kind      PartnerKind
+  status    PartnerStatus @default(INVITED)
+
+  registrationNumber String? @unique @map("registration_number")
+  legalAddress       String? @map("legal_address")
+  city               String?
+  country            String?
+  phone              String?
+  email              String?
+  website            String?
+
+  /// SocialLink[]
+  socialLinks Json @default("[]") @map("social_links")
+  /// PartnerDocument[]
+  documents   Json @default("[]")
+
+  /// Commission in basis points: 1000 = 10%. Integer for the same reason money
+  /// is — 12.5% cannot be stored exactly as a float.
+  commissionRateBps Int @default(1000) @map("commission_rate_bps")
+
+  /// Internal, never returned to the partner.
+  notes String?
+
+  submittedAt DateTime? @map("submitted_at")
+
+  approvedAt       DateTime? @map("approved_at")
+  approvedByUserId String?   @map("approved_by_user_id")
+  approvedByUser   User?     @relation("PartnerApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+
+  rejectedAt       DateTime? @map("rejected_at")
+  rejectedByUserId String?   @map("rejected_by_user_id")
+  rejectedByUser   User?     @relation("PartnerRejectedBy", fields: [rejectedByUserId], references: [id], onDelete: SetNull)
+  /// Shown to the applicant.
+  rejectionReason  String?   @map("rejection_reason")
+  /// Never leaves the admin panel.
+  rejectionNote    String?   @map("rejection_note")
+
+  suspendedAt       DateTime? @map("suspended_at")
+  suspendedByUserId String?   @map("suspended_by_user_id")
+  suspendedByUser   User?     @relation("PartnerSuspendedBy", fields: [suspendedByUserId], references: [id], onDelete: SetNull)
+  suspensionReason  String?   @map("suspension_reason")
+
+  users        User[]                  @relation("PartnerMembers")
+  financial    PartnerFinancialDetail?
+  invitations  Invitation[]
+  hotels       Hotel[]                 @relation("PartnerHotels")
+  files        FileAsset[]             @relation("PartnerFiles")
+  bookings     HotelBooking[]          @relation("PartnerBookings")
+  holds        BookingHold[]           @relation("PartnerHolds")
+  pricingRules PricingRule[]           @relation("PartnerPricingRules")
+
+  transferProviders TransferProvider[] @relation("PartnerTransferProviders")
+  transferVehicles  TransferVehicle[]  @relation("PartnerTransferVehicles")
+  transferBookings  TransferBooking[]  @relation("PartnerTransferBookings")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([country])
+  @@index([createdAt])
+  @@map("partners")
+}
+
+/// Bank details, in their own table so that the ordinary partner queries the
+/// admin panel runs cannot return them by accident. Reaching an IBAN has to be
+/// a deliberate join, which is exactly the property the requirement asks for.
+model PartnerFinancialDetail {
+  id String @id @default(cuid())
+
+  partnerId String  @unique @map("partner_id")
+  partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  iban          String
+  swift         String
+  bankName      String? @map("bank_name")
+  accountHolder String? @map("account_holder")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("partner_financial_details")
+}
+
+/// A registration link bound to one email address. The row holds the hash of
+/// the token; the token itself exists only in the URL that was emailed.
+model Invitation {
+  id        String @id @default(cuid())
+  tokenHash String @unique @map("token_hash")
+
+  /// The only address that may claim this invitation.
+  email String
+
+  /// Set when the admin drafted the company before inviting; null when the
+  /// invitee will supply everything themselves.
+  partnerId String?  @map("partner_id")
+  partner   Partner? @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  invitedByUserId String? @map("invited_by_user_id")
+  invitedByUser   User?   @relation("InvitationInvitedBy", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+
+  expiresAt   DateTime  @map("expires_at")
+  acceptedAt  DateTime? @map("accepted_at")
+  revokedAt   DateTime? @map("revoked_at")
+  resentCount Int       @default(0) @map("resent_count")
+
+  /// Partial company and contact fields the admin filled in, replayed into the
+  /// registration form so the invitee does not retype them.
+  prefill Json @default("{}")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([email])
+  @@index([partnerId])
+  @@index([expiresAt])
+  @@map("invitations")
+}
+
+/// Who did what, to which record, when. Deliberately not cascaded and not
+/// foreign-keyed to its subject: the trail has to outlive the row.
+model AuditLog {
+  id     String      @id @default(cuid())
+  action AuditAction
+
+  actorUserId String? @map("actor_user_id")
+  actorUser   User?   @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  /// Snapshot of the email, so the trail still names the actor after the
+  /// account is deleted and actorUserId has been nulled.
+  actorEmail  String  @map("actor_email")
+
+  entityType String  @map("entity_type")
+  entityId   String  @map("entity_id")
+  summary    String
+  /// Arbitrary detail: the fields that changed, the reason given, and so on.
+  metadata   Json    @default("{}")
+  ip         String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([entityType, entityId])
+  @@index([actorUserId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Transfers — point-to-point ground transport.
+//
+// The shape differs from hotels in one decisive way, and the difference is
+// deliberate: **there is no inventory and there are no holds.** A hotel sells a
+// finite number of rooms on a finite number of nights, so availability has to
+// be a counter defended by a CHECK constraint. A private transfer is dispatched
+// by a supplier from an elastic fleet — subcontracting a second car is normal
+// operations, not an oversell — so a per-day units table would be a fiction the
+// booking flow then had to defend. What is real is a road that closes, and that
+// is TransferBlackout.
+//
+// Pricing is two-tier. TransferRoutePrice holds what an admin has decided a
+// named route costs in each vehicle class; anything with no row falls back to
+// distance x per-km against the same maths the client prototype used. So the
+// commercial catalogue is curated without any pair of points becoming
+// unbookable, which is what would happen if only named routes were sellable.
+// ---------------------------------------------------------------------------
+
+/// Where a journey can start or end.
+///
+/// Kept separate from Destination rather than folded into it: an airport
+/// terminal and a hotel forecourt are pick-up points, not places anyone browses
+/// holidays by, and adding them to the destination tree would put them on
+/// /destinations and into every hotel filter. The optional destinationId is the
+/// join back, so "transfers to Kazbegi" still resolves.
+enum TransferPointKind {
+  AIRPORT
+  CITY
+  RESORT
+  HOTEL
+  LANDMARK
+  STATION
+
+  @@map("transfer_point_kind")
+}
+
+/// The commercial product tiers from the operator catalogue. Distinct from
+/// TransferVehicleBody, which is what the vehicle physically is: a Comfort and
+/// an Economy are both sedans and are sold at different prices.
+enum TransferVehicleClass {
+  ECONOMY
+  COMFORT
+  MINIVAN
+  VAN
+  GROUP
+  JEEP_4X4
+  VIP
+
+  @@map("transfer_vehicle_class")
+}
+
+/// Spelled in lower case to match the client VehicleClass string union, which
+/// selects the illustration in components/transfers/VehicleIllustration.tsx.
+enum TransferVehicleBody {
+  sedan
+  suv
+  minivan
+  van
+  bus
+
+  @@map("transfer_vehicle_body")
+}
+
+/// Private hires the whole vehicle; shared sells a seat on a scheduled run.
+/// The distinction is not cosmetic — it decides whether a fare is multiplied by
+/// the party size.
+enum TransferKind {
+  PRIVATE
+  SHARED
+
+  @@map("transfer_kind")
+}
+
+/// Sales priority from the catalogue. Drives which routes are prerendered as
+/// landing pages and which the panel surfaces first.
+enum TransferRouteTier {
+  TIER_1
+  TIER_2
+  TIER_3
+
+  @@map("transfer_route_tier")
+}
+
+enum TransferRouteCategory {
+  AIRPORT
+  CITY
+  RESORT
+  TOURIST_ROUTE
+  COMBINED
+
+  @@map("transfer_route_category")
+}
+
+/// The same lifecycle as HotelStatus, and for the same reason: a route or a
+/// vehicle with booking history is retired, never deleted.
+enum TransferStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+
+  @@map("transfer_status")
+}
+
+enum TransferBookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+
+  @@map("transfer_booking_status")
+}
+
+enum TransferTripType {
+  ONE_WAY
+  RETURN
+
+  @@map("transfer_trip_type")
+}
+
+enum TransferLegDirection {
+  OUTBOUND
+  RETURN
+
+  @@map("transfer_leg_direction")
+}
+
+/// How an add-on is priced. PERCENT is basis points of the leg fare; the rest
+/// are minor units.
+enum TransferExtraBasis {
+  FIXED
+  PER_PASSENGER
+  PER_HOUR
+  PERCENT
+
+  @@map("transfer_extra_basis")
+}
+
+model TransferPoint {
+  id   String            @id @default(cuid())
+  slug String            @unique
+  name String
+  kind TransferPointKind @default(CITY)
+
+  /// IATA code for airports, rendered as a chip in the picker.
+  iataCode String? @map("iata_code") @db.Char(3)
+
+  /// The second line of every option row: "Kakheti", "Adjara". Free text
+  /// rather than a relation, because a point may sit in a region that has no
+  /// destination page.
+  regionLabel String @map("region_label")
+
+  /// The join back to the marketing tree, when there is one. Optional because
+  /// an airport terminal is not a destination.
+  destinationId String?      @map("destination_id")
+  destination   Destination? @relation(fields: [destinationId], references: [id], onDelete: SetNull)
+
+  latitude  Float
+  longitude Float
+
+  /// Maintained by a trigger from latitude/longitude, exactly as on Destination
+  /// and Hotel. Prisma can neither read nor write a PostGIS type; every
+  /// geographic query is raw SQL.
+  geo Unsupported("geography(Point, 4326)")?
+
+  /// IANA. A pick-up time is a wall clock reading at the pick-up point, and
+  /// this is what turns it into an instant — which is what a cancellation
+  /// deadline and a driver roster both need.
+  timezone String @default("Asia/Tbilisi")
+
+  /// Surfaced before the traveller types anything.
+  popular Boolean @default(false)
+  image   String?
+
+  status TransferStatus @default(ACTIVE)
+
+  routesFrom   TransferRoute[]            @relation("TransferRouteFrom")
+  routesTo     TransferRoute[]            @relation("TransferRouteTo")
+  routeStops   TransferRouteStop[]
+  legsFrom     TransferBookingLeg[]       @relation("TransferLegFrom")
+  legsTo       TransferBookingLeg[]       @relation("TransferLegTo")
+  translations TransferPointTranslation[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([kind, status])
+  @@index([destinationId])
+  @@index([popular])
+  @@map("transfer_points")
+}
+
+/// The company behind a vehicle class. Admin-managed today; partnerId is the
+/// seam for opening a supplier extranet later, which is why it exists before
+/// anything writes it.
+model TransferProvider {
+  id   String @id @default(cuid())
+  slug String @unique
+  name String
+
+  /// Out of 5.
+  rating      Float @default(0)
+  reviewCount Int   @default(0) @map("review_count")
+
+  /// Identity and licence checked by our team.
+  verified    Boolean @default(false)
+  yearsActive Int     @default(0) @map("years_active")
+
+  partnerId String?  @map("partner_id")
+  partner   Partner? @relation("PartnerTransferProviders", fields: [partnerId], references: [id], onDelete: SetNull)
+
+  status TransferStatus @default(ACTIVE)
+
+  vehicles TransferVehicle[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([partnerId])
+  @@index([status])
+  @@map("transfer_providers")
+}
+
+/// A sellable vehicle class — the unit a traveller actually chooses.
+///
+/// Not one row per car. The supplier promises a category ("Toyota Camry or
+/// similar"), and promising a specific registration is a promise that breaks
+/// the first time it goes in for a service.
+model TransferVehicle {
+  id   String @id @default(cuid())
+  slug String @unique
+  name String
+
+  vehicleClass TransferVehicleClass @map("vehicle_class")
+  body         TransferVehicleBody
+  kind         TransferKind         @default(PRIVATE)
+
+  providerId String           @map("provider_id")
+  provider   TransferProvider @relation(fields: [providerId], references: [id], onDelete: Restrict)
+
+  /// Capacity is a hard constraint on search, not a filter: showing a
+  /// three-seat saloon to a party of six is not a choice, it is a mistake the
+  /// traveller discovers at the kerb.
+  maxPassengers Int @map("max_passengers")
+  maxLuggage    Int @map("max_luggage")
+  maxCabinBags  Int @default(0) @map("max_cabin_bags")
+
+  /// Closed vocabulary matching the client TransferFeature union, so every
+  /// surface renders the same icon and wording. Labels live in the dictionary,
+  /// never here.
+  features String[]
+
+  vehicleExample String @map("vehicle_example")
+
+  summary         String
+  description     String[]
+  included        String[]
+  excluded        String[]
+  pickupProcedure String   @map("pickup_procedure")
+
+  /// A platform-level policy (CancellationPolicy.hotelId is null). Transfers
+  /// use FLEXIBLE and PERCENT_OF_TOTAL tiers only; the night-based bases in
+  /// ChargeBasis have no meaning for a journey.
+  cancellationPolicyId String?             @map("cancellation_policy_id")
+  cancellationPolicy   CancellationPolicy? @relation(fields: [cancellationPolicyId], references: [id], onDelete: SetNull)
+
+  /// The fallback fare model, used for any pair of points with no curated
+  /// price: max(minimumFare, distanceKm x perKm) + airportFee. Minor units.
+  perKmCents       Int    @map("per_km_cents")
+  minimumFareCents Int    @map("minimum_fare_cents")
+  airportFeeCents  Int    @default(0) @map("airport_fee_cents")
+  currency         String @default("GEL") @db.Char(3)
+
+  /// Multiplies the baseline road time. A bus is slower than a sedan over the
+  /// same mountain road, and travellers notice when that is ignored.
+  paceFactor Float @default(1) @map("pace_factor")
+
+  /// Editorial ordering for the "Recommended" sort. Lower sorts first.
+  recommendedRank Int @default(0) @map("recommended_rank")
+
+  /// Whether this class is sold to the public at all. Everything is B2B by
+  /// default, exactly as Hotel.b2cEnabled works.
+  b2cEnabled Boolean @default(false) @map("b2c_enabled")
+
+  status TransferStatus @default(DRAFT)
+
+  partnerId String?  @map("partner_id")
+  partner   Partner? @relation("PartnerTransferVehicles", fields: [partnerId], references: [id], onDelete: SetNull)
+
+  prices       TransferRoutePrice[]
+  blackouts    TransferBlackout[]
+  bookings     TransferBooking[]
+  translations TransferVehicleTranslation[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([status, b2cEnabled])
+  @@index([vehicleClass])
+  @@index([providerId])
+  @@index([partnerId])
+  @@map("transfer_vehicles")
+}
+
+/// A named journey from the operator catalogue: TBS to Gudauri, Batumi to
+/// Mestia, and roughly three hundred more.
+///
+/// A route is not required to sell a transfer — the distance engine will price
+/// any pair of points. What a route adds is everything a pair cannot carry: a
+/// curated price per class, a sales tier, an indexable URL, editorial copy, and
+/// intermediate stops.
+model TransferRoute {
+  id   String @id @default(cuid())
+  slug String @unique
+
+  fromPointId String        @map("from_point_id")
+  fromPoint   TransferPoint @relation("TransferRouteFrom", fields: [fromPointId], references: [id], onDelete: Restrict)
+  toPointId   String        @map("to_point_id")
+  toPoint     TransferPoint @relation("TransferRouteTo", fields: [toPointId], references: [id], onDelete: Restrict)
+
+  tier     TransferRouteTier     @default(TIER_3)
+  category TransferRouteCategory @default(CITY)
+
+  /// Cached from the point coordinates at seed time and overridable by an
+  /// admin who knows the road. Quoting reads these rather than recomputing, so
+  /// a corrected figure sticks.
+  distanceKm      Int @map("distance_km")
+  durationMinutes Int @map("duration_minutes")
+
+  /// Editorial, for the route landing page.
+  title       String?
+  summary     String?
+  description String[]
+  heroImage   String?  @map("hero_image")
+
+  featured Boolean        @default(false)
+  status   TransferStatus @default(DRAFT)
+
+  stops        TransferRouteStop[]
+  prices       TransferRoutePrice[]
+  blackouts    TransferBlackout[]
+  bookings     TransferBooking[]
+  translations TransferRouteTranslation[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// The reverse leg is its own route, because it is priced, described and sold
+  /// separately — an airport arrival is not an airport departure.
+  ///
+  /// Not unique on the pair, and that is load-bearing: a direct Tbilisi to
+  /// Telavi transfer and a Kakheti day trip that ends in Telavi share both
+  /// endpoints and are different products. What is unique is one *direct* route
+  /// per pair, enforced by a partial index in the migration, because Prisma
+  /// cannot express a WHERE clause on one.
+  @@index([fromPointId, toPointId])
+  @@index([tier, status])
+  @@index([category, status])
+  @@index([featured])
+  @@map("transfer_routes")
+}
+
+/// An intermediate stop on a multi-stop route: Ananuri on the way to Gudauri,
+/// or a whole Grand Tour itinerary. A plain A-to-B route has none.
+model TransferRouteStop {
+  id      String        @id @default(cuid())
+  routeId String        @map("route_id")
+  route   TransferRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  pointId String        @map("point_id")
+  point   TransferPoint @relation(fields: [pointId], references: [id], onDelete: Restrict)
+
+  position     Int
+  /// How long the car waits there, in minutes. Zero for a drive-past.
+  dwellMinutes Int @default(0) @map("dwell_minutes")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([routeId, position])
+  @@index([pointId])
+  @@map("transfer_route_stops")
+}
+
+/// What one vehicle class costs on one route. Absence is meaningful: it means
+/// the distance engine prices that combination.
+model TransferRoutePrice {
+  id String @id @default(cuid())
+
+  routeId String        @map("route_id")
+  route   TransferRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  vehicleId String          @map("vehicle_id")
+  vehicle   TransferVehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  /// Minor units. returnCents is null when a return is simply twice the
+  /// one-way; setting it is how a discounted round trip is expressed.
+  oneWayCents Int  @map("one_way_cents")
+  returnCents Int? @map("return_cents")
+
+  /// What the supplier charges us. Never serialised to a guest. Null means
+  /// derive the margin from the markup rules instead.
+  netCents Int? @map("net_cents")
+
+  currency String  @default("GEL") @db.Char(3)
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([routeId, vehicleId])
+  @@index([vehicleId])
+  @@map("transfer_route_prices")
+}
+
+/// The add-ons offered on every route: a child seat, ski carriage, meet and
+/// greet, an extra sightseeing stop.
+model TransferExtra {
+  id   String @id @default(cuid())
+  code String @unique
+  name String
+
+  description String?
+
+  basis      TransferExtraBasis @default(FIXED)
+  /// Minor units, except for PERCENT where it is basis points.
+  priceCents Int                @map("price_cents")
+  currency   String             @default("GEL") @db.Char(3)
+
+  /// Empty means every class. A ski rack on a sedan is not a product.
+  appliesToClasses TransferVehicleClass[] @map("applies_to_classes")
+
+  /// Sort order in the checkout list.
+  position Int     @default(0)
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([isActive, position])
+  @@map("transfer_extras")
+}
+
+/// A window in which a route or a vehicle cannot be sold.
+///
+/// This is the real constraint that replaces inventory. Georgian mountain roads
+/// close: Tusheti from October, Shatili in winter, the Goderdzi pass in snow.
+/// Selling a January transfer to Omalo is a promise nobody can keep.
+model TransferBlackout {
+  id String @id @default(cuid())
+
+  /// At least one of the two is set, enforced by a CHECK constraint in the
+  /// migration. A route-only row closes a road; a vehicle-only row takes a
+  /// class off the market.
+  routeId String?        @map("route_id")
+  route   TransferRoute? @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  vehicleId String?          @map("vehicle_id")
+  vehicle   TransferVehicle? @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  /// Inclusive both ends: a road is shut on the last day too.
+  from   DateTime @db.Date
+  to     DateTime @db.Date
+  reason String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([routeId, from, to])
+  @@index([vehicleId, from, to])
+  @@map("transfer_blackouts")
+}
+
+model TransferBooking {
+  id String @id @default(cuid())
+
+  /// The public reference, e.g. TRF-000001, from a Postgres sequence. Never the
+  /// primary key: an id is an implementation detail that must not appear in
+  /// something a traveller reads out to a driver.
+  reference String @unique
+
+  status TransferBookingStatus @default(PENDING)
+
+  /// What makes a retried confirmation return the original booking rather than
+  /// dispatching a second car.
+  idempotencyKey String? @unique @map("idempotency_key")
+
+  partnerId      String?  @map("partner_id")
+  partner        Partner? @relation("PartnerTransferBookings", fields: [partnerId], references: [id], onDelete: SetNull)
+  bookedByUserId String?  @map("booked_by_user_id")
+  bookedByUser   User?    @relation("TransferBookingBookedBy", fields: [bookedByUserId], references: [id], onDelete: SetNull)
+
+  /// Kept for reporting. The snapshots are what the voucher reads.
+  routeId String?        @map("route_id")
+  route   TransferRoute? @relation(fields: [routeId], references: [id], onDelete: SetNull)
+
+  vehicleId String          @map("vehicle_id")
+  vehicle   TransferVehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+
+  tripType TransferTripType @default(ONE_WAY) @map("trip_type")
+
+  /// Absolute instants, resolved from the wall-clock pick-up time in the
+  /// pick-up point timezone. Stored as instants and not as a date plus a
+  /// string, because a driver roster and a cancellation deadline both need to
+  /// order them against real time.
+  pickupAt       DateTime  @map("pickup_at")
+  returnPickupAt DateTime? @map("return_pickup_at")
+
+  adults    Int
+  children  Int   @default(0)
+  childAges Int[] @map("child_ages")
+  luggage   Int   @default(0)
+  cabinBags Int   @default(0) @map("cabin_bags")
+
+  currency       String @db.Char(3)
+  netTotalCents  Int    @map("net_total_cents")
+  sellTotalCents Int    @map("sell_total_cents")
+  markupBps      Int    @map("markup_bps")
+
+  leadPassengerName  String  @map("lead_passenger_name")
+  leadPassengerEmail String  @map("lead_passenger_email")
+  leadPassengerPhone String? @map("lead_passenger_phone")
+
+  /// Airport pick-ups are monitored against the flight, so a delayed arrival
+  /// moves the car rather than losing the fare.
+  flightNumber String? @map("flight_number")
+
+  /// Free text, because a door is not a coordinate: "Hotel Vera, reception" is
+  /// what the driver needs and what the traveller can supply.
+  pickupAddress   String? @map("pickup_address")
+  dropoffAddress  String? @map("dropoff_address")
+  specialRequests String? @map("special_requests")
+
+  /// The journey and the vehicle as they were sold. A voucher printed next
+  /// year must still describe what was booked, even if the route has since
+  /// been renamed or the class retired.
+  routeSnapshot   Json @map("route_snapshot")
+  vehicleSnapshot Json @map("vehicle_snapshot")
+
+  /// The policy tiers resolved to absolute instants at the moment of
+  /// confirmation. Cancelling is a lookup here, never a read of the current
+  /// policy, so terms tightened in March cannot change what a January traveller
+  /// is owed.
+  cancellationSchedule Json @map("cancellation_schedule")
+
+  confirmedAt             DateTime? @map("confirmed_at")
+  cancelledAt             DateTime? @map("cancelled_at")
+  cancellationChargeCents Int?      @map("cancellation_charge_cents")
+  cancellationReason      String?   @map("cancellation_reason")
+
+  /// Where it came from: web, partner API, admin.
+  source String @default("web")
+
+  legs   TransferBookingLeg[]
+  extras TransferBookingExtra[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([vehicleId, pickupAt])
+  @@index([routeId, pickupAt])
+  @@index([partnerId, createdAt])
+  @@index([status, pickupAt])
+  @@map("transfer_bookings")
+}
+
+/// One journey, as it was sold. A return is two legs.
+///
+/// The same reasoning as HotelBookingRoom: a single total cannot support
+/// cancelling one direction, invoicing a line, or telling a driver what their
+/// half of the job is worth.
+model TransferBookingLeg {
+  id        String          @id @default(cuid())
+  bookingId String          @map("booking_id")
+  booking   TransferBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  legIndex  Int                  @map("leg_index")
+  direction TransferLegDirection @default(OUTBOUND)
+
+  /// SetNull, not Restrict: these are for reporting, and the booking has to
+  /// survive a point being retired. The names beside them are the record.
+  fromPointId String?        @map("from_point_id")
+  fromPoint   TransferPoint? @relation("TransferLegFrom", fields: [fromPointId], references: [id], onDelete: SetNull)
+  toPointId   String?        @map("to_point_id")
+  toPoint     TransferPoint? @relation("TransferLegTo", fields: [toPointId], references: [id], onDelete: SetNull)
+
+  fromPointName String @map("from_point_name")
+  toPointName   String @map("to_point_name")
+
+  pickupAt        DateTime @map("pickup_at")
+  distanceKm      Int      @map("distance_km")
+  durationMinutes Int      @map("duration_minutes")
+
+  netCents  Int @map("net_cents")
+  sellCents Int @map("sell_cents")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([bookingId, legIndex])
+  @@index([fromPointId])
+  @@index([toPointId])
+  @@map("transfer_booking_legs")
+}
+
+/// An add-on as it was priced, frozen. The catalogue may reprice a child seat
+/// tomorrow; this booking bought one at the figure quoted today.
+model TransferBookingExtra {
+  id        String          @id @default(cuid())
+  bookingId String          @map("booking_id")
+  booking   TransferBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  code     String
+  name     String
+  quantity Int    @default(1)
+
+  unitCents  Int @map("unit_cents")
+  totalCents Int @map("total_cents")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([bookingId, code])
+  @@map("transfer_booking_extras")
+}
+
+model TransferPointTranslation {
+  id      String        @id @default(cuid())
+  pointId String        @map("point_id")
+  point   TransferPoint @relation(fields: [pointId], references: [id], onDelete: Cascade)
+
+  locale String @db.VarChar(5)
+
+  name        String?
+  regionLabel String? @map("region_label")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([pointId, locale])
+  @@map("transfer_point_translations")
+}
+
+model TransferVehicleTranslation {
+  id        String          @id @default(cuid())
+  vehicleId String          @map("vehicle_id")
+  vehicle   TransferVehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  locale String @db.VarChar(5)
+
+  name            String?
+  vehicleExample  String?  @map("vehicle_example")
+  summary         String?
+  description     String[]
+  included        String[]
+  excluded        String[]
+  pickupProcedure String?  @map("pickup_procedure")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([vehicleId, locale])
+  @@map("transfer_vehicle_translations")
+}
+
+model TransferRouteTranslation {
+  id      String        @id @default(cuid())
+  routeId String        @map("route_id")
+  route   TransferRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  locale String @db.VarChar(5)
+
+  title       String?
+  summary     String?
+  description String[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([routeId, locale])
+  @@map("transfer_route_translations")
+}

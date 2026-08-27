@@ -1,0 +1,25 @@
+services:
+  db:
+    # PostGIS rather than plain postgres: the hotel module stores coordinates
+    # for hotels and destinations, and "transfers near this hotel" later needs a
+    # real geography type. The image is the official postgres:17 with the
+    # extension preinstalled, so the existing pgdata volume is unaffected.
+    image: postgis/postgis:17-3.5-alpine
+    container_name: iamgeorgia-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-iamgeorgia}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-iamgeorgia}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
