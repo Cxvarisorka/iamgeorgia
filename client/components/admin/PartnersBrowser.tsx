@@ -1,274 +1,309 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronRight, FileWarning, Search, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ChevronRight, Search, X } from "lucide-react";
+import { useEffect, useState, useTransition } from "react";
 
-import { AdminPanel } from "./AdminPage";
-import { Cell, DataTable, EmptyRow, Row } from "./DataTable";
+import { Cell, DataTable, EmptyRow, Row, type Column } from "./DataTable";
 import { PartnerStatusBadge } from "./StatusBadge";
-import { partnerKindLabels, partnerStatusLabels } from "@/data/admin/partners";
-import { formatAdminDate, formatCompactMoney } from "@/lib/admin/metrics";
+import {
+  PARTNER_KINDS,
+  PARTNER_STATUSES,
+  formatPartnerDate,
+  partnerKindLabels,
+  partnerStatusLabels,
+} from "@/lib/admin/partners";
 import { useLocalePath } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
-import type { Partner, PartnerKind, PartnerStatus } from "@/types";
+import type { PartnerKind, PartnerStatus, PartnerSummary } from "@/types";
 
-const statusFilters: (PartnerStatus | "all")[] = [
-  "all",
-  "pending",
-  "in-review",
-  "active",
-  "suspended",
-  "rejected",
-];
+interface PartnersBrowserProps {
+  partners: PartnerSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  /** Statuses this screen is scoped to, which the filter row cannot leave. */
+  lockedStatuses?: PartnerStatus[];
+}
 
-const kindFilters: (PartnerKind | "all")[] = [
-  "all",
-  "hotel",
-  "tour-operator",
-  "transport",
-  "experience",
+const COLUMNS: Column[] = [
+  { label: "Company" },
+  { label: "Partner ID" },
+  { label: "Type" },
+  { label: "Status" },
+  { label: "Contact", hideBelow: "xl" },
+  { label: "Location", hideBelow: "xl" },
+  { label: "Registered", hideBelow: "xl" },
+  { label: "", align: "end" },
 ];
 
 /**
- * The partner register.
+ * The partners table and its filters.
  *
- * Defaults to every partner, but the review queue is one click away and the
- * dashboard links straight into it — the applications are the only rows that
- * carry a deadline, so they get a shortcut rather than being buried in a
- * status dropdown.
+ * Filtering happens on the server and travels in the URL rather than in
+ * component state. Three reasons: a hundredth partner should not mean shipping
+ * a hundred records to the browser to hide ninety of them; a filtered view is
+ * a link an operator can send to a colleague; and the search has to reach
+ * fields that are not in the row at all — the primary contact's email lives on
+ * a different table.
  */
-export function PartnersBrowser({ partners }: { partners: Partner[] }) {
+export function PartnersBrowser({
+  partners,
+  total,
+  page,
+  pageSize,
+  totalPages,
+  lockedStatuses,
+}: PartnersBrowserProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
   const path = useLocalePath();
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<PartnerStatus | "all">("all");
-  const [kind, setKind] = useState<PartnerKind | "all">("all");
+  const [pending, startTransition] = useTransition();
 
-  const results = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return partners.filter((partner) => {
-      if (status !== "all" && partner.status !== status) return false;
-      if (kind !== "all" && partner.kind !== kind) return false;
-      if (needle) {
-        const haystack =
-          `${partner.name} ${partner.legalName} ${partner.contactName} ${partner.email} ${partner.city}`.toLowerCase();
-        if (!haystack.includes(needle)) return false;
-      }
-      return true;
-    });
-  }, [partners, query, status, kind]);
+  const [query, setQuery] = useState(params.get("q") ?? "");
+  const status = params.get("status") ?? "all";
+  const kind = params.get("kind") ?? "all";
 
-  const activeFilters =
-    (status !== "all" ? 1 : 0) + (kind !== "all" ? 1 : 0) + (query.trim() ? 1 : 0);
+  const apply = (changes: Record<string, string | null>) => {
+    const next = new URLSearchParams(params.toString());
+
+    for (const [key, value] of Object.entries(changes)) {
+      if (value === null || value === "" || value === "all") next.delete(key);
+      else next.set(key, value);
+    }
+
+    // Any change to the filters invalidates the page number: page 3 of a
+    // narrower result set is usually empty.
+    if (!("page" in changes)) next.delete("page");
+
+    const search = next.toString();
+    startTransition(() => router.replace(search ? `${pathname}?${search}` : pathname));
+  };
+
+  // Debounced, so typing a company name is one navigation rather than one per
+  // keystroke. The input stays controlled locally so it never feels laggy.
+  useEffect(() => {
+    const current = params.get("q") ?? "";
+    if (query === current) return;
+
+    const timer = setTimeout(() => apply({ q: query.trim() || null }), 300);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
+  const statusOptions = lockedStatuses ?? PARTNER_STATUSES;
+  const activeFilters = [status !== "all", kind !== "all", query.trim() !== ""].filter(
+    Boolean,
+  ).length;
 
   const chip = (selected: boolean) =>
     cn(
-      "inline-flex h-8 items-center rounded-full border px-3 text-[0.75rem] font-medium whitespace-nowrap transition-colors",
+      "rounded-full border px-3 py-1.5 text-[0.8125rem] transition-colors",
       selected
-        ? "border-brand bg-brand-soft text-brand-text"
-        : "border-line bg-transparent text-body hover:border-subtle hover:text-ink",
+        ? "border-ink bg-ink text-on-dark"
+        : "border-line bg-surface text-body hover:border-ink/40 hover:text-ink",
     );
 
-  const missingDocs = (partner: Partner) =>
-    partner.documents.filter((doc) => !doc.received).length;
-
   return (
-    <>
-      <div className="mt-6 rounded-sm border border-line bg-surface p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <div className="relative min-w-0 flex-1">
-            <Search
-              size={16}
-              className="pointer-events-none absolute top-1/2 start-3 -translate-y-1/2 text-subtle"
-              aria-hidden
-            />
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Trading name, contact, email or city"
-              aria-label="Search partners"
-              className="h-10 w-full rounded-sm border border-line bg-background/50 ps-9 pe-3 text-sm text-ink transition-colors focus:border-ink focus:outline-none"
-            />
-          </div>
+    <section className="mt-8">
+      <div className="rounded-sm border border-line bg-surface p-4 sm:p-5">
+        <div className="relative">
+          <Search
+            size={16}
+            className="pointer-events-none absolute top-1/2 start-3 -translate-y-1/2 text-subtle"
+            aria-hidden
+          />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Company name, Partner ID, registration number or email"
+            aria-label="Search partners"
+            className="h-11 w-full rounded-sm border border-line bg-background ps-9 pe-3 text-sm text-ink transition-colors focus:border-ink focus:outline-none"
+          />
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-x-8 gap-y-4">
+          <fieldset>
+            <legend className="mb-2 text-[0.75rem] font-medium tracking-wide text-muted uppercase">
+              Status
+            </legend>
+            <div className="flex flex-wrap gap-2">
+              {(["all", ...statusOptions] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => apply({ status: value })}
+                  aria-pressed={status === value}
+                  className={chip(status === value)}
+                >
+                  {value === "all" ? "All" : partnerStatusLabels[value as PartnerStatus]}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend className="mb-2 text-[0.75rem] font-medium tracking-wide text-muted uppercase">
+              Type
+            </legend>
+            <div className="flex flex-wrap gap-2">
+              {(["all", ...PARTNER_KINDS] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => apply({ kind: value })}
+                  aria-pressed={kind === value}
+                  className={chip(kind === value)}
+                >
+                  {value === "all" ? "All" : partnerKindLabels[value as PartnerKind]}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-line pt-4">
+          <p aria-live="polite" className={cn("text-[0.8125rem] text-muted", pending && "opacity-50")}>
+            {total === 1 ? "1 partner" : `${total} partners`}
+            {activeFilters > 0 && " matching your filters"}
+          </p>
 
           {activeFilters > 0 && (
             <button
               type="button"
               onClick={() => {
                 setQuery("");
-                setStatus("all");
-                setKind("all");
+                apply({ q: null, status: null, kind: null });
               }}
-              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-sm px-3 text-[0.8125rem] font-medium text-brand-text transition-colors hover:bg-surface-soft"
+              className="inline-flex items-center gap-1.5 text-[0.8125rem] text-brand-text underline-offset-4 hover:underline"
             >
-              <X size={14} aria-hidden />
+              <X size={13} aria-hidden />
               Clear filters
             </button>
           )}
         </div>
-
-        <div className="mt-4 flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-start sm:gap-8">
-          <fieldset className="min-w-0">
-            <legend className="mb-2 text-[0.6875rem] font-semibold tracking-[0.1em] text-muted uppercase">
-              Status
-            </legend>
-            <div className="flex flex-wrap gap-1.5">
-              {statusFilters.map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={status === value}
-                  onClick={() => setStatus(value)}
-                  className={chip(status === value)}
-                >
-                  {value === "all" ? "All" : partnerStatusLabels[value]}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-
-          <fieldset className="min-w-0">
-            <legend className="mb-2 text-[0.6875rem] font-semibold tracking-[0.1em] text-muted uppercase">
-              Type
-            </legend>
-            <div className="flex flex-wrap gap-1.5">
-              {kindFilters.map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={kind === value}
-                  onClick={() => setKind(value)}
-                  className={chip(kind === value)}
-                >
-                  {value === "all" ? "All" : partnerKindLabels[value]}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-        </div>
       </div>
 
-      <p className="mt-4 text-[0.8125rem] text-muted" aria-live="polite">
-        <span className="font-medium text-ink">{results.length}</span>
-        {results.length === 1 ? " partner" : " partners"}
-        {activeFilters > 0 ? " match your filters" : " on the register"}
-      </p>
+      <div className={cn("mt-5 transition-opacity", pending && "opacity-60")}>
+        <div className="hidden lg:block">
+          <DataTable columns={COLUMNS} caption="Partner companies">
+            {partners.length === 0 && (
+              <EmptyRow colSpan={COLUMNS.length} message="No partners match your filters." />
+            )}
 
-      <AdminPanel className="mt-3 hidden lg:block" bodyClassName="p-0">
-        <DataTable
-          caption="Registered partners and pending applications"
-          columns={[
-            { label: "Partner" },
-            { label: "Type" },
-            { label: "Status" },
-            { label: "Paperwork", hideBelow: "xl" },
-            { label: "Listings", align: "end" },
-            { label: "Revenue", align: "end" },
-            { label: "Applied", hideBelow: "xl" },
-            { label: "" },
-          ]}
-        >
-          {results.length === 0 ? (
-            <EmptyRow
-              colSpan={8}
-              message="No partners match those filters. Clear them to see the whole register."
-            />
-          ) : (
-            results.map((partner) => {
-              const missing = missingDocs(partner);
-              return (
-                <Row key={partner.id}>
-                  <Cell>
-                    <Link
-                      href={path(`/admin/partners/${partner.id}`)}
-                      className="block max-w-56 truncate font-medium text-ink underline-offset-4 hover:underline"
-                    >
-                      {partner.name}
-                    </Link>
-                    <span className="block truncate text-[0.75rem] text-muted">
-                      {partner.contactName} · {partner.city}
-                    </span>
-                  </Cell>
-                  <Cell>{partnerKindLabels[partner.kind]}</Cell>
-                  <Cell>
-                    <PartnerStatusBadge status={partner.status} />
-                  </Cell>
-                  <Cell hideBelow="xl">
-                    {missing === 0 ? (
-                      <span className="text-[0.8125rem] text-success">Complete</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 text-[0.8125rem] text-warning-text">
-                        <FileWarning size={13} aria-hidden />
-                        {missing} outstanding
-                      </span>
-                    )}
-                  </Cell>
-                  <Cell align="end" className="tabular-nums">
-                    {partner.listings}
-                  </Cell>
-                  <Cell align="end" className="font-medium text-ink tabular-nums">
-                    {partner.revenue > 0 ? formatCompactMoney(partner.revenue) : "—"}
-                  </Cell>
-                  <Cell hideBelow="xl" className="whitespace-nowrap text-[0.8125rem]">
-                    {formatAdminDate(partner.appliedOn)}
-                  </Cell>
-                  <Cell align="end">
-                    <Link
-                      href={path(`/admin/partners/${partner.id}`)}
-                      aria-label={`Open ${partner.name}`}
-                      className="inline-flex size-8 items-center justify-center rounded-sm text-subtle transition-colors hover:bg-surface-soft hover:text-ink"
-                    >
-                      <ChevronRight size={16} className="rtl:-scale-x-100" aria-hidden />
-                    </Link>
-                  </Cell>
-                </Row>
-              );
-            })
-          )}
-        </DataTable>
-      </AdminPanel>
-
-      <div className="mt-3 flex flex-col gap-3 lg:hidden">
-        {results.length === 0 ? (
-          <p className="rounded-sm border border-dashed border-line bg-surface-soft/40 px-5 py-12 text-center text-[0.875rem] text-muted">
-            No partners match those filters.
-          </p>
-        ) : (
-          results.map((partner) => (
-            <Link
-              key={partner.id}
-              href={path(`/admin/partners/${partner.id}`)}
-              className="rounded-sm border border-line bg-surface p-4 transition-colors hover:border-subtle"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-[0.9375rem] font-medium text-ink">
+            {partners.map((partner) => (
+              <Row key={partner.id}>
+                <Cell>
+                  <Link
+                    href={path(`/admin/partners/${partner.id}`)}
+                    className="font-medium text-ink underline-offset-4 hover:underline"
+                  >
                     {partner.name}
-                  </p>
-                  <p className="mt-0.5 truncate text-[0.8125rem] text-muted">
-                    {partnerKindLabels[partner.kind]} · {partner.city}
-                  </p>
-                </div>
-                <PartnerStatusBadge status={partner.status} className="shrink-0" />
-              </div>
+                  </Link>
+                  {partner.registrationNumber && (
+                    <span className="block text-[0.75rem] text-muted">
+                      {partner.registrationNumber}
+                    </span>
+                  )}
+                </Cell>
+                <Cell>
+                  <span className="font-mono text-[0.8125rem] text-body">{partner.reference}</span>
+                </Cell>
+                <Cell>{partnerKindLabels[partner.kind]}</Cell>
+                <Cell>
+                  <PartnerStatusBadge status={partner.status} />
+                </Cell>
+                <Cell hideBelow="xl">
+                  {partner.contact ? (
+                    <>
+                      <span className="block text-body">{partner.contact.fullName}</span>
+                      <span className="block text-[0.75rem] text-muted">{partner.contact.email}</span>
+                    </>
+                  ) : (
+                    <span className="text-subtle">—</span>
+                  )}
+                </Cell>
+                <Cell hideBelow="xl">
+                  {[partner.city, partner.country].filter(Boolean).join(", ") || "—"}
+                </Cell>
+                <Cell hideBelow="xl">
+                  {formatPartnerDate(partner.submittedAt ?? partner.createdAt)}
+                </Cell>
+                <Cell align="end">
+                  <Link
+                    href={path(`/admin/partners/${partner.id}`)}
+                    className="inline-flex items-center gap-1 text-[0.8125rem] text-brand-text underline-offset-4 hover:underline"
+                  >
+                    Open
+                    <ChevronRight size={14} className="rtl:-scale-x-100" aria-hidden />
+                  </Link>
+                </Cell>
+              </Row>
+            ))}
+          </DataTable>
+        </div>
 
-              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-3 text-[0.75rem] text-subtle">
-                <span>{partner.listings} listings</span>
-                <span>
-                  {partner.revenue > 0 ? formatCompactMoney(partner.revenue) : "No revenue yet"}
-                </span>
-                {missingDocs(partner) > 0 && (
-                  <span className="inline-flex items-center gap-1 text-warning-text">
-                    <FileWarning size={12} aria-hidden />
-                    {missingDocs(partner)} documents outstanding
-                  </span>
+        <ul className="space-y-3 lg:hidden">
+          {partners.length === 0 && (
+            <li className="rounded-sm border border-line bg-surface p-6 text-center text-[0.8125rem] text-muted">
+              No partners match your filters.
+            </li>
+          )}
+
+          {partners.map((partner) => (
+            <li key={partner.id}>
+              <Link
+                href={path(`/admin/partners/${partner.id}`)}
+                className="block rounded-sm border border-line bg-surface p-4 transition-colors hover:border-ink/30"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-ink">{partner.name}</p>
+                    <p className="mt-0.5 font-mono text-[0.75rem] text-muted">{partner.reference}</p>
+                  </div>
+                  <PartnerStatusBadge status={partner.status} />
+                </div>
+                <p className="mt-3 text-[0.8125rem] text-muted">
+                  {partnerKindLabels[partner.kind]}
+                  {partner.city ? ` · ${partner.city}` : ""}
+                </p>
+                {partner.contact && (
+                  <p className="mt-1 truncate text-[0.8125rem] text-muted">{partner.contact.email}</p>
                 )}
-              </div>
-            </Link>
-          ))
-        )}
+              </Link>
+            </li>
+          ))}
+        </ul>
       </div>
-    </>
+
+      {totalPages > 1 && (
+        <nav className="mt-6 flex items-center justify-between gap-3" aria-label="Pagination">
+          <button
+            type="button"
+            disabled={page <= 1}
+            onClick={() => apply({ page: String(page - 1) })}
+            className="h-10 rounded-sm border border-line bg-surface px-4 text-[0.8125rem] text-body transition-colors hover:border-ink/40 disabled:opacity-40"
+          >
+            Previous
+          </button>
+          <p className="text-[0.8125rem] text-muted">
+            Page {page} of {totalPages}
+            <span className="sr-only">, {pageSize} per page</span>
+          </p>
+          <button
+            type="button"
+            disabled={page >= totalPages}
+            onClick={() => apply({ page: String(page + 1) })}
+            className="h-10 rounded-sm border border-line bg-surface px-4 text-[0.8125rem] text-body transition-colors hover:border-ink/40 disabled:opacity-40"
+          >
+            Next
+          </button>
+        </nav>
+      )}
+    </section>
   );
 }

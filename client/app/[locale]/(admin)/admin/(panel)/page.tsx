@@ -1,97 +1,90 @@
 import Link from "next/link";
-import { ArrowRight, CalendarCheck, Clock, Handshake, Wallet } from "lucide-react";
+import { ArrowRight, CalendarCheck, CheckCircle2, Handshake, Wallet } from "lucide-react";
 
-import {
-  AdminContainer,
-  AdminPageHeader,
-  AdminPanel,
-} from "@/components/admin/AdminPage";
-import { BookingsChart } from "@/components/admin/BookingsChart";
+import { AdminContainer, AdminPageHeader, AdminPanel } from "@/components/admin/AdminPage";
 import { Cell, DataTable, EmptyRow, Row } from "@/components/admin/DataTable";
 import { StatCard } from "@/components/admin/StatCard";
+import { BookingStatusBadge, PartnerStatusBadge } from "@/components/admin/StatusBadge";
+import { listPartners } from "@/lib/api/partners";
+import { getSession } from "@/lib/auth/session";
+import { APPLICATION_STATUSES, formatPartnerDate, partnerKindLabels } from "@/lib/admin/partners";
+import { formatStay, formatStayDate } from "@/lib/admin/bookings";
 import {
-  BookingStatusBadge,
-  PartnerStatusBadge,
-} from "@/components/admin/StatusBadge";
-import { productKindLabels } from "@/data/admin/bookings";
-import { partnerKindLabels, partnersAwaitingReview } from "@/data/admin/partners";
-import { adminUser } from "@/data/admin/user";
-import {
-  actionQueue,
-  activePartnerCount,
-  formatAdminDate,
+  countActive,
   formatCompactMoney,
-  grossBookingValue,
-  monthOnMonthChange,
-  monthlyTotals,
-  pendingPartnerCount,
   recentBookings,
+  recentValue,
+  upcomingArrivals,
 } from "@/lib/admin/metrics";
+import { formatMoney } from "@/lib/money";
 import { getI18n } from "@/lib/i18n/server";
-import { formatPrice } from "@/lib/utils";
 
+/**
+ * The overview.
+ *
+ * Everything on it is a live record now — bookings joined partners in being
+ * real. Every figure is a request, so they all go out in one `Promise.all`;
+ * a dashboard that fetches serially is a dashboard nobody waits for.
+ *
+ * The chart of bookings-by-month went with the mock ledger it drew from. A
+ * truthful replacement needs a server-side aggregate over booking history, and
+ * an empty chart over three days of real data would be worse than none.
+ */
 export default async function AdminOverviewPage() {
   const { path } = await getI18n();
+  const session = await getSession();
 
-  const totals = monthlyTotals();
-  const thisMonth = totals[totals.length - 1];
-  const queue = actionQueue();
-  const applications = partnersAwaitingReview().slice(0, 4);
-  const recent = recentBookings(6);
+  const [applications, approved, active, monthValue, arrivals, recent] = await Promise.all([
+    listPartners({ status: APPLICATION_STATUSES, pageSize: 4 }),
+    listPartners({ status: "APPROVED", pageSize: 1 }),
+    countActive(),
+    recentValue(30),
+    upcomingArrivals(5),
+    recentBookings(6),
+  ]);
 
   return (
     <AdminContainer>
       <AdminPageHeader
-        title={`Good morning, ${adminUser.name.split(" ")[0]}`}
-        description="Everything waiting on a decision, and how the month is tracking."
+        title={`Good morning, ${session?.user.firstName ?? "there"}`}
+        description="What is live, what is arriving, and what needs a decision."
       />
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Bookings this month"
-          value={String(thisMonth.total)}
-          icon={CalendarCheck}
-          change={monthOnMonthChange()}
+          label="Active bookings"
+          value={String(active)}
+          icon={CheckCircle2}
+          hint="Confirmed or pending stays"
         />
         <StatCard
-          label="Gross booking value"
-          value={formatCompactMoney(grossBookingValue())}
+          label="Booked, last 30 days"
+          value={formatCompactMoney(monthValue.amountCents, monthValue.currency)}
           icon={Wallet}
-          hint="Across the current ledger, cancellations excluded"
+          hint="Cancellations excluded"
         />
         <StatCard
-          label="Bookings to confirm"
-          value={String(queue.length)}
-          icon={Clock}
-          hint={queue.length > 0 ? "Oldest travels first — see the queue below" : "Queue is clear"}
+          label="Arriving soon"
+          value={String(arrivals.length)}
+          icon={CalendarCheck}
+          hint="Next confirmed check-ins"
         />
         <StatCard
           label="Partner applications"
-          value={String(pendingPartnerCount())}
+          value={String(applications.total)}
           icon={Handshake}
-          hint={`${activePartnerCount()} partners active`}
+          hint={`${approved.total} partners approved`}
         />
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-3">
         <AdminPanel
-          title="Bookings by month"
-          description="Volume across the last twelve months, split by what was booked."
+          title="Latest bookings"
+          description="Newest first, across every property."
           className="xl:col-span-2"
-        >
-          <BookingsChart />
-        </AdminPanel>
-
-        <AdminPanel
-          title="Needs your decision"
-          description={
-            queue.length > 0
-              ? `${queue.length} bookings are unconfirmed.`
-              : "Nothing is waiting."
-          }
           action={
             <Link
-              href={path("/admin/bookings?status=pending")}
+              href={path("/admin/bookings")}
               className="inline-flex items-center gap-1.5 text-[0.8125rem] font-medium text-brand-text transition-colors hover:text-brand-hover"
             >
               View all
@@ -100,102 +93,38 @@ export default async function AdminOverviewPage() {
           }
           bodyClassName="p-0"
         >
-          {queue.length > 0 ? (
-            <ul className="divide-y divide-line">
-              {queue.slice(0, 5).map((booking) => (
-                <li key={booking.id}>
-                  <Link
-                    href={path(`/admin/bookings/${booking.id}`)}
-                    className="flex items-start justify-between gap-3 px-5 py-3.5 transition-colors hover:bg-surface-soft/60"
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate text-[0.875rem] font-medium text-ink">
-                        {booking.customer.name}
-                      </span>
-                      <span className="mt-0.5 block truncate text-[0.75rem] text-muted">
-                        {booking.productName}
-                      </span>
-                      <span className="mt-1.5 block text-[0.75rem] text-subtle">
-                        Travels {formatAdminDate(booking.travelDate)}
-                      </span>
-                    </span>
-                    <span className="shrink-0 text-end">
-                      <span className="block text-[0.875rem] font-semibold text-ink tabular-nums">
-                        {formatPrice(booking.total)}
-                      </span>
-                      <span className="mt-1.5 block">
-                        <BookingStatusBadge status={booking.status} />
-                      </span>
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="px-5 py-12 text-center text-[0.875rem] text-muted">
-              Every booking is confirmed. Nothing to do here.
-            </p>
-          )}
-        </AdminPanel>
-      </div>
-
-      <div className="mt-6 grid gap-6 xl:grid-cols-3">
-        <AdminPanel
-          title="Recent bookings"
-          action={
-            <Link
-              href={path("/admin/bookings")}
-              className="inline-flex items-center gap-1.5 text-[0.8125rem] font-medium text-brand-text transition-colors hover:text-brand-hover"
-            >
-              All bookings
-              <ArrowRight size={14} className="rtl:-scale-x-100" aria-hidden />
-            </Link>
-          }
-          bodyClassName="p-0"
-          className="xl:col-span-2"
-        >
           <DataTable
-            caption="The six most recently placed bookings"
             columns={[
               { label: "Reference" },
-              { label: "Customer" },
-              { label: "Product", hideBelow: "md" },
+              { label: "Guest" },
+              { label: "Stay", hideBelow: "md" },
               { label: "Status" },
               { label: "Total", align: "end" },
             ]}
+            caption="Latest bookings"
           >
             {recent.length === 0 ? (
               <EmptyRow colSpan={5} message="No bookings yet." />
             ) : (
               recent.map((booking) => (
-                <Row key={booking.id}>
+                <Row key={booking.reference}>
                   <Cell>
                     <Link
-                      href={path(`/admin/bookings/${booking.id}`)}
-                      className="font-medium text-ink tabular-nums underline-offset-4 hover:underline"
+                      href={path(`/admin/bookings/${booking.reference}`)}
+                      className="font-medium text-ink underline-offset-4 hover:underline"
                     >
                       {booking.reference}
                     </Link>
                   </Cell>
-                  <Cell>
-                    <span className="block truncate font-medium text-ink">
-                      {booking.customer.name}
-                    </span>
-                    <span className="block truncate text-[0.75rem] text-muted">
-                      {booking.customer.country}
-                    </span>
-                  </Cell>
+                  <Cell>{booking.leadGuestName}</Cell>
                   <Cell hideBelow="md">
-                    <span className="block max-w-56 truncate">{booking.productName}</span>
-                    <span className="block text-[0.75rem] text-subtle">
-                      {productKindLabels[booking.kind]}
-                    </span>
+                    {formatStay(booking.checkIn, booking.checkOut, booking.nights)}
                   </Cell>
                   <Cell>
                     <BookingStatusBadge status={booking.status} />
                   </Cell>
-                  <Cell align="end" className="font-medium text-ink tabular-nums">
-                    {formatPrice(booking.total)}
+                  <Cell align="end" className="tabular-nums">
+                    {formatMoney(booking.totalCents, booking.currency)}
                   </Cell>
                 </Row>
               ))
@@ -203,50 +132,80 @@ export default async function AdminOverviewPage() {
           </DataTable>
         </AdminPanel>
 
-        <AdminPanel
-          title="Partner applications"
-          description="Oldest first — the order they should be worked."
-          action={
-            <Link
-              href={path("/admin/partners")}
-              className="inline-flex items-center gap-1.5 text-[0.8125rem] font-medium text-brand-text transition-colors hover:text-brand-hover"
-            >
-              All partners
-              <ArrowRight size={14} className="rtl:-scale-x-100" aria-hidden />
-            </Link>
-          }
-          bodyClassName="p-0"
-        >
-          {applications.length > 0 ? (
-            <ul className="divide-y divide-line">
-              {applications.map((partner) => (
-                <li key={partner.id}>
-                  <Link
-                    href={path(`/admin/partners/${partner.id}`)}
-                    className="flex items-start justify-between gap-3 px-5 py-3.5 transition-colors hover:bg-surface-soft/60"
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate text-[0.875rem] font-medium text-ink">
-                        {partner.name}
+        <div className="flex flex-col gap-6">
+          <AdminPanel
+            title="Arriving next"
+            description={arrivals.length > 0 ? "Confirmed stays, soonest first." : "No upcoming arrivals."}
+            bodyClassName="p-0"
+          >
+            {arrivals.length > 0 && (
+              <ul className="divide-y divide-line">
+                {arrivals.map((booking) => (
+                  <li key={booking.reference}>
+                    <Link
+                      href={path(`/admin/bookings/${booking.reference}`)}
+                      className="flex items-start justify-between gap-3 px-5 py-3.5 transition-colors hover:bg-surface-soft/60"
+                    >
+                      <span>
+                        <span className="block text-[0.875rem] font-medium text-ink">
+                          {booking.leadGuestName}
+                        </span>
+                        <span className="block text-[0.75rem] text-muted">
+                          {booking.hotel.name}
+                        </span>
                       </span>
-                      <span className="mt-0.5 block truncate text-[0.75rem] text-muted">
-                        {partnerKindLabels[partner.kind]} · {partner.city}
+                      <span className="text-end text-[0.75rem] text-muted">
+                        {formatStayDate(booking.checkIn)}
                       </span>
-                      <span className="mt-1.5 block text-[0.75rem] text-subtle">
-                        Applied {formatAdminDate(partner.appliedOn)}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </AdminPanel>
+
+          <AdminPanel
+            title="Partner applications"
+            description={
+              applications.total > 0
+                ? "Oldest first — that is the order they should be worked."
+                : "The queue is clear."
+            }
+            action={
+              <Link
+                href={path("/admin/partners/applications")}
+                className="inline-flex items-center gap-1.5 text-[0.8125rem] font-medium text-brand-text transition-colors hover:text-brand-hover"
+              >
+                Review
+                <ArrowRight size={14} className="rtl:-scale-x-100" aria-hidden />
+              </Link>
+            }
+            bodyClassName="p-0"
+          >
+            {applications.data.length > 0 && (
+              <ul className="divide-y divide-line">
+                {applications.data.map((partner) => (
+                  <li key={partner.id}>
+                    <Link
+                      href={path(`/admin/partners/${partner.id}`)}
+                      className="flex items-start justify-between gap-3 px-5 py-3.5 transition-colors hover:bg-surface-soft/60"
+                    >
+                      <span>
+                        <span className="block text-[0.875rem] font-medium text-ink">
+                          {partner.name}
+                        </span>
+                        <span className="block text-[0.75rem] text-muted">
+                          {partnerKindLabels[partner.kind]} · {formatPartnerDate(partner.createdAt)}
+                        </span>
                       </span>
-                    </span>
-                    <PartnerStatusBadge status={partner.status} className="shrink-0" />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="px-5 py-12 text-center text-[0.875rem] text-muted">
-              No applications waiting.
-            </p>
-          )}
-        </AdminPanel>
+                      <PartnerStatusBadge status={partner.status} />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </AdminPanel>
+        </div>
       </div>
     </AdminContainer>
   );

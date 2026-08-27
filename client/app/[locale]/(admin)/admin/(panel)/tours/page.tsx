@@ -3,7 +3,6 @@ import { Plus } from "lucide-react";
 
 import { AdminContainer, AdminPageHeader } from "@/components/admin/AdminPage";
 import { InventoryBrowser, type InventoryRow } from "@/components/admin/InventoryBrowser";
-import { bookings } from "@/data/admin/bookings";
 import { tours } from "@/data/tours";
 
 export const metadata: Metadata = { title: "Tours" };
@@ -27,7 +26,9 @@ export default function AdminToursPage() {
     reviewCount: tour.reviewCount,
     detailLabel: `${tour.durationLabel} · ${tour.difficulty}`,
     featured: tour.featured,
-    bookings: bookings.filter((booking) => booking.productSlug === tour.slug).length,
+    // Tours have no booking backend yet, and a fictional count would imply
+    // one. Zero is the honest figure until they do.
+    bookings: 0,
   }));
 
   const groups = Array.from(new Set(tours.map((tour) => categoryLabel(tour.category))));

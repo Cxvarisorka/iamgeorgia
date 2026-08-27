@@ -1,7 +1,6 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ExternalLink, Mail, Phone, StickyNote } from "lucide-react";
+import type { Metadata } from "next";
 
 import {
   AdminBreadcrumbs,
@@ -11,43 +10,47 @@ import {
   AdminPanel,
 } from "@/components/admin/AdminPage";
 import { BookingActions } from "@/components/admin/BookingActions";
-import { PaymentStatusBadge, PartnerStatusBadge } from "@/components/admin/StatusBadge";
-import { getBookingById, productKindLabels } from "@/data/admin/bookings";
-import { getPartnerById, partnerKindLabels } from "@/data/admin/partners";
-import { formatAdminDate } from "@/lib/admin/metrics";
+import { BookingStatusBadge } from "@/components/admin/StatusBadge";
+import { Cell, DataTable, Row } from "@/components/admin/DataTable";
+import { getAdminBooking } from "@/lib/api/bookings";
+import { ApiError } from "@/lib/api/client";
+import { formatInstant, formatStay, formatStayDate } from "@/lib/admin/bookings";
+import { formatMoney, formatBps } from "@/lib/money";
 import { getI18n } from "@/lib/i18n/server";
-import { formatPrice } from "@/lib/utils";
+import { quoteFromSchedule } from "@/lib/admin/cancellation";
 
-export async function generateMetadata(
-  props: PageProps<"/[locale]/admin/bookings/[id]">,
-): Promise<Metadata> {
-  const { id } = await props.params;
-  const booking = getBookingById(id);
-  return { title: booking ? `Booking ${booking.reference}` : "Booking not found" };
-}
+export const metadata: Metadata = { title: "Booking" };
 
-/** Where a booking's product lives on the public site. */
-const productPath: Record<string, string> = {
-  hotel: "/hotels",
-  tour: "/tours",
-  transfer: "/transfers",
-};
+/**
+ * One booking.
+ *
+ * Almost everything here comes from the **snapshot** taken at confirmation, not
+ * from the live hotel: the property may have been renamed, the room retired and
+ * the cancellation policy tightened since, and none of that may change what
+ * this guest was sold. The only live thing on the page is the status.
+ *
+ * Deliberately no `generateStaticParams`: a booking is private, changes on
+ * cancellation, and is only ever read by a signed-in operator.
+ */
+export default async function AdminBookingPage({
+  params,
+}: PageProps<"/[locale]/admin/bookings/[id]">) {
+  const { id } = await params;
+  const { path } = await getI18n();
 
-export default async function AdminBookingDetailPage(
-  props: PageProps<"/[locale]/admin/bookings/[id]">,
-) {
-  const [{ id }, { path }] = await Promise.all([props.params, getI18n()]);
+  let booking;
 
-  const booking = getBookingById(id);
-  if (!booking) notFound();
+  try {
+    booking = await getAdminBooking(id);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) notFound();
+    throw error;
+  }
 
-  const partner = getPartnerById(booking.partnerId);
-  const nightsLabel =
-    booking.kind === "hotel"
-      ? `${booking.nights} ${booking.nights === 1 ? "night" : "nights"}`
-      : booking.kind === "tour"
-        ? `${booking.nights} ${booking.nights === 1 ? "day" : "days"}`
-        : "Single journey";
+  const snapshot = booking.hotelSnapshot;
+  // Read off the frozen schedule rather than asking the server again: the
+  // windows travel with the booking precisely so this is arithmetic.
+  const quote = quoteFromSchedule(booking);
 
   return (
     <AdminContainer>
@@ -60,134 +63,240 @@ export default async function AdminBookingDetailPage(
 
       <AdminPageHeader
         title={booking.reference}
-        description={`${productKindLabels[booking.kind]} booking placed on ${formatAdminDate(booking.placedOn)}.`}
-        actions={
-          <Link
-            href={path("/admin/bookings")}
-            className="inline-flex h-10 items-center gap-2 rounded-sm border border-ink/20 px-4 text-[0.8125rem] font-semibold text-ink transition-colors hover:border-ink hover:bg-surface-soft"
-          >
-            <ArrowLeft size={15} className="rtl:-scale-x-100" aria-hidden />
-            Back to bookings
-          </Link>
-        }
+        description={`${snapshot.name} · ${formatStay(booking.checkIn, booking.checkOut, booking.nights)}`}
+        actions={<BookingStatusBadge status={booking.status} />}
       />
 
       <div className="mt-8 grid gap-6 lg:grid-cols-3">
-        <div className="min-w-0 space-y-6 lg:col-span-2">
-          <AdminPanel title="Reservation">
+        <div className="flex flex-col gap-6 lg:col-span-2">
+          <AdminPanel title="Stay">
             <AdminDefinitionList
               items={[
+                { label: "Check in", value: formatStayDate(booking.checkIn) },
+                { label: "Check out", value: formatStayDate(booking.checkOut) },
+                { label: "Nights", value: String(booking.nights) },
+                { label: "Rooms", value: String(booking.rooms) },
                 {
-                  label: "Product",
-                  value: (
-                    <Link
-                      href={path(`${productPath[booking.kind]}/${booking.productSlug}`)}
-                      className="inline-flex items-center gap-1.5 underline-offset-4 hover:underline"
-                    >
-                      {booking.productName}
-                      <ExternalLink size={13} className="text-subtle" aria-hidden />
-                    </Link>
-                  ),
+                  label: "Property times",
+                  value:
+                    snapshot.checkIn.from || snapshot.checkOut.until
+                      ? `In from ${snapshot.checkIn.from ?? "—"}, out by ${snapshot.checkOut.until ?? "—"}`
+                      : "—",
                 },
-                { label: "Type", value: productKindLabels[booking.kind] },
-                { label: "Travel date", value: formatAdminDate(booking.travelDate) },
-                { label: "Duration", value: nightsLabel },
-                {
-                  label: "Guests",
-                  value: `${booking.guests} ${booking.guests === 1 ? "guest" : "guests"}`,
-                },
-                { label: "Placed on", value: formatAdminDate(booking.placedOn) },
+                { label: "Time zone", value: snapshot.timezone },
               ]}
             />
           </AdminPanel>
 
-          <AdminPanel title="Customer">
+          {booking.bookingRooms.map((room, index) => (
+            <AdminPanel
+              key={room.id}
+              title={booking.bookingRooms.length > 1 ? `Room ${index + 1}` : "Room"}
+              description={`${room.roomTypeName} · ${room.ratePlanName}`}
+            >
+              <AdminDefinitionList
+                items={[
+                  { label: "Board", value: `${room.mealPlan.name} (${room.mealPlan.code})` },
+                  { label: "Beds", value: room.bedConfiguration ?? "—" },
+                  {
+                    label: "Guests",
+                    value: `${room.adults} ${room.adults === 1 ? "adult" : "adults"}${
+                      room.childAges.length > 0
+                        ? `, ${room.childAges.length} child (${room.childAges.join(", ")})`
+                        : ""
+                    }`,
+                  },
+                  {
+                    label: "Free cancellation until",
+                    value: room.cancellation.freeUntil
+                      ? formatInstant(room.cancellation.freeUntil)
+                      : "Non-refundable",
+                  },
+                ]}
+              />
+
+              <div className="mt-5">
+                <h4 className="text-[0.75rem] font-semibold tracking-[0.1em] text-muted uppercase">
+                  Nightly breakdown
+                </h4>
+                <div className="mt-2 rounded-sm border border-line">
+                  <DataTable
+                    columns={[
+                      { label: "Night" },
+                      ...(room.netSubtotalCents !== undefined
+                        ? [{ label: "Cost", align: "end" as const }]
+                        : []),
+                      { label: "Price", align: "end" },
+                    ]}
+                    caption={`Nightly prices for ${room.roomTypeName}`}
+                  >
+                    {room.nights.map((night) => (
+                      <Row key={night.date}>
+                        <Cell>{formatStayDate(night.date)}</Cell>
+                        {night.netCents !== undefined && (
+                          <Cell align="end" className="tabular-nums text-muted">
+                            {formatMoney(night.netCents, booking.currency)}
+                          </Cell>
+                        )}
+                        <Cell align="end" className="tabular-nums">
+                          {formatMoney(night.sellCents, booking.currency)}
+                        </Cell>
+                      </Row>
+                    ))}
+                  </DataTable>
+                </div>
+              </div>
+
+              {room.guests.length > 0 && (
+                <ul className="mt-5 flex flex-wrap gap-2">
+                  {room.guests.map((guest, guestIndex) => (
+                    <li
+                      key={`${guest.firstName}-${guestIndex}`}
+                      className="rounded-full bg-surface-soft px-3 py-1 text-[0.75rem] text-body"
+                    >
+                      {guest.firstName} {guest.lastName}
+                      {guest.isLead && <span className="text-muted"> · lead</span>}
+                      {guest.age !== null && <span className="text-muted"> · age {guest.age}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </AdminPanel>
+          ))}
+
+          <AdminPanel
+            title="Cancellation terms"
+            description="Frozen at confirmation. A later change to the hotel's policy does not apply to this booking."
+          >
+            <div className="rounded-sm border border-line">
+              <DataTable
+                columns={[{ label: "From" }, { label: "Until" }, { label: "Charge", align: "end" }]}
+                caption="Cancellation windows"
+              >
+                {booking.bookingRooms[0]?.cancellation.windows.map((window, index) => (
+                  <Row key={index}>
+                    <Cell>{window.fromAt ? formatInstant(window.fromAt) : "Booking made"}</Cell>
+                    <Cell>{window.toAt ? formatInstant(window.toAt) : "After check-in"}</Cell>
+                    <Cell align="end" className="tabular-nums">
+                      {formatMoney(window.chargeCents, booking.currency)}
+                    </Cell>
+                  </Row>
+                ))}
+              </DataTable>
+            </div>
+          </AdminPanel>
+        </div>
+
+        <div className="flex flex-col gap-6">
+          <AdminPanel title="Guest">
             <AdminDefinitionList
               items={[
-                { label: "Name", value: booking.customer.name },
+                { label: "Name", value: booking.leadGuestName },
                 {
                   label: "Email",
                   value: (
                     <a
-                      href={`mailto:${booking.customer.email}`}
-                      className="inline-flex items-center gap-1.5 underline-offset-4 hover:underline"
+                      href={`mailto:${booking.leadGuestEmail}`}
+                      className="text-ink underline-offset-4 hover:underline"
                     >
-                      <Mail size={13} className="text-subtle" aria-hidden />
-                      {booking.customer.email}
+                      {booking.leadGuestEmail}
                     </a>
                   ),
                 },
-                {
-                  label: "Phone",
-                  value: (
-                    <a
-                      href={`tel:${booking.customer.phone.replace(/\s/g, "")}`}
-                      className="inline-flex items-center gap-1.5 underline-offset-4 hover:underline"
-                    >
-                      <Phone size={13} className="text-subtle" aria-hidden />
-                      {booking.customer.phone}
-                    </a>
-                  ),
-                },
-                { label: "Country", value: booking.customer.country },
+                { label: "Phone", value: booking.leadGuestPhone ?? "—" },
+                { label: "Requests", value: booking.specialRequests ?? "—" },
               ]}
             />
           </AdminPanel>
 
-          {booking.notes && (
-            <AdminPanel title="Internal note">
-              <p className="flex gap-3 text-[0.875rem] leading-relaxed text-body">
-                <StickyNote size={16} className="mt-0.5 shrink-0 text-brand-text" aria-hidden />
-                {booking.notes}
-              </p>
-            </AdminPanel>
-          )}
+          <AdminPanel title="Money">
+            <AdminDefinitionList
+              items={[
+                {
+                  label: "Total",
+                  value: formatMoney(booking.totalCents, booking.currency),
+                },
+                ...(booking.taxIncludedCents > 0
+                  ? [
+                      {
+                        label: "Tax included",
+                        value: formatMoney(booking.taxIncludedCents, booking.currency),
+                      },
+                    ]
+                  : []),
+                ...(booking.payableAtPropertyCents > 0
+                  ? [
+                      {
+                        label: "Payable at property",
+                        value: formatMoney(booking.payableAtPropertyCents, booking.currency),
+                      },
+                    ]
+                  : []),
+                // Absent, not null, for anyone without permission — so this
+                // block simply does not render rather than showing blanks.
+                ...(booking.netTotalCents !== undefined
+                  ? [
+                      {
+                        label: "Supplier cost",
+                        value: formatMoney(booking.netTotalCents, booking.currency),
+                      },
+                      {
+                        label: "Margin",
+                        value: `${formatMoney(booking.marginCents ?? 0, booking.currency)} · ${formatBps(booking.markupBps ?? 0)}`,
+                      },
+                    ]
+                  : []),
+                ...(booking.cancellationChargeCents !== null
+                  ? [
+                      {
+                        label: "Cancellation charge",
+                        value: formatMoney(booking.cancellationChargeCents, booking.currency),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+          </AdminPanel>
 
-          {partner && (
-            <AdminPanel
-              title="Fulfilled by"
-              action={
-                <Link
-                  href={path(`/admin/partners/${partner.id}`)}
-                  className="text-[0.8125rem] font-medium text-brand-text underline-offset-4 hover:underline"
-                >
-                  Open partner
-                </Link>
-              }
-            >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[0.9375rem] font-medium text-ink">{partner.name}</p>
-                  <p className="mt-0.5 text-[0.8125rem] text-muted">
-                    {partnerKindLabels[partner.kind]} · {partner.city} ·{" "}
-                    {partner.commissionRate}% commission
-                  </p>
-                </div>
-                <PartnerStatusBadge status={partner.status} />
-              </div>
-            </AdminPanel>
-          )}
-        </div>
+          <AdminPanel title="Property as booked">
+            <AdminDefinitionList
+              items={[
+                {
+                  label: "Hotel",
+                  value: (
+                    <Link
+                      href={path(`/admin/hotels/${snapshot.id}`)}
+                      className="text-ink underline-offset-4 hover:underline"
+                    >
+                      {snapshot.name}
+                    </Link>
+                  ),
+                },
+                { label: "Address", value: snapshot.address ?? "—" },
+                { label: "Phone", value: snapshot.phone ?? "—" },
+                { label: "Stars", value: "★".repeat(snapshot.starRating) },
+              ]}
+            />
+          </AdminPanel>
 
-        <div className="space-y-6">
-          <AdminPanel title="Payment">
-            <div className="flex items-baseline justify-between gap-4">
-              <span className="text-[0.8125rem] text-muted">Total</span>
-              <span className="font-display text-2xl text-ink tabular-nums">
-                {formatPrice(booking.total)}
-              </span>
-            </div>
-            <div className="mt-4 flex items-center justify-between gap-3 border-t border-line pt-4">
-              <span className="text-[0.8125rem] text-muted">Status</span>
-              <PaymentStatusBadge status={booking.payment} />
-            </div>
-            <p className="mt-4 text-[0.75rem] text-subtle">
-              Indicative only. This prototype processes no payments.
-            </p>
+          <AdminPanel title="Record">
+            <AdminDefinitionList
+              items={[
+                { label: "Placed", value: formatInstant(booking.createdAt) },
+                { label: "Confirmed", value: formatInstant(booking.confirmedAt) },
+                ...(booking.cancelledAt
+                  ? [{ label: "Cancelled", value: formatInstant(booking.cancelledAt) }]
+                  : []),
+                { label: "Source", value: booking.source },
+                ...(booking.partner
+                  ? [{ label: "Booked by", value: booking.partner.name }]
+                  : [{ label: "Booked by", value: "Direct guest" }]),
+              ]}
+            />
           </AdminPanel>
 
           <AdminPanel title="Actions">
-            <BookingActions initialStatus={booking.status} />
+            <BookingActions booking={booking} quote={quote} />
           </AdminPanel>
         </div>
       </div>

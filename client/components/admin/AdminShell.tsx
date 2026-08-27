@@ -1,19 +1,34 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Bell, ChevronDown, LogOut, Menu, Search } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AdminSidebar } from "./AdminSidebar";
-import { adminUser } from "@/data/admin/user";
+import { signOut } from "@/lib/api/partners";
+import { forgetViewer } from "@/lib/auth/useViewer";
 import { useLocalePath } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
+import type { SessionUser } from "@/types/auth";
 
 interface AdminShellProps {
   badges: { pendingBookings: number; pendingPartners: number };
+  user: SessionUser;
   children: React.ReactNode;
 }
+
+const ROLE_LABELS: Record<string, string> = {
+  SUPER_ADMIN: "Administrator",
+  ADMIN: "Operations",
+};
+
+/** "Tamar Gelashvili" -> "TG". Falls back to the email for a one-word name. */
+const initialsOf = (user: SessionUser) =>
+  [user.firstName, user.lastName]
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase() || user.email.slice(0, 2).toUpperCase();
 
 /**
  * The chrome every admin screen sits inside: fixed sidebar on desktop, drawer
@@ -23,8 +38,9 @@ interface AdminShellProps {
  * it takes its content as `children`, so each page underneath still renders on
  * the server.
  */
-export function AdminShell({ badges, children }: AdminShellProps) {
+export function AdminShell({ badges, user, children }: AdminShellProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const path = useLocalePath();
   const accountRef = useRef<HTMLDivElement>(null);
 
@@ -60,6 +76,21 @@ export function AdminShell({ badges, children }: AdminShellProps) {
       document.body.style.overflow = overflow;
     };
   }, [navOpen]);
+
+  /**
+   * Sign-out has to reach the server: the session is a row in the database and
+   * the cookie is httpOnly, so navigating to the sign-in page would leave a
+   * perfectly usable session behind.
+   */
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+    } finally {
+      forgetViewer();
+      router.replace(path("/admin/sign-in"));
+      router.refresh();
+    }
+  };
 
   useEffect(() => {
     if (!accountOpen) return;
@@ -132,13 +163,15 @@ export function AdminShell({ badges, children }: AdminShellProps) {
                 className="flex items-center gap-2 rounded-sm py-1.5 ps-1.5 pe-2 transition-colors hover:bg-surface-soft"
               >
                 <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-[0.6875rem] font-semibold text-on-dark">
-                  {adminUser.initials}
+                  {initialsOf(user)}
                 </span>
                 <span className="hidden text-start sm:block">
                   <span className="block text-[0.8125rem] font-medium text-ink">
-                    {adminUser.name}
+                    {user.fullName}
                   </span>
-                  <span className="block text-[0.6875rem] text-muted">{adminUser.role}</span>
+                  <span className="block text-[0.6875rem] text-muted">
+                    {ROLE_LABELS[user.role] ?? user.role}
+                  </span>
                 </span>
                 <ChevronDown
                   size={15}
@@ -157,30 +190,36 @@ export function AdminShell({ badges, children }: AdminShellProps) {
                 >
                   <p className="px-3 py-2">
                     <span className="block text-[0.8125rem] font-medium text-ink">
-                      {adminUser.name}
+                      {user.fullName}
                     </span>
                     <span className="block truncate text-[0.75rem] text-muted">
-                      {adminUser.email}
+                      {user.email}
                     </span>
                   </p>
-                  <Link
-                    href={path("/admin/sign-in")}
+                  <button
+                    type="button"
                     role="menuitem"
-                    className="flex items-center gap-2.5 rounded-sm px-3 py-2 text-[0.8125rem] text-body transition-colors hover:bg-surface-soft hover:text-ink"
+                    onClick={handleSignOut}
+                    className="flex w-full items-center gap-2.5 rounded-sm px-3 py-2 text-start text-[0.8125rem] text-body transition-colors hover:bg-surface-soft hover:text-ink"
                   >
                     <LogOut size={15} className="text-subtle rtl:-scale-x-100" aria-hidden />
                     Sign out
-                  </Link>
+                  </button>
                 </div>
               )}
             </div>
           </div>
         </header>
 
-        {/* Standing reminder of what this is, so nobody mistakes it for live data. */}
+        {/*
+          Saying precisely what is prototype matters more than a blanket
+          disclaimer: partners, hotels, transfers and bookings are live records
+          being written to, and an operator told everything is fake will not
+          trust them. Tours are the remainder.
+        */}
         <p className="border-b border-brand/25 bg-brand-soft px-4 py-2 text-center text-[0.75rem] text-brand-text sm:px-6">
-          Front-end prototype — every figure below is mock data. Nothing is saved,
-          sent or charged.
+          Partners, hotels, transfers and bookings are live. Tours are still
+          prototype data.
         </p>
 
         <main id="admin-main" className="min-w-0 flex-1">

@@ -1,9 +1,14 @@
 import {
   BedDouble,
   CalendarCheck,
+  CarFront,
+  Coins,
+  ClipboardCheck,
   Handshake,
   LayoutDashboard,
   Map,
+  MapPin,
+  Route,
   type LucideIcon,
 } from "lucide-react";
 
@@ -46,16 +51,27 @@ export const adminNavigation: AdminNavGroup[] = [
     title: "Inventory",
     items: [
       { label: "Hotels", href: "/admin/hotels", icon: BedDouble },
+      // Siblings rather than a parent and a child: `isAdminPathActive` matches
+      // on a path prefix, so a Transfers entry at /admin/transfers would stay
+      // lit while the fleet page was open and two items would look selected.
+      { label: "Transfer routes", href: "/admin/transfers/routes", icon: Route },
+      { label: "Transfer fleet", href: "/admin/transfers/vehicles", icon: CarFront },
+      { label: "Pick-up points", href: "/admin/transfers/points", icon: MapPin },
+      { label: "Transfer extras", href: "/admin/transfers/extras", icon: Coins },
       { label: "Tours", href: "/admin/tours", icon: Map },
     ],
   },
   {
     title: "Network",
     items: [
+      { label: "Partners", href: "/admin/partners", icon: Handshake },
       {
-        label: "Partners",
-        href: "/admin/partners",
-        icon: Handshake,
+        // The review queue, badged with what is waiting. It sits beside the
+        // register rather than inside it because it is the screen an operator
+        // opens first, and a saved filter cannot carry a count in the sidebar.
+        label: "Applications",
+        href: "/admin/partners/applications",
+        icon: ClipboardCheck,
         badgeKey: "pendingPartners",
       },
     ],

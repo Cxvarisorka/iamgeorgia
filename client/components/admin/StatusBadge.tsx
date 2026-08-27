@@ -5,14 +5,16 @@ import {
   Circle,
   Clock,
   PauseCircle,
-  Search,
+  MailPlus,
+  PenLine,
   type LucideIcon,
 } from "lucide-react";
 
-import { bookingStatusLabels, paymentStatusLabels } from "@/data/admin/bookings";
-import { partnerStatusLabels } from "@/data/admin/partners";
+import { bookingStatusLabels } from "@/lib/admin/bookings";
+import { invitationStatusLabels, partnerStatusLabels } from "@/lib/admin/partners";
 import { cn } from "@/lib/utils";
-import type { BookingStatus, PartnerStatus, PaymentStatus } from "@/types";
+import type { InvitationStatus, PartnerStatus } from "@/types";
+import type { HotelBookingStatus } from "@/types/booking";
 
 /**
  * Status pills.
@@ -59,18 +61,21 @@ function Pill({
   );
 }
 
-const bookingTones: Record<BookingStatus, { tone: Tone; icon: LucideIcon }> = {
-  pending: { tone: "attention", icon: Clock },
-  confirmed: { tone: "positive", icon: CheckCircle2 },
-  completed: { tone: "neutral", icon: Circle },
-  cancelled: { tone: "critical", icon: Ban },
+const bookingTones: Record<HotelBookingStatus, { tone: Tone; icon: LucideIcon }> = {
+  PENDING: { tone: "attention", icon: Clock },
+  CONFIRMED: { tone: "positive", icon: CheckCircle2 },
+  COMPLETED: { tone: "neutral", icon: Circle },
+  CANCELLED: { tone: "critical", icon: Ban },
+  // A guest who never arrived is not the same as a cancellation: the rooms
+  // were held all night and the charge usually stands.
+  NO_SHOW: { tone: "critical", icon: AlertTriangle },
 };
 
 export function BookingStatusBadge({
   status,
   className,
 }: {
-  status: BookingStatus;
+  status: HotelBookingStatus;
   className?: string;
 }) {
   const { tone, icon } = bookingTones[status];
@@ -81,34 +86,13 @@ export function BookingStatusBadge({
   );
 }
 
-const paymentTones: Record<PaymentStatus, { tone: Tone; icon: LucideIcon }> = {
-  unpaid: { tone: "attention", icon: AlertTriangle },
-  deposit: { tone: "info", icon: Circle },
-  paid: { tone: "positive", icon: CheckCircle2 },
-  refunded: { tone: "neutral", icon: Ban },
-};
-
-export function PaymentStatusBadge({
-  status,
-  className,
-}: {
-  status: PaymentStatus;
-  className?: string;
-}) {
-  const { tone, icon } = paymentTones[status];
-  return (
-    <Pill tone={tone} icon={icon} className={className}>
-      {paymentStatusLabels[status]}
-    </Pill>
-  );
-}
-
 const partnerTones: Record<PartnerStatus, { tone: Tone; icon: LucideIcon }> = {
-  pending: { tone: "attention", icon: Clock },
-  "in-review": { tone: "info", icon: Search },
-  active: { tone: "positive", icon: CheckCircle2 },
-  suspended: { tone: "critical", icon: PauseCircle },
-  rejected: { tone: "neutral", icon: Ban },
+  INVITED: { tone: "info", icon: MailPlus },
+  REGISTRATION_IN_PROGRESS: { tone: "info", icon: PenLine },
+  PENDING_APPROVAL: { tone: "attention", icon: Clock },
+  APPROVED: { tone: "positive", icon: CheckCircle2 },
+  REJECTED: { tone: "critical", icon: Ban },
+  SUSPENDED: { tone: "critical", icon: PauseCircle },
 };
 
 export function PartnerStatusBadge({
@@ -122,6 +106,28 @@ export function PartnerStatusBadge({
   return (
     <Pill tone={tone} icon={icon} className={className}>
       {partnerStatusLabels[status]}
+    </Pill>
+  );
+}
+
+const invitationTones: Record<InvitationStatus, { tone: Tone; icon: LucideIcon }> = {
+  PENDING: { tone: "positive", icon: MailPlus },
+  ACCEPTED: { tone: "neutral", icon: CheckCircle2 },
+  REVOKED: { tone: "neutral", icon: Ban },
+  EXPIRED: { tone: "attention", icon: Clock },
+};
+
+export function InvitationStatusBadge({
+  status,
+  className,
+}: {
+  status: InvitationStatus;
+  className?: string;
+}) {
+  const { tone, icon } = invitationTones[status];
+  return (
+    <Pill tone={tone} icon={icon} className={className}>
+      {invitationStatusLabels[status]}
     </Pill>
   );
 }

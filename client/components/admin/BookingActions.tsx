@@ -1,123 +1,155 @@
 "use client";
 
-import { Ban, Check, Loader2, Send } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { AlertTriangle, Ban, Loader2 } from "lucide-react";
 
 import { BookingStatusBadge } from "./StatusBadge";
-import { bookingStatusLabels } from "@/data/admin/bookings";
+import { cancelBookingAsAdmin } from "@/lib/api/bookings";
+import { describeError } from "@/lib/api/client";
+import { bookingStatusHints } from "@/lib/admin/bookings";
+import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
-import type { BookingStatus } from "@/types";
+import type { Booking, CancellationQuote } from "@/types/booking";
 
 /**
- * The decisions an operator can take on one booking.
+ * What an operator can do to a booking.
  *
- * State is local and resets on reload — there is nothing behind this. The
- * actions are here because the *shape* of the workflow is the thing being
- * designed: which transitions exist, what each one is called, and what
- * confirmation the operator gets back.
+ * Only one thing, and deliberately: cancel. There is no "confirm" button
+ * because a booking is confirmed the moment it is made — the rooms are already
+ * committed — and no "mark completed" because that is a function of the date
+ * rather than of anyone's opinion.
+ *
+ * Cancelling shows what it will cost *before* it happens. The figure comes from
+ * the schedule frozen onto the booking at confirmation, so it is what the guest
+ * was actually promised and not what the hotel's policy says today.
  */
-export function BookingActions({ initialStatus }: { initialStatus: BookingStatus }) {
-  const [status, setStatus] = useState<BookingStatus>(initialStatus);
-  const [busy, setBusy] = useState<BookingStatus | null>(null);
+export function BookingActions({
+  booking,
+  quote,
+}: {
+  booking: Booking;
+  /** Pre-fetched by the page, so the cost is visible without a click. */
+  quote: CancellationQuote | null;
+}) {
+  const router = useRouter();
+  const [confirming, setConfirming] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const transition = (next: BookingStatus, note: string) => {
-    setBusy(next);
-    setMessage(null);
-    setTimeout(() => {
-      setStatus(next);
-      setBusy(null);
-      setMessage(note);
-    }, 400);
+  const cancellable = booking.status === "PENDING" || booking.status === "CONFIRMED";
+
+  const run = async () => {
+    setBusy(true);
+    setError(null);
+
+    try {
+      const result = await cancelBookingAsAdmin(booking.reference, reason || undefined);
+
+      setMessage(
+        result.cancellation.chargeCents > 0
+          ? `Cancelled. ${formatMoney(result.cancellation.chargeCents, result.cancellation.currency)} is chargeable under the terms agreed at booking.`
+          : "Cancelled in full. Nothing is chargeable.",
+      );
+      setConfirming(false);
+      // The page is a Server Component; refreshing re-reads the record rather
+      // than patching a local copy that could drift from the server's.
+      router.refresh();
+    } catch (caught) {
+      setError(describeError(caught));
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const canConfirm = status === "pending";
-  const canComplete = status === "confirmed";
-  const canCancel = status === "pending" || status === "confirmed";
-
   const base =
-    "inline-flex h-10 items-center justify-center gap-2 rounded-sm px-4 text-[0.8125rem] font-semibold transition-colors disabled:opacity-50 disabled:pointer-events-none";
+    "inline-flex h-10 w-full items-center justify-center gap-2 rounded-sm px-4 text-[0.8125rem] font-semibold transition-colors disabled:pointer-events-none disabled:opacity-50";
 
   return (
     <div>
       <div className="flex items-center justify-between gap-3">
         <span className="text-[0.8125rem] text-muted">Current status</span>
-        <BookingStatusBadge status={status} />
+        <BookingStatusBadge status={booking.status} />
       </div>
 
-      <div className="mt-4 flex flex-col gap-2">
-        <button
-          type="button"
-          disabled={!canConfirm || busy !== null}
-          onClick={() =>
-            transition("confirmed", "Booking confirmed. The guest would be emailed.")
-          }
-          className={cn(base, "bg-brand text-white hover:bg-brand-hover")}
-        >
-          {busy === "confirmed" ? (
-            <Loader2 size={15} className="animate-spin" aria-hidden />
-          ) : (
-            <Check size={15} aria-hidden />
-          )}
-          Confirm booking
-        </button>
+      {cancellable && quote && (
+        <dl className="mt-4 space-y-1.5 rounded-sm bg-surface-soft p-3 text-[0.8125rem]">
+          <div className="flex justify-between gap-3">
+            <dt className="text-muted">Cancelling now costs</dt>
+            <dd className="font-medium text-ink tabular-nums">
+              {formatMoney(quote.chargeCents, quote.currency)}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-muted">Refund to guest</dt>
+            <dd className="font-medium text-ink tabular-nums">
+              {formatMoney(quote.refundCents, quote.currency)}
+            </dd>
+          </div>
+        </dl>
+      )}
 
+      {cancellable && !confirming && (
         <button
           type="button"
-          disabled={!canComplete || busy !== null}
-          onClick={() => transition("completed", "Marked as completed.")}
-          className={cn(
-            base,
-            "border border-ink/20 text-ink hover:border-ink hover:bg-surface-soft",
-          )}
+          onClick={() => setConfirming(true)}
+          className={cn(base, "mt-4 border border-error/40 text-error-text hover:bg-error/8")}
         >
-          {busy === "completed" ? (
-            <Loader2 size={15} className="animate-spin" aria-hidden />
-          ) : (
-            <Check size={15} aria-hidden />
-          )}
-          Mark as completed
-        </button>
-
-        <button
-          type="button"
-          disabled={busy !== null}
-          className={cn(
-            base,
-            "border border-ink/20 text-ink hover:border-ink hover:bg-surface-soft",
-          )}
-          onClick={() => setMessage("A confirmation email would be resent to the guest.")}
-        >
-          <Send size={15} aria-hidden />
-          Resend confirmation
-        </button>
-
-        <button
-          type="button"
-          disabled={!canCancel || busy !== null}
-          onClick={() =>
-            transition("cancelled", "Booking cancelled. A refund would follow the policy.")
-          }
-          className={cn(
-            base,
-            "border border-error/40 text-error-text hover:bg-error/8",
-            "mt-2",
-          )}
-        >
-          {busy === "cancelled" ? (
-            <Loader2 size={15} className="animate-spin" aria-hidden />
-          ) : (
-            <Ban size={15} aria-hidden />
-          )}
+          <Ban size={15} aria-hidden />
           Cancel booking
         </button>
-      </div>
+      )}
 
-      <p aria-live="polite" className="mt-4 min-h-8 text-[0.75rem] text-muted">
-        {message ??
-          (status === "cancelled"
-            ? "This booking is cancelled. No further transitions are available."
-            : `Available transitions from ${bookingStatusLabels[status].toLowerCase()}.`)}
+      {confirming && (
+        <div className="mt-4 rounded-sm border border-error/40 p-3">
+          <p className="flex items-start gap-2 text-[0.8125rem] text-error-text">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0" aria-hidden />
+            <span>
+              This releases {booking.rooms} {booking.rooms === 1 ? "room" : "rooms"} back on sale
+              and cannot be undone.
+            </span>
+          </p>
+
+          <label className="mt-3 block text-[0.75rem] font-medium text-muted" htmlFor="cancel-reason">
+            Reason (optional, kept internally)
+          </label>
+          <input
+            id="cancel-reason"
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            className="mt-1 h-10 w-full rounded-sm border border-line bg-surface px-3 text-[0.8125rem] text-ink outline-none focus:border-ink"
+          />
+
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={run}
+              className={cn(base, "bg-error text-white hover:opacity-90")}
+            >
+              {busy && <Loader2 size={15} className="animate-spin" aria-hidden />}
+              Confirm cancellation
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setConfirming(false)}
+              className={cn(base, "border border-ink/20 text-ink hover:border-ink hover:bg-surface-soft")}
+            >
+              Keep it
+            </button>
+          </div>
+        </div>
+      )}
+
+      <p aria-live="polite" className="mt-4 min-h-8 text-[0.75rem]">
+        {error ? (
+          <span className="text-error-text">{error}</span>
+        ) : (
+          <span className="text-muted">{message ?? bookingStatusHints[booking.status]}</span>
+        )}
       </p>
     </div>
   );

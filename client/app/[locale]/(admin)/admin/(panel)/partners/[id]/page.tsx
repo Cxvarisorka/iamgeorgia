@@ -1,15 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import {
-  ArrowLeft,
-  Check,
-  ExternalLink,
-  Mail,
-  Phone,
-  StickyNote,
-  X,
-} from "lucide-react";
+import { Banknote, Building2, FileClock, Lock, Mail, UserRound } from "lucide-react";
 
 import {
   AdminBreadcrumbs,
@@ -19,35 +10,63 @@ import {
   AdminPanel,
 } from "@/components/admin/AdminPage";
 import { PartnerActions } from "@/components/admin/PartnerActions";
-import { BookingStatusBadge } from "@/components/admin/StatusBadge";
-import { bookings } from "@/data/admin/bookings";
-import { getPartnerById, partnerKindLabels, partners } from "@/data/admin/partners";
-import { formatAdminDate } from "@/lib/admin/metrics";
+import { PartnerDangerZone } from "@/components/admin/PartnerDangerZone";
+import { InvitationStatusBadge, PartnerStatusBadge } from "@/components/admin/StatusBadge";
+import { ApiError } from "@/lib/api/client";
+import { getPartner, getPartnerAudit, getPartnerInvitations } from "@/lib/api/partners";
+import {
+  auditActionLabels,
+  formatCommission,
+  formatPartnerDate,
+  formatPartnerDateTime,
+  partnerKindLabels,
+  partnerStatusHints,
+} from "@/lib/admin/partners";
 import { getI18n } from "@/lib/i18n/server";
-import { formatPrice } from "@/lib/utils";
+import type { AuditEntry, Invitation, Partner } from "@/types";
 
-export function generateStaticParams() {
-  return partners.map((partner) => ({ id: partner.id }));
+export async function generateMetadata({
+  params,
+}: PageProps<"/[locale]/admin/partners/[id]">): Promise<Metadata> {
+  const { id } = await params;
+
+  try {
+    const partner = await getPartner(id);
+    return { title: `${partner.name} — ${partner.reference}` };
+  } catch {
+    return { title: "Partner" };
+  }
 }
 
-export async function generateMetadata(
-  props: PageProps<"/[locale]/admin/partners/[id]">,
-): Promise<Metadata> {
-  const { id } = await props.params;
-  const partner = getPartnerById(id);
-  return { title: partner ? partner.name : "Partner not found" };
-}
+/**
+ * One partner application, in full.
+ *
+ * There is no `generateStaticParams` here, unlike the catalogue detail pages:
+ * a partner record is private, changes on approval, and is only ever read by a
+ * signed-in admin. Prerendering it would be both wrong and pointless.
+ */
+export default async function AdminPartnerPage({
+  params,
+}: PageProps<"/[locale]/admin/partners/[id]">) {
+  const { id } = await params;
+  const { path } = await getI18n();
 
-export default async function AdminPartnerDetailPage(
-  props: PageProps<"/[locale]/admin/partners/[id]">,
-) {
-  const [{ id }, { path }] = await Promise.all([props.params, getI18n()]);
+  let partner: Partner;
+  let audit: AuditEntry[] = [];
+  let invitations: Invitation[] = [];
 
-  const partner = getPartnerById(id);
-  if (!partner) notFound();
+  try {
+    [partner, { data: audit }, { data: invitations }] = await Promise.all([
+      getPartner(id),
+      getPartnerAudit(id),
+      getPartnerInvitations(id),
+    ]);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) notFound();
+    throw error;
+  }
 
-  const missing = partner.documents.filter((doc) => !doc.received);
-  const related = bookings.filter((booking) => booking.partnerId === partner.id);
+  const { review } = partner;
 
   return (
     <AdminContainer>
@@ -60,188 +79,286 @@ export default async function AdminPartnerDetailPage(
 
       <AdminPageHeader
         title={partner.name}
-        description={`${partnerKindLabels[partner.kind]} · ${partner.city} · applied ${formatAdminDate(partner.appliedOn)}`}
-        actions={
-          <Link
-            href={path("/admin/partners")}
-            className="inline-flex h-10 items-center gap-2 rounded-sm border border-ink/20 px-4 text-[0.8125rem] font-semibold text-ink transition-colors hover:border-ink hover:bg-surface-soft"
-          >
-            <ArrowLeft size={15} className="rtl:-scale-x-100" aria-hidden />
-            All partners
-          </Link>
-        }
+        description={`${partnerKindLabels[partner.kind]}${partner.city ? ` · ${partner.city}` : ""} · ${
+          partner.submittedAt
+            ? `applied ${formatPartnerDate(partner.submittedAt)}`
+            : `created ${formatPartnerDate(partner.createdAt)}`
+        }`}
+        actions={<PartnerStatusBadge status={partner.status} className="text-[0.8125rem]" />}
       />
 
       <div className="mt-8 grid gap-6 lg:grid-cols-3">
-        <div className="min-w-0 space-y-6 lg:col-span-2">
-          <AdminPanel title="Business">
+        <div className="space-y-6 lg:col-span-2">
+          <AdminPanel title="Company" description="Submitted by the partner and verifiable against the register.">
             <AdminDefinitionList
               items={[
+                {
+                  label: "Partner ID",
+                  value: <span className="font-mono">{partner.reference}</span>,
+                },
                 { label: "Trading name", value: partner.name },
-                { label: "Legal entity", value: partner.legalName },
+                { label: "Legal entity", value: partner.legalName ?? "—" },
                 { label: "Partner type", value: partnerKindLabels[partner.kind] },
-                { label: "Tax number", value: partner.taxId },
-                { label: "Operating city", value: partner.city },
+                { label: "Registration number", value: partner.registrationNumber ?? "—" },
+                { label: "Legal address", value: partner.legalAddress ?? "—" },
+                {
+                  label: "City and country",
+                  value: [partner.city, partner.country].filter(Boolean).join(", ") || "—",
+                },
+                { label: "Company phone", value: partner.phone ?? "—" },
+                { label: "Company email", value: partner.email ?? "—" },
                 {
                   label: "Website",
                   value: partner.website ? (
                     <a
-                      href={`https://${partner.website}`}
+                      href={partner.website}
                       target="_blank"
                       rel="noreferrer noopener"
-                      className="inline-flex items-center gap-1.5 underline-offset-4 hover:underline"
+                      className="text-brand-text underline-offset-4 hover:underline"
                     >
-                      {partner.website}
-                      <ExternalLink size={13} className="text-subtle" aria-hidden />
+                      {partner.website.replace(/^https?:\/\//, "")}
                     </a>
                   ) : (
                     "—"
                   ),
                 },
-                { label: "Commission", value: `${partner.commissionRate}%` },
+                { label: "Commission", value: formatCommission(partner.commissionRateBps) },
               ]}
             />
-          </AdminPanel>
 
-          <AdminPanel title="Main contact">
-            <AdminDefinitionList
-              items={[
-                { label: "Name", value: partner.contactName },
-                {
-                  label: "Email",
-                  value: (
-                    <a
-                      href={`mailto:${partner.email}`}
-                      className="inline-flex items-center gap-1.5 underline-offset-4 hover:underline"
-                    >
-                      <Mail size={13} className="text-subtle" aria-hidden />
-                      {partner.email}
-                    </a>
-                  ),
-                },
-                {
-                  label: "Phone",
-                  value: (
-                    <a
-                      href={`tel:${partner.phone.replace(/\s/g, "")}`}
-                      className="inline-flex items-center gap-1.5 underline-offset-4 hover:underline"
-                    >
-                      <Phone size={13} className="text-subtle" aria-hidden />
-                      {partner.phone}
-                    </a>
-                  ),
-                },
-              ]}
-            />
+            {partner.socialLinks.length > 0 && (
+              <div className="mt-4 flex flex-wrap gap-2 border-t border-line pt-4">
+                {partner.socialLinks.map((link) => (
+                  <a
+                    key={link.url}
+                    href={link.url}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="rounded-full border border-line px-3 py-1 text-[0.8125rem] text-body transition-colors hover:border-ink/40 hover:text-ink"
+                  >
+                    {link.label}
+                  </a>
+                ))}
+              </div>
+            )}
           </AdminPanel>
 
           <AdminPanel
-            title="Compliance documents"
-            description={
-              missing.length === 0
-                ? "All documents received."
-                : `${missing.length} of ${partner.documents.length} still outstanding.`
-            }
+            title="People"
+            description="Everyone who can sign in on behalf of this company."
             bodyClassName="p-0"
           >
             <ul className="divide-y divide-line">
-              {partner.documents.map((document) => (
-                <li
-                  key={document.label}
-                  className="flex items-center justify-between gap-3 px-5 py-3.5"
-                >
-                  <span className="text-[0.875rem] text-body">{document.label}</span>
-                  {document.received ? (
-                    <span className="inline-flex shrink-0 items-center gap-1.5 text-[0.8125rem] font-medium text-success">
-                      <Check size={15} aria-hidden />
-                      Received
-                    </span>
-                  ) : (
-                    <span className="inline-flex shrink-0 items-center gap-1.5 text-[0.8125rem] font-medium text-warning-text">
-                      <X size={15} aria-hidden />
-                      Outstanding
-                    </span>
-                  )}
+              {partner.users.length === 0 && (
+                <li className="px-5 py-6 text-[0.8125rem] text-muted">
+                  Nobody has an account yet. The invitation creates one when it is accepted.
+                </li>
+              )}
+              {partner.users.map((user) => (
+                <li key={user.id} className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
+                  <div className="min-w-0">
+                    <p className="flex flex-wrap items-center gap-2 font-medium text-ink">
+                      <UserRound size={15} className="shrink-0 text-subtle" aria-hidden />
+                      {user.fullName}
+                      {user.isPrimaryContact && (
+                        <span className="rounded-full bg-surface-soft px-2 py-0.5 text-[0.6875rem] text-muted">
+                          Primary contact
+                        </span>
+                      )}
+                    </p>
+                    <p className="mt-1 text-[0.8125rem] text-muted">
+                      {[user.position, user.email, user.phone].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
+                  <span className="text-[0.75rem] text-muted">
+                    {user.isPending ? "Password not set" : user.isActive ? "Active" : "Disabled"}
+                  </span>
                 </li>
               ))}
             </ul>
           </AdminPanel>
 
+          {/*
+            Present only when the API actually returned it. A viewer without the
+            entitlement gets no `financial` key at all, which is different from a
+            partner that supplied no bank details — and the two must not look
+            the same on screen.
+          */}
+          <AdminPanel
+            title="Bank details"
+            description="Visible to administrators and to the partner's own owner and finance users."
+          >
+            {partner.financial ? (
+              <AdminDefinitionList
+                items={[
+                  {
+                    label: "IBAN",
+                    value: <span className="font-mono">{partner.financial.iban}</span>,
+                  },
+                  {
+                    label: "SWIFT / BIC",
+                    value: <span className="font-mono">{partner.financial.swift}</span>,
+                  },
+                  { label: "Bank", value: partner.financial.bankName ?? "—" },
+                  { label: "Account holder", value: partner.financial.accountHolder ?? "—" },
+                  {
+                    label: "Last updated",
+                    value: formatPartnerDateTime(partner.financial.updatedAt),
+                  },
+                ]}
+              />
+            ) : (
+              <p className="flex items-center gap-2 text-[0.8125rem] text-muted">
+                <Banknote size={15} className="text-subtle" aria-hidden />
+                No bank details on file yet.
+              </p>
+            )}
+          </AdminPanel>
+
           {partner.notes && (
-            <AdminPanel title="Internal note">
-              <p className="flex gap-3 text-[0.875rem] leading-relaxed text-body">
-                <StickyNote size={16} className="mt-0.5 shrink-0 text-brand-text" aria-hidden />
+            <AdminPanel title="Internal note" description="Never shown to the partner.">
+              <p className="text-[0.875rem] leading-relaxed whitespace-pre-line text-body">
                 {partner.notes}
               </p>
             </AdminPanel>
           )}
 
-          {related.length > 0 && (
-            <AdminPanel
-              title="Bookings fulfilled"
-              description={`${related.length} in the current ledger.`}
-              bodyClassName="p-0"
-            >
-              <ul className="divide-y divide-line">
-                {related.map((booking) => (
-                  <li key={booking.id}>
-                    <Link
-                      href={path(`/admin/bookings/${booking.id}`)}
-                      className="flex items-center justify-between gap-3 px-5 py-3.5 transition-colors hover:bg-surface-soft/60"
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate text-[0.875rem] font-medium text-ink">
-                          {booking.productName}
-                        </span>
-                        <span className="block truncate text-[0.75rem] text-muted">
-                          {booking.reference} · {booking.customer.name} ·{" "}
-                          {formatAdminDate(booking.travelDate)}
-                        </span>
-                      </span>
-                      <span className="flex shrink-0 items-center gap-3">
-                        <BookingStatusBadge status={booking.status} />
-                        <span className="text-[0.875rem] font-medium text-ink tabular-nums">
-                          {formatPrice(booking.total)}
-                        </span>
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </AdminPanel>
-          )}
+          <AdminPanel title="Invitations" bodyClassName="p-0">
+            <ul className="divide-y divide-line">
+              {invitations.length === 0 && (
+                <li className="px-5 py-6 text-[0.8125rem] text-muted">
+                  No invitation has been issued for this partner.
+                </li>
+              )}
+              {invitations.map((invitation) => (
+                <li
+                  key={invitation.id}
+                  className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"
+                >
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-2 truncate text-[0.875rem] text-ink">
+                      <Mail size={14} className="shrink-0 text-subtle" aria-hidden />
+                      {invitation.email}
+                    </p>
+                    <p className="mt-1 text-[0.75rem] text-muted">
+                      Sent {formatPartnerDateTime(invitation.createdAt)} · expires{" "}
+                      {formatPartnerDateTime(invitation.expiresAt)}
+                      {invitation.resentCount > 0 && ` · resent ${invitation.resentCount}×`}
+                    </p>
+                  </div>
+                  <InvitationStatusBadge status={invitation.status} />
+                </li>
+              ))}
+            </ul>
+          </AdminPanel>
+
+          <AdminPanel
+            title="History"
+            description="Every decision and edit, and who made it."
+            bodyClassName="p-0"
+          >
+            <ol className="divide-y divide-line">
+              {audit.length === 0 && (
+                <li className="px-5 py-6 text-[0.8125rem] text-muted">Nothing recorded yet.</li>
+              )}
+              {audit.map((entry) => (
+                <li key={entry.id} className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-2 text-[0.875rem] font-medium text-ink">
+                      <FileClock size={14} className="shrink-0 text-subtle" aria-hidden />
+                      {auditActionLabels[entry.action] ?? entry.action}
+                    </p>
+                    <p className="mt-1 text-[0.8125rem] text-muted">{entry.summary}</p>
+                    {typeof entry.metadata.reason === "string" && (
+                      <p className="mt-1 text-[0.8125rem] text-body">
+                        Reason: {entry.metadata.reason}
+                      </p>
+                    )}
+                  </div>
+                  <time
+                    dateTime={entry.createdAt}
+                    className="shrink-0 text-[0.75rem] whitespace-nowrap text-muted"
+                  >
+                    {formatPartnerDateTime(entry.createdAt)}
+                  </time>
+                </li>
+              ))}
+            </ol>
+          </AdminPanel>
         </div>
 
         <div className="space-y-6">
-          <AdminPanel title="Performance">
+          <AdminPanel title="Status">
+            <p className="text-[0.875rem] leading-relaxed text-body">
+              {partnerStatusHints[partner.status]}
+            </p>
+
             <AdminDefinitionList
+              className="mt-4 border-t border-line pt-4"
               items={[
-                { label: "Live listings", value: String(partner.listings) },
-                {
-                  label: "Lifetime revenue",
-                  value: partner.revenue > 0 ? formatPrice(partner.revenue) : "—",
-                },
-                {
-                  label: "Commission earned",
-                  value:
-                    partner.revenue > 0
-                      ? formatPrice(
-                          Math.round((partner.revenue * partner.commissionRate) / 100),
-                        )
-                      : "—",
-                },
-                { label: "Bookings in ledger", value: String(related.length) },
-                { label: "On register since", value: formatAdminDate(partner.appliedOn) },
+                { label: "Registered", value: formatPartnerDate(partner.createdAt) },
+                { label: "Submitted", value: formatPartnerDate(partner.submittedAt) },
+                ...(review.approvedAt
+                  ? [
+                      { label: "Approved", value: formatPartnerDateTime(review.approvedAt) },
+                      { label: "Approved by", value: review.approvedBy?.email ?? "—" },
+                    ]
+                  : []),
+                ...(review.rejectedAt
+                  ? [
+                      { label: "Rejected", value: formatPartnerDateTime(review.rejectedAt) },
+                      { label: "Rejected by", value: review.rejectedBy?.email ?? "—" },
+                    ]
+                  : []),
+                ...(review.suspendedAt
+                  ? [
+                      { label: "Suspended", value: formatPartnerDateTime(review.suspendedAt) },
+                      { label: "Suspended by", value: review.suspendedBy?.email ?? "—" },
+                    ]
+                  : []),
               ]}
             />
+
+            {review.rejectionReason && (
+              <div className="mt-4 rounded-sm bg-surface-soft p-3">
+                <p className="text-[0.75rem] font-medium tracking-wide text-muted uppercase">
+                  Reason given to the partner
+                </p>
+                <p className="mt-1 text-[0.8125rem] text-body">{review.rejectionReason}</p>
+              </div>
+            )}
+
+            {review.rejectionNote && (
+              <div className="mt-3 rounded-sm bg-surface-soft p-3">
+                <p className="flex items-center gap-1.5 text-[0.75rem] font-medium tracking-wide text-muted uppercase">
+                  <Lock size={11} aria-hidden />
+                  Internal note
+                </p>
+                <p className="mt-1 text-[0.8125rem] text-body">{review.rejectionNote}</p>
+              </div>
+            )}
+
+            {review.suspensionReason && (
+              <div className="mt-3 rounded-sm bg-surface-soft p-3">
+                <p className="text-[0.75rem] font-medium tracking-wide text-muted uppercase">
+                  Suspension reason
+                </p>
+                <p className="mt-1 text-[0.8125rem] text-body">{review.suspensionReason}</p>
+              </div>
+            )}
           </AdminPanel>
 
-          <AdminPanel title="Review">
-            <PartnerActions
-              initialStatus={partner.status}
-              missingDocuments={missing.length}
-            />
+          <PartnerActions partner={partner} />
+
+          <AdminPanel title="Completeness">
+            <p className="flex items-start gap-2 text-[0.8125rem] leading-relaxed text-muted">
+              <Building2 size={15} className="mt-0.5 shrink-0 text-subtle" aria-hidden />
+              A partner cannot be approved until the company record is complete — legal
+              entity, registration number, address, country, phone and email.
+            </p>
           </AdminPanel>
+
+          <PartnerDangerZone partner={partner} />
         </div>
       </div>
     </AdminContainer>

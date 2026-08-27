@@ -1,89 +1,86 @@
-import { bookings, monthlyBookings } from "@/data/admin/bookings";
-import { partners } from "@/data/admin/partners";
-import type { Booking, BookingStatus, ProductKind } from "@/types";
+import { listAdminBookings } from "@/lib/api/bookings";
+import { formatMoneyCompact } from "@/lib/money";
+import { ACTIVE_BOOKING_STATUSES } from "./bookings";
+import type { BookingSummary, HotelBookingStatus } from "@/types/booking";
 
 /**
  * Derived numbers for the panel.
  *
- * Everything is computed from the mock arrays rather than stored alongside
- * them, so a figure on the dashboard can never disagree with the table it
- * summarises — the commonest way a back office loses its operator's trust.
+ * These used to be synchronous functions over a mock array. Bookings are real
+ * records now, so every one of them is a request — which is why they are async
+ * and why the dashboard fires them in parallel rather than one after another.
+ * The partner counts made the same move earlier for the same reason: counting
+ * client-side would mean fetching every record just to take its length.
+ *
+ * Counting queries ask for `pageSize: 1`. They want the `total`, not the rows.
  */
 
-export function countByStatus(status: BookingStatus): number {
-  return bookings.filter((booking) => booking.status === status).length;
+/** How many bookings are in a given state. One request, no rows. */
+export async function countByStatus(status: HotelBookingStatus): Promise<number> {
+  const { total } = await listAdminBookings({ status, pageSize: 1 });
+
+  return total;
 }
 
-/** Money the studio can actually count: cancelled bookings are excluded. */
-export function grossBookingValue(list: Booking[] = bookings): number {
-  return list
-    .filter((booking) => booking.status !== "cancelled")
-    .reduce((sum, booking) => sum + booking.total, 0);
-}
+/** Bookings that still owe the operator something. */
+export async function countActive(): Promise<number> {
+  const { total } = await listAdminBookings({ status: ACTIVE_BOOKING_STATUSES, pageSize: 1 });
 
-export function bookingsByKind(kind: ProductKind): Booking[] {
-  return bookings.filter((booking) => booking.kind === kind);
-}
-
-export function pendingPartnerCount(): number {
-  return partners.filter(
-    (partner) => partner.status === "pending" || partner.status === "in-review",
-  ).length;
-}
-
-export function activePartnerCount(): number {
-  return partners.filter((partner) => partner.status === "active").length;
-}
-
-/** Total volume across all three products, per month. */
-export function monthlyTotals(): { month: string; total: number }[] {
-  return monthlyBookings.map((row) => ({
-    month: row.month,
-    total: row.hotel + row.tour + row.transfer,
-  }));
+  return total;
 }
 
 /**
- * Change against the previous month, as a signed percentage. Returns null when
- * there is no earlier month to compare against, so the UI can omit the delta
- * rather than print a meaningless "+100%".
+ * Money the studio can count, over a recent window.
+ *
+ * Deliberately scoped rather than "all time": a lifetime total would mean
+ * reading every booking ever made on every dashboard render. The window is
+ * stated in the label so the figure is never mistaken for something it is not.
  */
-export function monthOnMonthChange(): number | null {
-  const totals = monthlyTotals();
-  if (totals.length < 2) return null;
-  const latest = totals[totals.length - 1].total;
-  const previous = totals[totals.length - 2].total;
-  if (previous === 0) return null;
-  return Math.round(((latest - previous) / previous) * 100);
+export async function recentValue(days = 30): Promise<{ amountCents: number; currency: string }> {
+  const from = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+  const { data } = await listAdminBookings({ from, status: ACTIVE_BOOKING_STATUSES, pageSize: 100 });
+
+  return {
+    amountCents: data.reduce((sum, booking) => sum + booking.totalCents, 0),
+    currency: data[0]?.currency ?? "GEL",
+  };
 }
 
-/** Bookings needing a decision, soonest travel date first. */
-export function actionQueue(): Booking[] {
-  return bookings
-    .filter((booking) => booking.status === "pending")
-    .sort((a, b) => a.travelDate.localeCompare(b.travelDate));
+/** The newest bookings, for the dashboard's activity list. */
+export async function recentBookings(limit = 6): Promise<BookingSummary[]> {
+  const { data } = await listAdminBookings({ pageSize: limit });
+
+  return data;
 }
 
-export function recentBookings(limit = 6): Booking[] {
-  return [...bookings]
-    .sort((a, b) => b.placedOn.localeCompare(a.placedOn))
-    .slice(0, limit);
+/** Stays starting soonest, which is what an operator actually watches. */
+export async function upcomingArrivals(limit = 6): Promise<BookingSummary[]> {
+  const { data } = await listAdminBookings({
+    status: "CONFIRMED",
+    from: new Date().toISOString().slice(0, 10),
+    pageSize: limit,
+  });
+
+  return data;
 }
 
-/** "12 Aug 2026" — one date format across the whole panel. */
+/** Bookings against one property, for its detail screen. */
+export async function bookingsForHotel(hotelId: string, limit = 5): Promise<BookingSummary[]> {
+  const { data } = await listAdminBookings({ hotelId, pageSize: limit });
+
+  return data;
+}
+
+const ADMIN_DATE = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+/** An instant — created, confirmed. Stay dates use `formatStayDate` instead. */
 export function formatAdminDate(iso: string): string {
-  if (!iso) return "—";
-  const parsed = new Date(`${iso}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return iso;
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(parsed);
+  return ADMIN_DATE.format(new Date(iso));
 }
 
-/** Compact money for dense table cells and stat tiles: $184.2k. */
-export function formatCompactMoney(amount: number): string {
-  if (amount >= 1000) return `$${(amount / 1000).toFixed(1)}k`;
-  return `$${amount}`;
-}
+/** Re-exported so screens have one import for a headline figure. */
+export const formatCompactMoney = formatMoneyCompact;

@@ -12,9 +12,8 @@ import {
   AdminPanel,
 } from "@/components/admin/AdminPage";
 import { ListingEditor, type EditorField } from "@/components/admin/ListingEditor";
-import { bookings } from "@/data/admin/bookings";
 import { getTourBySlug, tours } from "@/data/tours";
-import { formatAdminDate } from "@/lib/admin/metrics";
+import { } from "@/lib/admin/metrics";
 import { getI18n } from "@/lib/i18n/server";
 import { formatPrice } from "@/lib/utils";
 
@@ -37,11 +36,6 @@ export default async function AdminTourEditPage(
 
   const tour = getTourBySlug(slug);
   if (!tour) notFound();
-
-  const related = bookings.filter((booking) => booking.productSlug === tour.slug);
-  const revenue = related
-    .filter((booking) => booking.status !== "cancelled")
-    .reduce((sum, booking) => sum + booking.total, 0);
 
   const sections: { title: string; description?: string; fields: EditorField[] }[] = [
     {
@@ -174,8 +168,6 @@ export default async function AdminTourEditPage(
           <AdminPanel title="Performance">
             <AdminDefinitionList
               items={[
-                { label: "Bookings in ledger", value: String(related.length) },
-                { label: "Gross value", value: formatPrice(revenue) },
                 { label: "Itinerary days", value: String(tour.itinerary.length) },
                 { label: "Rating", value: `${tour.rating.toFixed(1)} / 5` },
                 { label: "Reviews", value: tour.reviewCount.toLocaleString("en-GB") },
@@ -183,32 +175,6 @@ export default async function AdminTourEditPage(
             />
           </AdminPanel>
 
-          {related.length > 0 && (
-            <AdminPanel title="Recent bookings" bodyClassName="p-0">
-              <ul className="divide-y divide-line">
-                {related.slice(0, 4).map((booking) => (
-                  <li key={booking.id}>
-                    <Link
-                      href={path(`/admin/bookings/${booking.id}`)}
-                      className="flex items-center justify-between gap-3 px-5 py-3 transition-colors hover:bg-surface-soft/60"
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate text-[0.875rem] font-medium text-ink">
-                          {booking.customer.name}
-                        </span>
-                        <span className="block text-[0.75rem] text-muted">
-                          {formatAdminDate(booking.travelDate)}
-                        </span>
-                      </span>
-                      <span className="shrink-0 text-[0.875rem] font-medium text-ink tabular-nums">
-                        {formatPrice(booking.total)}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </AdminPanel>
-          )}
         </div>
       </div>
     </AdminContainer>

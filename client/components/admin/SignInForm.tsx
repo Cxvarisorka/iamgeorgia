@@ -1,41 +1,56 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Info, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useState } from "react";
 
-import { adminUser } from "@/data/admin/user";
+import { describeError } from "@/lib/api/client";
+import { signIn } from "@/lib/api/partners";
+import { forgetViewer } from "@/lib/auth/useViewer";
 import { useLocalePath } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
 
 /**
- * Prototype sign-in.
+ * Admin sign-in.
  *
- * There is no authentication here and none is implied: any input gets you in,
- * and the notice below says so plainly rather than letting a reviewer assume
- * the panel is protected. The fields are pre-filled with the fixture operator
- * so the flow can be walked in two clicks.
+ * The form does no credential checking of its own beyond "both fields have
+ * something in them". The server answers a wrong password and an unknown
+ * address with the same 401 and the same wording on purpose, and repeating
+ * that message verbatim is what keeps the sign-in screen from becoming a way
+ * to discover who has an account.
  *
- * Real credential handling would belong on a server, not in this component.
+ * The session arrives as an httpOnly cookie, so there is nothing to store here
+ * — `router.refresh()` is what makes the server re-render with it.
  */
-export function SignInForm() {
+export function SignInForm({ redirectTo = "/admin" }: { redirectTo?: string }) {
   const router = useRouter();
   const path = useLocalePath();
-  const [email, setEmail] = useState(adminUser.email);
-  const [password, setPassword] = useState("prototype");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!email.trim() || !password.trim()) {
+
+    if (!email.trim() || !password) {
       setError("Enter an email address and a password to continue.");
       return;
     }
+
     setError(null);
     setSubmitting(true);
-    // A beat, so the transition reads as a sign-in rather than a link click.
-    setTimeout(() => router.push(path("/admin")), 450);
+
+    try {
+      await signIn(email.trim(), password);
+      // The site header caches who the viewer is for the life of the document.
+      forgetViewer();
+      router.replace(path(redirectTo));
+      router.refresh();
+    } catch (caught) {
+      setError(describeError(caught));
+      setSubmitting(false);
+    }
   };
 
   const field =
@@ -102,15 +117,6 @@ export function SignInForm() {
         {submitting && <Loader2 size={16} className="animate-spin" aria-hidden />}
         {submitting ? "Signing in…" : "Sign in"}
       </button>
-
-      <p className="mt-6 flex items-start gap-2.5 rounded-sm bg-on-dark/6 p-3.5 text-[0.75rem] leading-relaxed text-on-dark/60">
-        <Info size={14} className="mt-px shrink-0 text-on-dark/40" aria-hidden />
-        <span>
-          This screen is part of a front-end prototype. It performs no
-          authentication — any credentials will open the panel, and nothing is
-          transmitted or stored.
-        </span>
-      </p>
     </form>
   );
 }

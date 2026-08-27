@@ -1,8 +1,7 @@
-import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import type { Metadata } from "next";
+import { ArrowRight, BedDouble, CalendarDays, FileText, ImageIcon, MapPin } from "lucide-react";
 
 import {
   AdminBreadcrumbs,
@@ -11,93 +10,79 @@ import {
   AdminPageHeader,
   AdminPanel,
 } from "@/components/admin/AdminPage";
-import { ListingEditor, type EditorField } from "@/components/admin/ListingEditor";
-import { bookings } from "@/data/admin/bookings";
-import { getHotelBySlug, hotels, propertyTypes } from "@/data/hotels";
-import { formatAdminDate } from "@/lib/admin/metrics";
+import { Cell, DataTable, EmptyRow, Row } from "@/components/admin/DataTable";
+import { HotelActions } from "@/components/admin/HotelActions";
+import { HotelStatusBadge } from "@/components/admin/HotelStatusBadge";
+import { BookingStatusBadge } from "@/components/admin/StatusBadge";
+import { getHotel } from "@/lib/api/hotels";
+import { ApiError } from "@/lib/api/client";
+import { bookingsForHotel } from "@/lib/admin/metrics";
+import { formatStay } from "@/lib/admin/bookings";
+import { cardImage } from "@/lib/admin/hotels";
+import { formatMoney } from "@/lib/money";
 import { getI18n } from "@/lib/i18n/server";
-import { formatPrice } from "@/lib/utils";
 
-export function generateStaticParams() {
-  return hotels.map((hotel) => ({ slug: hotel.slug }));
-}
+export const metadata: Metadata = { title: "Property" };
 
-export async function generateMetadata(
-  props: PageProps<"/[locale]/admin/hotels/[slug]">,
-): Promise<Metadata> {
-  const { slug } = await props.params;
-  const hotel = getHotelBySlug(slug);
-  return { title: hotel ? hotel.name : "Property not found" };
-}
+/**
+ * One property: the hub its sub-screens hang off.
+ *
+ * The route segment is called `[slug]` for historical reasons but takes the
+ * hotel id or the slug interchangeably — the API accepts either. The publish
+ * checklist travels with the record, so the page can show exactly what stands
+ * between a draft and going on sale without a second request.
+ */
+export default async function AdminHotelPage({
+  params,
+}: PageProps<"/[locale]/admin/hotels/[slug]">) {
+  const { slug } = await params;
+  const { path } = await getI18n();
 
-export default async function AdminHotelEditPage(
-  props: PageProps<"/[locale]/admin/hotels/[slug]">,
-) {
-  const [{ slug }, { path }] = await Promise.all([props.params, getI18n()]);
+  let hotel;
 
-  const hotel = getHotelBySlug(slug);
-  if (!hotel) notFound();
+  try {
+    hotel = await getHotel(slug);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) notFound();
+    throw error;
+  }
 
-  const related = bookings.filter((booking) => booking.productSlug === hotel.slug);
-  const revenue = related
-    .filter((booking) => booking.status !== "cancelled")
-    .reduce((sum, booking) => sum + booking.total, 0);
+  const recent = await bookingsForHotel(hotel.id);
+  const cover = cardImage(hotel.coverImage);
 
-  const sections: { title: string; description?: string; fields: EditorField[] }[] = [
+  const subScreens = [
     {
-      title: "Listing",
-      description: "How the property appears across the public site.",
-      fields: [
-        { name: "name", label: "Property name", type: "text", value: hotel.name },
-        {
-          name: "propertyType",
-          label: "Property type",
-          type: "select",
-          value: hotel.propertyType,
-          options: [...propertyTypes],
-          half: true,
-        },
-        {
-          name: "starRating",
-          label: "Star classification",
-          type: "number",
-          value: String(hotel.starRating),
-          half: true,
-          hint: "Official classification, 1–5.",
-        },
-        { name: "location", label: "Location", type: "text", value: hotel.location, half: true },
-        { name: "address", label: "Address", type: "text", value: hotel.address, half: true },
-        {
-          name: "summary",
-          label: "Summary",
-          type: "area",
-          value: hotel.summary,
-          hint: "One or two sentences. Shown on cards and search results.",
-        },
-      ],
+      href: `/admin/hotels/${hotel.id}/rooms`,
+      icon: BedDouble,
+      title: "Rooms & rates",
+      description: `${hotel.roomTypes.length} room ${hotel.roomTypes.length === 1 ? "type" : "types"}, with their rate plans`,
     },
     {
-      title: "Rates",
-      description: "Indicative pricing shown before a room is selected.",
-      fields: [
-        {
-          name: "priceFrom",
-          label: "Lowest nightly rate",
-          type: "number",
-          value: String(hotel.priceFrom),
-          prefix: "$",
-          half: true,
-          hint: "Derived from the cheapest room type in a live product.",
-        },
-        {
-          name: "guestScore",
-          label: "Guest score",
-          type: "number",
-          value: String(hotel.guestScore),
-          half: true,
-          hint: "Out of 10.",
-        },
-      ],
+      href: `/admin/hotels/${hotel.id}/calendar`,
+      icon: CalendarDays,
+      title: "Inventory & pricing",
+      description: "The nightly calendar and the bulk editors",
+    },
+    {
+      href: `/admin/hotels/${hotel.id}/images`,
+      icon: ImageIcon,
+      title: "Images",
+      description: `${hotel.images.length} in the gallery`,
+    },
+    {
+      href: `/admin/hotels/${hotel.id}/details`,
+      icon: FileText,
+      title: "Details & policies",
+      description: hotel.shortDescription
+        ? "Descriptions, times, policies, amenities"
+        : "Descriptions and policies still to write",
+    },
+    {
+      href: `/admin/hotels/${hotel.id}/location`,
+      icon: MapPin,
+      title: "Location",
+      description:
+        hotel.latitude !== null ? (hotel.address ?? "On the map, no address") : "Not placed on the map yet",
     },
   ];
 
@@ -109,87 +94,156 @@ export default async function AdminHotelEditPage(
 
       <AdminPageHeader
         title={hotel.name}
-        description={`${hotel.propertyType} · ${hotel.location}`}
-        actions={
-          <>
-            <Link
-              href={path(`/hotels/${hotel.slug}`)}
-              className="inline-flex h-10 items-center gap-2 rounded-sm border border-ink/20 px-4 text-[0.8125rem] font-semibold text-ink transition-colors hover:border-ink hover:bg-surface-soft"
-            >
-              <ExternalLink size={15} aria-hidden />
-              View live page
-            </Link>
-            <Link
-              href={path("/admin/hotels")}
-              className="inline-flex h-10 items-center gap-2 rounded-sm border border-ink/20 px-4 text-[0.8125rem] font-semibold text-ink transition-colors hover:border-ink hover:bg-surface-soft"
-            >
-              <ArrowLeft size={15} className="rtl:-scale-x-100" aria-hidden />
-              All hotels
-            </Link>
-          </>
-        }
+        description={`${hotel.propertyType} · ${"★".repeat(hotel.starRating)}${
+          hotel.destination ? ` · ${hotel.destination.name}` : ""
+        }`}
+        actions={hotel.status && <HotelStatusBadge status={hotel.status} />}
       />
 
       <div className="mt-8 grid gap-6 lg:grid-cols-3">
-        <div className="min-w-0 lg:col-span-2">
-          <ListingEditor sections={sections} featured={hotel.featured} />
-        </div>
+        <div className="flex flex-col gap-6 lg:col-span-2">
+          <nav aria-label="Property sections" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {subScreens.map((screen) => (
+              <Link
+                key={screen.href}
+                href={path(screen.href)}
+                className="group rounded-sm border border-line bg-surface p-4 transition-colors hover:border-ink"
+              >
+                <screen.icon size={18} className="text-brand-text" aria-hidden />
+                <p className="mt-3 flex items-center gap-1 font-medium text-ink">
+                  {screen.title}
+                  <ArrowRight
+                    size={14}
+                    aria-hidden
+                    className="opacity-0 transition-opacity group-hover:opacity-100 rtl:-scale-x-100"
+                  />
+                </p>
+                <p className="mt-1 text-[0.8125rem] text-muted">{screen.description}</p>
+              </Link>
+            ))}
+          </nav>
 
-        <div className="space-y-6">
-          <AdminPanel title="Cover image" bodyClassName="p-0">
-            <div className="relative aspect-4/3 w-full overflow-hidden bg-line">
-              <Image
-                src={hotel.image}
-                alt={`Cover image for ${hotel.name}`}
-                fill
-                sizes="(max-width: 1024px) 100vw, 22rem"
-                className="object-cover"
-              />
-            </div>
-            <p className="px-5 py-4 text-[0.75rem] text-subtle">
-              {hotel.gallery.length} images in the gallery. Image management is not part
-              of this prototype.
-            </p>
-          </AdminPanel>
-
-          <AdminPanel title="Performance">
+          <AdminPanel title="Property">
             <AdminDefinitionList
               items={[
-                { label: "Bookings in ledger", value: String(related.length) },
-                { label: "Gross value", value: formatPrice(revenue) },
-                { label: "Room types", value: String(hotel.rooms.length) },
-                { label: "Guest score", value: `${hotel.guestScore.toFixed(1)} / 10` },
-                { label: "Reviews", value: hotel.reviewCount.toLocaleString("en-GB") },
+                { label: "Slug", value: hotel.slug },
+                { label: "Address", value: hotel.address ?? "Not set" },
+                {
+                  label: "Destination",
+                  value: hotel.destination ? `${hotel.destination.name} (${hotel.destination.path})` : "—",
+                },
+                { label: "Currency", value: hotel.currency },
+                { label: "Time zone", value: hotel.timezone },
+                {
+                  label: "Check-in / out",
+                  value: `${hotel.checkIn.from ?? "—"} / ${hotel.checkOut.until ?? "—"}`,
+                },
+                { label: "Supplier", value: hotel.supplier?.name ?? "Platform-managed" },
+                { label: "Amenities", value: String(hotel.amenities.length) },
               ]}
             />
           </AdminPanel>
 
-          {related.length > 0 && (
-            <AdminPanel title="Recent bookings" bodyClassName="p-0">
-              <ul className="divide-y divide-line">
-                {related.slice(0, 4).map((booking) => (
-                  <li key={booking.id}>
-                    <Link
-                      href={path(`/admin/bookings/${booking.id}`)}
-                      className="flex items-center justify-between gap-3 px-5 py-3 transition-colors hover:bg-surface-soft/60"
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate text-[0.875rem] font-medium text-ink">
-                          {booking.customer.name}
-                        </span>
-                        <span className="block text-[0.75rem] text-muted">
-                          {formatAdminDate(booking.travelDate)}
-                        </span>
-                      </span>
-                      <span className="shrink-0 text-[0.875rem] font-medium text-ink tabular-nums">
-                        {formatPrice(booking.total)}
-                      </span>
-                    </Link>
+          <AdminPanel title="Room types" bodyClassName="p-0">
+            <DataTable
+              columns={[
+                { label: "Room" },
+                { label: "Sleeps", align: "end" },
+                { label: "Rate plans", align: "end" },
+                { label: "Status" },
+              ]}
+              caption="Room types on this property"
+            >
+              {hotel.roomTypes.length === 0 ? (
+                <EmptyRow colSpan={4} message="No rooms yet. A property needs one before it can be published." />
+              ) : (
+                hotel.roomTypes.map((room) => (
+                  <Row key={room.id}>
+                    <Cell>
+                      <Link
+                        href={path(`/admin/hotels/${hotel.id}/rooms`)}
+                        className="font-medium text-ink underline-offset-4 hover:underline"
+                      >
+                        {room.name}
+                      </Link>
+                      <span className="ms-2 text-[0.75rem] text-muted">{room.code}</span>
+                    </Cell>
+                    <Cell align="end">{room.occupancy.max}</Cell>
+                    <Cell align="end">{room.ratePlans.length}</Cell>
+                    <Cell>{room.status}</Cell>
+                  </Row>
+                ))
+              )}
+            </DataTable>
+          </AdminPanel>
+
+          <AdminPanel title="Recent bookings" bodyClassName="p-0">
+            <DataTable
+              columns={[
+                { label: "Reference" },
+                { label: "Guest" },
+                { label: "Stay", hideBelow: "md" },
+                { label: "Status" },
+                { label: "Total", align: "end" },
+              ]}
+              caption="Recent bookings at this property"
+            >
+              {recent.length === 0 ? (
+                <EmptyRow colSpan={5} message="No bookings yet." />
+              ) : (
+                recent.map((booking) => (
+                  <Row key={booking.reference}>
+                    <Cell>
+                      <Link
+                        href={path(`/admin/bookings/${booking.reference}`)}
+                        className="font-medium text-ink underline-offset-4 hover:underline"
+                      >
+                        {booking.reference}
+                      </Link>
+                    </Cell>
+                    <Cell>{booking.leadGuestName}</Cell>
+                    <Cell hideBelow="md">
+                      {formatStay(booking.checkIn, booking.checkOut, booking.nights)}
+                    </Cell>
+                    <Cell>
+                      <BookingStatusBadge status={booking.status} />
+                    </Cell>
+                    <Cell align="end" className="tabular-nums">
+                      {formatMoney(booking.totalCents, booking.currency)}
+                    </Cell>
+                  </Row>
+                ))
+              )}
+            </DataTable>
+          </AdminPanel>
+        </div>
+
+        <div className="flex flex-col gap-6">
+          {cover && (
+            // eslint-disable-next-line @next/next/no-img-element -- API-served
+            <img src={cover} alt={hotel.name} className="aspect-[4/3] w-full rounded-sm object-cover" />
+          )}
+
+          <AdminPanel
+            title="Publishing"
+            description={
+              hotel.publishChecklist.length === 0
+                ? "Everything required is in place."
+                : "What still stands between this property and going on sale."
+            }
+          >
+            {hotel.publishChecklist.length > 0 && (
+              <ul className="mb-4 space-y-2">
+                {hotel.publishChecklist.map((item) => (
+                  <li key={item.code} className="flex items-start gap-2 text-[0.8125rem] text-body">
+                    <span aria-hidden className="mt-1.5 size-1.5 shrink-0 rounded-full bg-warning" />
+                    {item.message}
                   </li>
                 ))}
               </ul>
-            </AdminPanel>
-          )}
+            )}
+            <HotelActions hotel={hotel} />
+          </AdminPanel>
         </div>
       </div>
     </AdminContainer>

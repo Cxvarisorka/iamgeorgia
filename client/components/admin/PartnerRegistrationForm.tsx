@@ -1,436 +1,548 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertCircle, Check, Info, Loader2, Upload } from "lucide-react";
+import { Check, Copy, Loader2 } from "lucide-react";
 import { useState } from "react";
 
-import { partnerKindLabels, requiredDocuments } from "@/data/admin/partners";
+import { ApiError, describeError } from "@/lib/api/client";
+import { createPartner, type AdminCreatePartnerInput } from "@/lib/api/partners";
+import { PARTNER_KINDS, partnerKindLabels } from "@/lib/admin/partners";
 import { useLocalePath } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
 import type { PartnerKind } from "@/types";
 
+/**
+ * Registering a partner from the panel.
+ *
+ * The three modes are the whole point of the screen, and they differ in how
+ * much the admin has to know:
+ *
+ *   invite   — a name, a type and an email address. The invitee supplies the
+ *              rest through a link, and the application comes back for review.
+ *   activate — the admin has the company's paperwork in front of them and
+ *              enters it; the contact only needs to choose a password.
+ *   approve  — the same, for a company that has already been vetted offline.
+ *
+ * Client-side validation here is a courtesy that saves a round trip. The
+ * server validates and normalizes everything again — it is the only side that
+ * can check an IBAN checksum against a unique registration number — and its
+ * field errors are merged back into this form's own error map.
+ */
+
+type Mode = AdminCreatePartnerInput["mode"];
+
 interface Values {
+  mode: Mode;
   name: string;
   legalName: string;
   kind: PartnerKind;
-  taxId: string;
+  registrationNumber: string;
+  legalAddress: string;
   city: string;
-  website: string;
-  contactName: string;
-  email: string;
+  country: string;
   phone: string;
-  commissionRate: string;
+  email: string;
+  website: string;
+  firstName: string;
+  lastName: string;
+  position: string;
+  contactPhone: string;
+  contactEmail: string;
+  iban: string;
+  swift: string;
+  bankName: string;
   notes: string;
 }
 
-type ErrorKey = "name" | "legalName" | "taxId" | "city" | "contactName" | "email" | "phone";
-type Errors = Partial<Record<ErrorKey, string>>;
+type Errors = Partial<Record<keyof Values, string>>;
 
-const initialValues: Values = {
+const EMPTY: Values = {
+  mode: "invite",
   name: "",
   legalName: "",
-  kind: "hotel",
-  taxId: "",
+  kind: "HOTEL",
+  registrationNumber: "",
+  legalAddress: "",
   city: "",
-  website: "",
-  contactName: "",
-  email: "",
+  country: "GE",
   phone: "",
-  commissionRate: "15",
+  email: "",
+  website: "",
+  firstName: "",
+  lastName: "",
+  position: "",
+  contactPhone: "",
+  contactEmail: "",
+  iban: "",
+  swift: "",
+  bankName: "",
   notes: "",
 };
 
-/**
- * Partner registration.
- *
- * The form an operator fills in when a supplier comes on board, laid out in
- * the order the conversation actually happens: who they are, who we call, what
- * we agreed, what paperwork we still need. Validation is front-end only, and
- * submitting adds nothing to the register — it shows the confirmation an
- * operator would get and stops there.
- */
-export function PartnerRegistrationForm() {
-  const path = useLocalePath();
-  const [values, setValues] = useState<Values>(initialValues);
-  const [documents, setDocuments] = useState<string[]>([]);
-  const [errors, setErrors] = useState<Errors>({});
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+const MODES: { value: Mode; title: string; description: string }[] = [
+  {
+    value: "invite",
+    title: "Send a registration link",
+    description:
+      "Email a secure single-use link. They complete the company details and choose a password, then the application comes back to you for approval.",
+  },
+  {
+    value: "activate",
+    title: "Create the account now",
+    description:
+      "You enter everything. They receive a link to set a password, and the application waits for your approval.",
+  },
+  {
+    value: "approve",
+    title: "Create and approve at once",
+    description:
+      "For a company already vetted offline. They get a password link and full access straight away.",
+  },
+];
 
-  const validate = (candidate: Values): Errors => {
+/** The server maps its own field paths; these are the ones this form owns. */
+const SERVER_FIELD_MAP: Record<string, keyof Values> = {
+  "company.name": "name",
+  "company.legalName": "legalName",
+  "company.kind": "kind",
+  "company.registrationNumber": "registrationNumber",
+  "company.legalAddress": "legalAddress",
+  "company.city": "city",
+  "company.country": "country",
+  "company.phone": "phone",
+  "company.email": "email",
+  "company.website": "website",
+  "contact.firstName": "firstName",
+  "contact.lastName": "lastName",
+  "contact.position": "position",
+  "contact.phone": "contactPhone",
+  "contact.email": "contactEmail",
+  "financial.iban": "iban",
+  "financial.swift": "swift",
+  "financial.bankName": "bankName",
+  company: "name",
+};
+
+export function PartnerRegistrationForm() {
+  const router = useRouter();
+  const path = useLocalePath();
+  const [values, setValues] = useState<Values>(EMPTY);
+  const [errors, setErrors] = useState<Errors>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<{
+    reference: string;
+    name: string;
+    url: string;
+    emailSent: boolean;
+    email: string;
+  } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const full = values.mode !== "invite";
+
+  const set = (key: keyof Values) => (value: string) => {
+    setValues((current) => ({ ...current, [key]: value }));
+    // Clear a visible error as soon as the field is touched, but never raise a
+    // new one mid-typing — nothing is more irritating than a form that scolds
+    // you for an email address you are three characters into.
+    setErrors((current) => (current[key] ? { ...current, [key]: undefined } : current));
+  };
+
+  const validate = (): Errors => {
     const next: Errors = {};
-    if (candidate.name.trim().length < 2) next.name = "Enter the trading name.";
-    if (candidate.legalName.trim().length < 2) {
-      next.legalName = "Enter the registered legal entity.";
+    const required = (key: keyof Values, message: string, min = 2) => {
+      if (values[key].trim().length < min) next[key] = message;
+    };
+
+    required("name", "Enter the trading name");
+    required("firstName", "Enter a first name");
+    required("lastName", "Enter a last name");
+
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(values.contactEmail.trim())) {
+      next.contactEmail = "Enter a valid email address";
     }
-    // Georgian TINs are nine digits; spaces are allowed for readability.
-    if (candidate.taxId.replace(/\D/g, "").length !== 9) {
-      next.taxId = "A Georgian tax number is nine digits.";
+
+    if (full) {
+      required("legalName", "Enter the registered legal entity");
+      required("registrationNumber", "Enter the company registration number", 4);
+      required("legalAddress", "Enter the legal address", 4);
+      required("city", "Enter a city");
+      if (!/^[A-Za-z]{2}$/.test(values.country.trim())) {
+        next.country = "Use a two-letter country code, for example GE";
+      }
+      if (values.phone.replace(/\D/g, "").length < 7) {
+        next.phone = "Enter a valid phone number";
+      }
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(values.email.trim())) {
+        next.email = "Enter a valid company email address";
+      }
     }
-    if (candidate.city.trim().length < 2) next.city = "Enter the city they operate from.";
-    if (candidate.contactName.trim().length < 2) next.contactName = "Enter a contact name.";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate.email)) {
-      next.email = "Enter a valid email address.";
+
+    // Bank details are optional, but half of them is not usable.
+    if ((values.iban.trim() || values.swift.trim()) && !values.iban.trim()) {
+      next.iban = "Enter the IBAN as well, or leave both blank";
     }
-    if (candidate.phone.replace(/\D/g, "").length < 7) {
-      next.phone = "Enter a phone number we can reach them on.";
+    if ((values.iban.trim() || values.swift.trim()) && !values.swift.trim()) {
+      next.swift = "Enter the SWIFT/BIC as well, or leave both blank";
     }
+
     return next;
   };
 
-  /** Re-validates on every keystroke but only ever removes a visible message. */
-  const set = <K extends keyof Values>(key: K, value: Values[K]) => {
-    const next = { ...values, [key]: value };
-    setValues(next);
-    setErrors((current) => {
-      const stillInvalid = validate(next);
-      const remaining: Errors = {};
-      for (const errorKey of Object.keys(current) as ErrorKey[]) {
-        if (stillInvalid[errorKey]) remaining[errorKey] = stillInvalid[errorKey];
-      }
-      return remaining;
-    });
-  };
-
-  const toggleDocument = (label: string) =>
-    setDocuments((current) =>
-      current.includes(label)
-        ? current.filter((entry) => entry !== label)
-        : [...current, label],
-    );
-
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const nextErrors = validate(values);
-    setErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) return;
+
+    const found = validate();
+    setErrors(found);
+    setFormError(null);
+
+    if (Object.keys(found).length > 0) return;
+
+    const trimmed = (value: string) => value.trim() || undefined;
+
+    const body: AdminCreatePartnerInput = {
+      mode: values.mode,
+      company: {
+        name: values.name.trim(),
+        kind: values.kind,
+        ...(full || values.legalName.trim() ? { legalName: trimmed(values.legalName) } : {}),
+        ...(trimmed(values.registrationNumber)
+          ? { registrationNumber: values.registrationNumber.trim() }
+          : {}),
+        ...(trimmed(values.legalAddress) ? { legalAddress: values.legalAddress.trim() } : {}),
+        ...(trimmed(values.city) ? { city: values.city.trim() } : {}),
+        ...(trimmed(values.country) ? { country: values.country.trim() } : {}),
+        ...(trimmed(values.phone) ? { phone: values.phone.trim() } : {}),
+        ...(trimmed(values.email) ? { email: values.email.trim() } : {}),
+        ...(trimmed(values.website) ? { website: values.website.trim() } : {}),
+      },
+      contact: {
+        firstName: values.firstName.trim(),
+        lastName: values.lastName.trim(),
+        email: values.contactEmail.trim(),
+        ...(trimmed(values.position) ? { position: values.position.trim() } : {}),
+        ...(trimmed(values.contactPhone) ? { phone: values.contactPhone.trim() } : {}),
+      },
+      ...(values.iban.trim() && values.swift.trim()
+        ? {
+            financial: {
+              iban: values.iban.trim(),
+              swift: values.swift.trim(),
+              ...(trimmed(values.bankName) ? { bankName: values.bankName.trim() } : {}),
+            },
+          }
+        : {}),
+      ...(trimmed(values.notes) ? { notes: values.notes.trim() } : {}),
+    };
+
     setSubmitting(true);
-    setTimeout(() => {
+
+    try {
+      const created = await createPartner(body);
+
+      setResult({
+        reference: created.partner.reference,
+        name: created.partner.name,
+        url: created.link.url,
+        emailSent: created.emailSent,
+        email: values.contactEmail.trim(),
+      });
+      router.refresh();
+    } catch (caught) {
+      if (caught instanceof ApiError) {
+        const fieldErrors = caught.fieldErrors();
+        const mapped: Errors = {};
+
+        for (const [serverPath, message] of Object.entries(fieldErrors)) {
+          const key = SERVER_FIELD_MAP[serverPath];
+          if (key) mapped[key] = message;
+        }
+
+        setErrors(mapped);
+      }
+      // A conflict (duplicate email, duplicate registration number) has no
+      // field path, so it belongs at the top of the form rather than nowhere.
+      setFormError(describeError(caught));
       setSubmitting(false);
-      setSubmitted(true);
-    }, 600);
+    }
   };
 
-  const control =
-    "h-11 w-full rounded-sm border bg-surface px-3.5 text-sm text-ink transition-colors focus:outline-none";
-  const labelClass = "mb-1.5 block text-[0.75rem] font-medium text-muted";
-  const errorCount = Object.keys(errors).length;
+  const copyLink = async () => {
+    if (!result) return;
+    await navigator.clipboard.writeText(result.url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
-  if (submitted) {
+  if (result) {
     return (
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
+      <motion.section
+        initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-        className="rounded-sm border border-line bg-surface p-8 text-center lg:p-12"
+        className="mt-8 rounded-sm border border-line bg-surface p-6"
       >
-        <span className="mx-auto flex size-14 items-center justify-center rounded-full bg-surface-soft text-success">
-          <Check size={26} aria-hidden />
+        <span className="inline-flex size-10 items-center justify-center rounded-full bg-success/12 text-success">
+          <Check size={20} aria-hidden />
         </span>
-        <h2 className="mt-6 font-display text-2xl text-ink">
-          {values.name} added to the register
-        </h2>
-        <p className="mx-auto mt-3 max-w-md text-[0.9375rem] leading-relaxed text-muted">
-          In a live product the application would now sit in the review queue with
-          {" "}
-          {documents.length === 0
-            ? "no documents attached"
-            : `${documents.length} of ${requiredDocuments.length} documents attached`}
-          . Here it is the end of the prototype flow — nothing was saved.
+
+        <h2 className="mt-4 font-display text-[1.375rem] text-ink">{result.name} is on the network</h2>
+
+        <p className="mt-2 text-[0.9375rem] leading-relaxed text-muted">
+          Partner ID <span className="font-mono text-ink">{result.reference}</span>.{" "}
+          {result.emailSent
+            ? `A link has been emailed to ${result.email}.`
+            : `The link could not be emailed to ${result.email} — send it yourself.`}
         </p>
 
-        <div className="mt-8 flex flex-wrap justify-center gap-3">
+        {/*
+          The link is shown whether or not the email went out. A mail server
+          being briefly unreachable should not leave an admin with a partner
+          they have no way to onboard.
+        */}
+        <div className="mt-5 rounded-sm bg-surface-soft p-3">
+          <p className="text-[0.75rem] font-medium tracking-wide text-muted uppercase">
+            {values.mode === "invite" ? "Registration link" : "Password link"}
+          </p>
+          <p className="mt-1 font-mono text-[0.6875rem] break-all text-body">{result.url}</p>
+          <button
+            type="button"
+            onClick={copyLink}
+            className="mt-2 inline-flex items-center gap-1.5 text-[0.8125rem] text-brand-text underline-offset-4 hover:underline"
+          >
+            {copied ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
+            {copied ? "Copied" : "Copy link"}
+          </button>
+        </div>
+
+        <div className="mt-6 flex flex-wrap gap-3">
+          <a
+            href={path("/admin/partners")}
+            className="inline-flex h-10 items-center rounded-sm bg-brand px-4 text-[0.8125rem] font-semibold text-white transition-colors hover:bg-brand-hover"
+          >
+            Back to partners
+          </a>
           <button
             type="button"
             onClick={() => {
-              setValues(initialValues);
-              setDocuments([]);
-              setSubmitted(false);
+              setResult(null);
+              setValues(EMPTY);
+              setErrors({});
+              setSubmitting(false);
             }}
-            className="inline-flex h-11 items-center rounded-sm border border-ink/20 px-5 text-[0.875rem] font-semibold text-ink transition-colors hover:border-ink hover:bg-surface-soft"
+            className="inline-flex h-10 items-center rounded-sm border border-line bg-surface px-4 text-[0.8125rem] font-medium text-body transition-colors hover:border-ink/40 hover:text-ink"
           >
-            Register another
+            Add another
           </button>
-          <Link
-            href={path("/admin/partners")}
-            className="inline-flex h-11 items-center rounded-sm bg-brand px-5 text-[0.875rem] font-semibold text-white transition-colors hover:bg-brand-hover"
-          >
-            Back to partners
-          </Link>
         </div>
-      </motion.div>
+      </motion.section>
     );
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="space-y-6">
-      <section className="rounded-sm border border-line bg-surface">
-        <div className="border-b border-line px-5 py-4">
-          <h2 className="text-[0.9375rem] font-semibold text-ink">The business</h2>
-          <p className="mt-1 text-[0.8125rem] text-muted">
-            As it appears on their registration documents.
-          </p>
-        </div>
+    <form onSubmit={handleSubmit} noValidate className="mt-8 space-y-6">
+      <section className="rounded-sm border border-line bg-surface p-5">
+        <h2 className="text-[0.9375rem] font-semibold text-ink">How do you want to onboard them?</h2>
 
-        <div className="grid gap-5 p-5 sm:grid-cols-2">
-          <Field id="name" label="Trading name" required error={errors.name}>
-            <input
-              id="name"
-              value={values.name}
-              onChange={(event) => set("name", event.target.value)}
-              placeholder="Caucasus Trails"
-              aria-invalid={Boolean(errors.name)}
-              aria-describedby={errors.name ? "name-error" : undefined}
+        <div className="mt-4 space-y-2.5">
+          {MODES.map((mode) => (
+            <label
+              key={mode.value}
               className={cn(
-                control,
-                errors.name ? "border-error" : "border-line focus:border-ink",
+                "flex cursor-pointer gap-3 rounded-sm border p-3.5 transition-colors",
+                values.mode === mode.value
+                  ? "border-ink bg-surface-soft"
+                  : "border-line hover:border-ink/30",
               )}
-            />
-          </Field>
-
-          <Field id="legalName" label="Registered legal entity" required error={errors.legalName}>
-            <input
-              id="legalName"
-              value={values.legalName}
-              onChange={(event) => set("legalName", event.target.value)}
-              placeholder="Caucasus Trails LLC"
-              aria-invalid={Boolean(errors.legalName)}
-              aria-describedby={errors.legalName ? "legalName-error" : undefined}
-              className={cn(
-                control,
-                errors.legalName ? "border-error" : "border-line focus:border-ink",
-              )}
-            />
-          </Field>
-
-          <Field id="kind" label="Partner type">
-            <select
-              id="kind"
-              value={values.kind}
-              onChange={(event) => set("kind", event.target.value as PartnerKind)}
-              className={cn(control, "border-line focus:border-ink")}
             >
-              {(Object.keys(partnerKindLabels) as PartnerKind[]).map((kind) => (
-                <option key={kind} value={kind}>
-                  {partnerKindLabels[kind]}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <Field
-            id="taxId"
-            label="Tax identification number"
-            required
-            error={errors.taxId}
-            hint="Nine digits, as issued by the Revenue Service."
-          >
-            <input
-              id="taxId"
-              inputMode="numeric"
-              value={values.taxId}
-              onChange={(event) => set("taxId", event.target.value)}
-              placeholder="404 512 889"
-              aria-invalid={Boolean(errors.taxId)}
-              aria-describedby={errors.taxId ? "taxId-error" : "taxId-hint"}
-              className={cn(
-                control,
-                errors.taxId ? "border-error" : "border-line focus:border-ink",
-              )}
-            />
-          </Field>
-
-          <Field id="city" label="Operating city" required error={errors.city}>
-            <input
-              id="city"
-              value={values.city}
-              onChange={(event) => set("city", event.target.value)}
-              placeholder="Tbilisi"
-              aria-invalid={Boolean(errors.city)}
-              aria-describedby={errors.city ? "city-error" : undefined}
-              className={cn(
-                control,
-                errors.city ? "border-error" : "border-line focus:border-ink",
-              )}
-            />
-          </Field>
-
-          <Field id="website" label="Website">
-            <input
-              id="website"
-              value={values.website}
-              onChange={(event) => set("website", event.target.value)}
-              placeholder="caucasustrails.ge"
-              className={cn(control, "border-line focus:border-ink")}
-            />
-          </Field>
-        </div>
-      </section>
-
-      <section className="rounded-sm border border-line bg-surface">
-        <div className="border-b border-line px-5 py-4">
-          <h2 className="text-[0.9375rem] font-semibold text-ink">Main contact</h2>
-          <p className="mt-1 text-[0.8125rem] text-muted">
-            The person we call when a booking needs confirming.
-          </p>
-        </div>
-
-        <div className="grid gap-5 p-5 sm:grid-cols-2">
-          <Field id="contactName" label="Full name" required error={errors.contactName}>
-            <input
-              id="contactName"
-              autoComplete="name"
-              value={values.contactName}
-              onChange={(event) => set("contactName", event.target.value)}
-              aria-invalid={Boolean(errors.contactName)}
-              aria-describedby={errors.contactName ? "contactName-error" : undefined}
-              className={cn(
-                control,
-                errors.contactName ? "border-error" : "border-line focus:border-ink",
-              )}
-            />
-          </Field>
-
-          <Field id="email" label="Email" required error={errors.email}>
-            <input
-              id="email"
-              type="email"
-              autoComplete="email"
-              value={values.email}
-              onChange={(event) => set("email", event.target.value)}
-              aria-invalid={Boolean(errors.email)}
-              aria-describedby={errors.email ? "email-error" : undefined}
-              className={cn(
-                control,
-                errors.email ? "border-error" : "border-line focus:border-ink",
-              )}
-            />
-          </Field>
-
-          <Field id="phone" label="Phone" required error={errors.phone}>
-            <input
-              id="phone"
-              type="tel"
-              autoComplete="tel"
-              placeholder="+995 599 12 45 80"
-              value={values.phone}
-              onChange={(event) => set("phone", event.target.value)}
-              aria-invalid={Boolean(errors.phone)}
-              aria-describedby={errors.phone ? "phone-error" : undefined}
-              className={cn(
-                control,
-                errors.phone ? "border-error" : "border-line focus:border-ink",
-              )}
-            />
-          </Field>
-
-          <Field
-            id="commissionRate"
-            label="Commission rate"
-            hint="Percentage of gross booking value retained by the studio."
-          >
-            <span className="relative block">
               <input
-                id="commissionRate"
-                type="number"
-                min={0}
-                max={50}
-                value={values.commissionRate}
-                onChange={(event) => set("commissionRate", event.target.value)}
-                aria-describedby="commissionRate-hint"
-                className={cn(control, "border-line pe-8 focus:border-ink")}
+                type="radio"
+                name="mode"
+                value={mode.value}
+                checked={values.mode === mode.value}
+                onChange={() => set("mode")(mode.value)}
+                className="mt-1 size-4 shrink-0 accent-(--color-brand)"
               />
-              <span className="pointer-events-none absolute top-1/2 end-3.5 -translate-y-1/2 text-sm text-subtle">
-                %
+              <span className="min-w-0">
+                <span className="block text-[0.875rem] font-medium text-ink">{mode.title}</span>
+                <span className="mt-1 block text-[0.8125rem] leading-relaxed text-muted">
+                  {mode.description}
+                </span>
               </span>
-            </span>
-          </Field>
+            </label>
+          ))}
         </div>
       </section>
 
-      <section className="rounded-sm border border-line bg-surface">
-        <div className="border-b border-line px-5 py-4">
-          <h2 className="text-[0.9375rem] font-semibold text-ink">Compliance documents</h2>
-          <p className="mt-1 text-[0.8125rem] text-muted">
-            Tick what has already been received. A partner cannot go active until all
-            four are in.
-          </p>
-        </div>
+      <Section
+        title="The business"
+        description={
+          full
+            ? "Everything here is required before the partner can be approved."
+            : "Only the trading name and type are needed now — the invitee fills in the rest."
+        }
+      >
+        <Field id="name" label="Trading name" required value={values.name} onChange={set("name")} error={errors.name} />
 
-        <div className="p-5">
-          <ul className="grid gap-2 sm:grid-cols-2">
-            {requiredDocuments.map((document) => {
-              const received = documents.includes(document);
-              return (
-                <li key={document}>
-                  <label
-                    className={cn(
-                      "flex cursor-pointer items-center gap-3 rounded-sm border p-3.5 transition-colors",
-                      received
-                        ? "border-success/40 bg-success/6"
-                        : "border-line hover:border-subtle",
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={received}
-                      onChange={() => toggleDocument(document)}
-                      className="size-4 shrink-0 rounded-xs accent-brand"
-                    />
-                    <span className="min-w-0 flex-1 text-[0.875rem] text-ink">{document}</span>
-                    {received ? (
-                      <Check size={15} className="shrink-0 text-success" aria-hidden />
-                    ) : (
-                      <Upload size={15} className="shrink-0 text-subtle" aria-hidden />
-                    )}
-                  </label>
-                </li>
-              );
-            })}
-          </ul>
-
-          <p className="mt-4 text-[0.75rem] text-subtle">
-            {documents.length} of {requiredDocuments.length} received. File upload is not
-            part of this prototype.
-          </p>
-        </div>
-      </section>
-
-      <section className="rounded-sm border border-line bg-surface">
-        <div className="border-b border-line px-5 py-4">
-          <h2 className="text-[0.9375rem] font-semibold text-ink">Internal notes</h2>
-        </div>
-        <div className="p-5">
-          <label htmlFor="notes" className={labelClass}>
-            Anything the review team should know
+        <div>
+          <label htmlFor="kind" className="mb-1.5 block text-[0.8125rem] font-medium text-ink">
+            Partner type <span className="text-error-text">*</span>
           </label>
+          <select
+            id="kind"
+            value={values.kind}
+            onChange={(event) => set("kind")(event.target.value)}
+            className="h-11 w-full rounded-sm border border-line bg-background px-3 text-[0.875rem] text-ink transition-colors focus:border-ink focus:outline-none"
+          >
+            {PARTNER_KINDS.map((kind) => (
+              <option key={kind} value={kind}>
+                {partnerKindLabels[kind]}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <Field
+          id="legalName"
+          label="Registered legal entity"
+          required={full}
+          value={values.legalName}
+          onChange={set("legalName")}
+          error={errors.legalName}
+        />
+        <Field
+          id="registrationNumber"
+          label="Registration number"
+          required={full}
+          hint="The company identification number on the public register."
+          value={values.registrationNumber}
+          onChange={set("registrationNumber")}
+          error={errors.registrationNumber}
+        />
+        <Field
+          id="legalAddress"
+          label="Legal address"
+          required={full}
+          value={values.legalAddress}
+          onChange={set("legalAddress")}
+          error={errors.legalAddress}
+        />
+        <Field id="city" label="City" required={full} value={values.city} onChange={set("city")} error={errors.city} />
+        <Field
+          id="country"
+          label="Country"
+          required={full}
+          hint="Two-letter ISO code, for example GE."
+          value={values.country}
+          onChange={set("country")}
+          error={errors.country}
+        />
+        <Field
+          id="phone"
+          label="Company phone"
+          required={full}
+          type="tel"
+          value={values.phone}
+          onChange={set("phone")}
+          error={errors.phone}
+        />
+        <Field
+          id="email"
+          label="Company email"
+          required={full}
+          type="email"
+          value={values.email}
+          onChange={set("email")}
+          error={errors.email}
+        />
+        <Field
+          id="website"
+          label="Website"
+          hint="Optional. A bare domain is fine."
+          value={values.website}
+          onChange={set("website")}
+          error={errors.website}
+        />
+      </Section>
+
+      <Section
+        title="Main contact"
+        description="The person we correspond with. They receive the link and become the partner's owner account."
+      >
+        <Field
+          id="firstName"
+          label="First name"
+          required
+          value={values.firstName}
+          onChange={set("firstName")}
+          error={errors.firstName}
+        />
+        <Field
+          id="lastName"
+          label="Last name"
+          required
+          value={values.lastName}
+          onChange={set("lastName")}
+          error={errors.lastName}
+        />
+        <Field
+          id="position"
+          label="Position"
+          value={values.position}
+          onChange={set("position")}
+          error={errors.position}
+        />
+        <Field
+          id="contactPhone"
+          label="Phone"
+          type="tel"
+          value={values.contactPhone}
+          onChange={set("contactPhone")}
+          error={errors.contactPhone}
+        />
+        <Field
+          id="contactEmail"
+          label="Email address"
+          required
+          type="email"
+          hint="The link is bound to this address and can only be completed from it."
+          value={values.contactEmail}
+          onChange={set("contactEmail")}
+          error={errors.contactEmail}
+        />
+      </Section>
+
+      <Section
+        title="Bank details"
+        description="Optional here — the partner can supply them during registration. Only administrators and the partner's own owner and finance users can ever read them back."
+      >
+        <Field id="iban" label="IBAN" value={values.iban} onChange={set("iban")} error={errors.iban} />
+        <Field id="swift" label="SWIFT / BIC" value={values.swift} onChange={set("swift")} error={errors.swift} />
+        <Field
+          id="bankName"
+          label="Bank"
+          value={values.bankName}
+          onChange={set("bankName")}
+          error={errors.bankName}
+        />
+      </Section>
+
+      <Section title="Internal note" description="Never shown to the partner." single>
+        <div className="sm:col-span-2">
           <textarea
             id="notes"
-            rows={4}
+            rows={3}
             value={values.notes}
-            onChange={(event) => set("notes", event.target.value)}
-            placeholder="Site visit findings, who introduced them, outstanding questions…"
-            className="w-full rounded-sm border border-line bg-surface p-3.5 text-sm text-ink transition-colors focus:border-ink focus:outline-none"
+            onChange={(event) => set("notes")(event.target.value)}
+            className="w-full rounded-sm border border-line bg-background px-3 py-2 text-[0.875rem] text-ink transition-colors focus:border-ink focus:outline-none"
           />
         </div>
-      </section>
+      </Section>
 
-      <p className="flex items-start gap-2.5 rounded-sm bg-surface-soft p-4 text-[0.75rem] leading-relaxed text-body">
-        <Info size={14} className="mt-px shrink-0 text-brand-text" aria-hidden />
-        This form is part of a front-end prototype. Submitting adds nothing to the
-        register and sends no email — nothing leaves this browser tab.
-      </p>
-
-      {errorCount > 0 && (
-        <p
-          role="alert"
-          className="flex items-start gap-2.5 rounded-sm border border-error/40 bg-surface px-4 py-3 text-[0.875rem] text-error-text"
-        >
-          <AlertCircle size={16} className="mt-0.5 shrink-0" aria-hidden />
-          {errorCount === 1
-            ? "One detail still needs your attention."
-            : `${errorCount} details still need your attention.`}
+      {formError && (
+        <p role="alert" className="rounded-sm bg-error/8 px-4 py-3 text-[0.875rem] text-error-text">
+          {formError}
         </p>
       )}
 
@@ -438,52 +550,83 @@ export function PartnerRegistrationForm() {
         <button
           type="submit"
           disabled={submitting}
-          className="inline-flex h-11 items-center gap-2 rounded-sm bg-brand px-5 text-[0.875rem] font-semibold text-white transition-colors hover:bg-brand-hover disabled:opacity-70"
+          className="inline-flex h-11 items-center gap-2 rounded-sm bg-brand px-5 text-[0.875rem] font-semibold text-white transition-colors hover:bg-brand-hover disabled:opacity-60"
         >
-          {submitting && <Loader2 size={15} className="animate-spin" aria-hidden />}
-          {submitting ? "Registering…" : "Register partner"}
+          {submitting && <Loader2 size={16} className="animate-spin" aria-hidden />}
+          {values.mode === "invite" ? "Send the invitation" : "Create the partner"}
         </button>
-        <Link
+        <a
           href={path("/admin/partners")}
-          className="inline-flex h-11 items-center rounded-sm border border-ink/20 px-5 text-[0.875rem] font-semibold text-ink transition-colors hover:border-ink hover:bg-surface-soft"
+          className="text-[0.875rem] text-muted underline-offset-4 hover:text-ink hover:underline"
         >
           Cancel
-        </Link>
+        </a>
       </div>
     </form>
+  );
+}
+
+function Section({
+  title,
+  description,
+  children,
+  single,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+  single?: boolean;
+}) {
+  return (
+    <section className="rounded-sm border border-line bg-surface p-5">
+      <h2 className="text-[0.9375rem] font-semibold text-ink">{title}</h2>
+      {description && <p className="mt-1 text-[0.8125rem] leading-relaxed text-muted">{description}</p>}
+      <div className={cn("mt-4 grid gap-4", !single && "sm:grid-cols-2")}>{children}</div>
+    </section>
   );
 }
 
 function Field({
   id,
   label,
-  required,
+  value,
+  onChange,
   error,
   hint,
-  children,
+  required,
+  type = "text",
 }: {
   id: string;
   label: string;
-  required?: boolean;
+  value: string;
+  onChange: (value: string) => void;
   error?: string;
   hint?: string;
-  children: React.ReactNode;
+  required?: boolean;
+  type?: string;
 }) {
+  const describedBy = [error && `${id}-error`, hint && `${id}-hint`].filter(Boolean).join(" ");
+
   return (
-    <div className="min-w-0">
-      <label htmlFor={id} className="mb-1.5 block text-[0.75rem] font-medium text-muted">
+    <div>
+      <label htmlFor={id} className="mb-1.5 block text-[0.8125rem] font-medium text-ink">
         {label}
-        {required && (
-          <>
-            {" "}
-            <span aria-hidden>*</span>
-            <span className="sr-only">(required)</span>
-          </>
-        )}
+        {required && <span className="text-error-text"> *</span>}
       </label>
-      {children}
+      <input
+        id={id}
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        aria-invalid={Boolean(error)}
+        aria-describedby={describedBy || undefined}
+        className={cn(
+          "h-11 w-full rounded-sm border bg-background px-3 text-[0.875rem] text-ink transition-colors focus:outline-none",
+          error ? "border-error" : "border-line focus:border-ink",
+        )}
+      />
       {hint && !error && (
-        <p id={`${id}-hint`} className="mt-1.5 text-[0.75rem] text-subtle">
+        <p id={`${id}-hint`} className="mt-1.5 text-[0.75rem] text-muted">
           {hint}
         </p>
       )}
@@ -495,10 +638,10 @@ function Field({
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden text-[0.75rem] text-error-text"
+            transition={{ duration: 0.15 }}
+            className="mt-1.5 overflow-hidden text-[0.75rem] text-error-text"
           >
-            <span className="block pt-1.5">{error}</span>
+            {error}
           </motion.p>
         )}
       </AnimatePresence>
