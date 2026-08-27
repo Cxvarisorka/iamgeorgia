@@ -1,2 +1,11 @@
 .env
 node_modules
+/generated/prisma
+.media/
+.media-test/
+
+# Vendored Prisma skill packs — local agent tooling, not project source.
+.agents/
+.claude/
+.windsurf/
+skills-lock.json

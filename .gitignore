@@ -1,0 +1,43 @@
+# Agent / editor tooling. Vendored skill packs and local assistant config are
+# machine-specific and are deliberately not part of the repository.
+.claude/
+.agents/
+.windsurf/
+.cursor/
+.idea/
+.vscode/
+skills-lock.json
+
+# Dependencies
+node_modules/
+
+# Secrets. Only the *.example templates and the test suite's .env.test are
+# tracked; a real .env never is.
+.env
+.env.*
+!.env.example
+!.env.local.example
+!.env.test
+
+# Build output
+.next/
+out/
+build/
+dist/
+generated/
+*.tsbuildinfo
+
+# Uploaded media (local storage driver)
+.media/
+.media-test/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# OS noise
+.DS_Store
+Thumbs.db
