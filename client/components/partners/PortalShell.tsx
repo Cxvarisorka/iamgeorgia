@@ -1,0 +1,157 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { CalendarCheck, LayoutDashboard, LogOut, Settings } from "lucide-react";
+
+import { signOut } from "@/lib/api/partners";
+import { forgetViewer } from "@/lib/auth/useViewer";
+import { useLocalePath } from "@/lib/i18n/provider";
+import { stripLocale } from "@/lib/i18n/config";
+import { cn } from "@/lib/utils";
+import type { Session } from "@/types/auth";
+
+/**
+ * Only shown to a partner who is through the gate. Someone still waiting on a
+ * decision has one page, and offering them navigation into rooms they cannot
+ * enter would be a worse experience than offering none.
+ */
+const NAV = [
+  { label: "Dashboard", href: "/portal/dashboard", icon: LayoutDashboard },
+  { label: "Bookings", href: "/portal/bookings", icon: CalendarCheck },
+  { label: "Settings", href: "/portal/settings", icon: Settings },
+];
+
+/**
+ * Chrome for the partner platform.
+ *
+ * Deliberately plainer than the public site's: a partner signs in to do work,
+ * not to be sold a holiday, so there is no marketing navigation here — only who
+ * you are, which company you are acting for, and the way out.
+ */
+export function PortalShell({
+  session,
+  children,
+}: {
+  session: Session | null;
+  children: React.ReactNode;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const path = useLocalePath();
+  const current = stripLocale(pathname);
+  const approved = session?.partner?.status === "APPROVED";
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+    } finally {
+      forgetViewer();
+      router.replace(path("/portal/sign-in"));
+      router.refresh();
+    }
+  };
+
+  return (
+    <div className="flex min-h-svh flex-col bg-background">
+      <a
+        href="#portal-main"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:start-4 focus:z-200 focus:rounded-sm focus:bg-brand focus:px-4 focus:py-2.5 focus:text-sm focus:text-on-dark"
+      >
+        Skip to content
+      </a>
+
+      <header className="border-b border-line bg-surface">
+        <div className="mx-auto flex w-full max-w-(--container-page) items-center gap-4 px-5 py-4 sm:px-8 lg:px-12">
+          <Link href={path("/portal")} className="font-display text-[1.125rem] text-ink">
+            I am Georgia
+            <span className="ms-2 text-[0.75rem] tracking-[0.12em] text-muted uppercase">
+              Partners
+            </span>
+          </Link>
+
+          {approved && (
+            <nav aria-label="Partner platform" className="ms-6 hidden items-center gap-1 sm:flex">
+              {NAV.map((item) => {
+                const active = current === item.href || current.startsWith(`${item.href}/`);
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={path(item.href)}
+                    aria-current={active ? "page" : undefined}
+                    className={cn(
+                      "inline-flex h-9 items-center gap-2 rounded-sm px-3 text-[0.8125rem] transition-colors",
+                      active
+                        ? "bg-surface-soft font-medium text-ink"
+                        : "text-muted hover:bg-surface-soft hover:text-ink",
+                    )}
+                  >
+                    <item.icon size={15} aria-hidden />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
+          )}
+
+          {session && (
+            <div className="ms-auto flex items-center gap-4">
+              <span className="hidden text-end sm:block">
+                <span className="block text-[0.8125rem] font-medium text-ink">
+                  {session.user.fullName}
+                </span>
+                {session.partner && (
+                  <span className="block text-[0.6875rem] text-muted">{session.partner.name}</span>
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="inline-flex h-9 items-center gap-2 rounded-sm border border-line px-3 text-[0.8125rem] text-body transition-colors hover:border-ink/40 hover:text-ink"
+              >
+                <LogOut size={14} className="rtl:-scale-x-100" aria-hidden />
+                Sign out
+              </button>
+            </div>
+          )}
+        </div>
+      </header>
+
+      {approved && (
+        <nav
+          aria-label="Partner platform"
+          className="flex gap-1 border-b border-line bg-surface px-5 pb-3 sm:hidden"
+        >
+          {NAV.map((item) => {
+            const active = current === item.href || current.startsWith(`${item.href}/`);
+
+            return (
+              <Link
+                key={item.href}
+                href={path(item.href)}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-sm text-[0.8125rem] transition-colors",
+                  active ? "bg-surface-soft font-medium text-ink" : "text-muted",
+                )}
+              >
+                <item.icon size={15} aria-hidden />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
+
+      <main id="portal-main" className="flex-1">
+        {children}
+      </main>
+
+      <footer className="border-t border-line px-5 py-6 text-center text-[0.8125rem] text-muted sm:px-8">
+        Questions about your account? Reply to any email from us and it reaches the partnerships
+        team.
+      </footer>
+    </div>
+  );
+}
