@@ -14,8 +14,10 @@ Everything changed on the front end, why it changed, and what is still outstandi
 2. [Layout fixes](#2-layout-fixes)
 3. [Brand identity — logo and page titles](#3-brand-identity--logo-and-page-titles)
 4. [Internationalisation](#4-internationalisation)
-5. [Outstanding work](#5-outstanding-work)
-6. [File reference](#6-file-reference)
+5. [Transfers went live](#5-transfers-went-live)
+6. [Outstanding work](#6-outstanding-work)
+7. [File reference](#7-file-reference)
+8. [Error handling](#8-error-handling)
 
 ---
 
@@ -206,7 +208,9 @@ Three consequences, all of them the point:
 - Pricing, filtering and sorting logic never has to know a locale exists. `quotesForQuery()` computes a fare from the English record; the result is localised at the very end.
 - Adding a language is a new key in one file per collection, not a fork of the data.
 
-Accessors take an **optional** locale, and the omission is meaningful. `getTransferLocation(id)` returns the canonical record and is what the pricing engine calls — it only ever reads the coordinates, and a translated name would be dead weight in every quote. `getTransferLocation(id, locale)` returns the reader's version and is what components call.
+Accessors take an **optional** locale, and the omission is meaningful — the canonical record is what logic reads, the localised one is what components render.
+
+> **Transfers no longer use this layer.** The whole vertical moved to the database (see §5), and its translations moved with it: `transfer_point_translations`, `transfer_vehicle_translations` and `transfer_route_translations` hold the same per-field overlay, merged server-side by `serializers/localise.js`. The contract is identical — a missing field degrades to English, not the whole record — but it now scales to four hundred routes instead of nineteen hardcoded places. Tours are the remaining user of the client-side merge.
 
 Two traps worth naming, because both fail silently:
 
@@ -271,7 +275,104 @@ Both verticals were verified against a production build: all four locales preren
 
 ---
 
-## 5. Outstanding work
+## 5. Transfers went live
+
+The transfers vertical was the most finished part of the front end and the least
+real: six pages, four languages, and every price computed in the browser from
+two sets of coordinates in `data/transferLocations.ts`. Checkout wrote a draft
+to `sessionStorage`, invented a reference like `IG-8F2K4Q`, and told the
+traveller they were booked. Its own source said so — *"Nothing is sent anywhere;
+there is no request and no server."*
+
+It is now a real product, backed by `server/`.
+
+### What moved, and why
+
+**Pricing left the browser.** `getRouteMetrics`, `quoteFor`, `quotesForQuery`
+and `totalFor` are gone from `lib/transfers/query.ts`. The arithmetic was not
+wrong — it is the same maths, in `server/services/transfer/pricing.service.js`,
+in integer cents. What was wrong was where it ran: a price the browser computes
+is a price the browser can change, and a catalogue the browser carries goes
+stale the moment an operator edits it.
+
+The module kept everything that never needed a fare — reading the journey out
+of the URL, validating it, formatting it — and a comment where the engine used
+to be, saying where it went.
+
+**Money became minor units.** `types/transfer.ts` carried plain-number dollars;
+every figure is now integer cents with a currency beside it, matching
+`types/catalogue.ts` and the API. Components format through `lib/money.ts`
+rather than `formatPrice`.
+
+**The catalogue became a database.** Nineteen hardcoded pick-up points and nine
+offers became 67 points, 9 vehicle classes and **396 routes** seeded from the
+operator's own brief, with 3,564 prices. `data/transfers.ts`,
+`data/transferLocations.ts` and their two `data/i18n` companions are deleted;
+the vocabulary they also held — filter chips, sort options, passenger bands —
+moved to `lib/transfers/vocabulary.ts`, because it is interface, not data.
+
+The ka/ru/he prose in those files was not thrown away. `server/scripts/
+seed-transfer-translations.js` reads it out of the last commit that held it and
+writes it into the translation tables, mapping the four ids that changed
+(`tbs-airport` → `tbilisi-airport`, and so on).
+
+**Checkout posts.** `lib/transfers/booking.ts` and its `sessionStorage` draft
+are deleted. The form sends a signed quote token with an idempotency key, and
+handles the two answers that are conversations rather than failures: `409
+PRICE_CHANGED` when the fare moved while the traveller was typing, and `410`
+when the quote went stale.
+
+`transfers/confirmation?ref=…` became `transfers/confirmation/[reference]`,
+reading a real booking. The email in the query string is not decoration:
+references come from a sequence and are enumerable, so the server requires the
+address the booking was made under.
+
+### New pages
+
+- **`/transfers/routes/[slug]`** — a landing page per route, with translated
+  copy, a from price and `Service` structured data. This is what a catalogue of
+  named routes is *for*: a result set has nothing to offer an index, but
+  "Tbilisi Airport to Gudauri transfer" is a thing people search for.
+- **The panel**, at `/admin/transfers/…`: `routes` (with a bulk repricer),
+  `routes/[id]`, `vehicles`, `vehicles/[id]`, `points`, `extras`, `bookings`
+  and `bookings/[reference]`.
+
+  The route screen is the one that earns its keep. It carries the price grid
+  across every vehicle class — saved whole, so a half-applied set of fares
+  cannot happen — the landing-page copy, the stops editor, and the closed-date
+  windows that stand in for inventory. A publish checklist refuses a route with
+  no price at all, because publishing one would silently fall through to the
+  distance estimate.
+
+  The bulk repricer on the list screen exists because 396 routes × 9 classes is
+  over three thousand fares. It requires a filter (there is no "everything"
+  option, here or in the API) and fills gaps by default rather than overwriting.
+
+### Finding a transfer booking
+
+`BookingLookupForm` routes by reference prefix: `TRF-` goes to the transfer
+confirmation page, `BKG-` to the hotel one. They are separate records with
+separate endpoints, so a single page that tried both and saw which answered
+would 404 half the time on its way to succeeding.
+
+### The picker had to change
+
+`LocationSelector` filtered nineteen places in memory. It now asks the server,
+debounced and guarded against out-of-order replies. That is not just a data
+source change: the server matches names, regions, IATA codes **and every
+translation**, so a Russian reader typing "Кутаиси" finds the row an English
+reader finds typing "Kutaisi" — which a client-side filter over English
+fixtures could never do.
+
+### Still true
+
+Four locales, RTL Hebrew, the design tokens, the URL-as-state search: all
+unchanged. `tsc --noEmit` clean, `eslint` clean, `next build` succeeds, and the
+server suite is 599 green.
+
+---
+
+## 6. Outstanding work
 
 Being explicit, because the site is **not** fully translated yet. The app is fully working in English; untranslated components show English rather than breaking.
 
@@ -280,7 +381,7 @@ Being explicit, because the site is **not** fully translated yet. The app is ful
 | Section | UI strings | Editorial content |
 | --- | --- | --- |
 | Chrome, home, index heroes | ✅ | — |
-| Transfers | ✅ | ✅ |
+| Transfers | ✅ | ✅ (in the database) |
 | Tours | ✅ | ✅ |
 | Hotels | ❌ | ❌ |
 | Destinations | ❌ | ❌ |
@@ -288,7 +389,7 @@ Being explicit, because the site is **not** fully translated yet. The app is ful
 | About, Contact, RequestModal | ❌ | — |
 | Admin panel | ❌ | — |
 
-The merge layer described above is now **built and proven** on two verticals, so the remaining work is filling it in rather than designing it. The pattern to copy is `data/i18n/tours.ts` for content and `components/tours/TourExplorer.tsx` for a filter UI.
+The merge layer is built and proven, in both forms: `data/i18n/tours.ts` for content the client still carries, and the `transfer_*_translations` tables for content that has moved to the database. Which one a vertical should use is decided by whether an operator needs to edit it — hotels are already live records, so they follow transfers; tours are still fixtures, so they follow tours.
 
 ### Files that still hold hardcoded English UI text
 
@@ -306,7 +407,7 @@ app/[locale]/(site)/experiences/**             ExperienceCard, ExperienceExplore
 app/[locale]/(site)/about/page.tsx
 app/[locale]/(site)/contact/page.tsx           + components/contact/ContactForm
 components/ui/RequestModal.tsx
-components/admin/*                             15 files, entirely English
+components/admin/*                             the older 15 files, entirely English
 ```
 
 Two vocabulary maps are still English-in-data and should move to the dictionary the way vehicle classes and features did: `amenityLabels` in `data/amenities.ts` and the `label` fields on `hotelSortOptions` / `propertyTypes` in `data/hotels.ts`.
@@ -316,8 +417,8 @@ Two vocabulary maps are still English-in-data and should move to the dictionary 
 | File | Words | Entities | Status |
 | --- | --- | --- | --- |
 | `data/tours.ts` | 3,262 | 10 | ✅ translated |
-| `data/transfers.ts` | ~1,900 | 9 | ✅ translated |
-| `data/transferLocations.ts` | ~200 | 19 | ✅ translated |
+| ~~`data/transfers.ts`~~ | — | — | moved to `transfer_vehicles` |
+| ~~`data/transferLocations.ts`~~ | — | — | moved to `transfer_points` |
 | `data/hotels.ts` | 3,768 | 9 | ❌ |
 | `data/destinations.ts` | 2,392 | 8 | ❌ |
 | `data/experiences.ts` | 1,858 | 8 | ❌ |
@@ -325,10 +426,6 @@ Two vocabulary maps are still English-in-data and should move to the dictionary 
 So hotel descriptions, room names, guest reviews, destination copy and experience listings still render in English on `/ka`, `/ru` and `/he`.
 
 Hotels are the largest and most awkward of the three: each property carries rooms, policies, category score labels, nearby places and fictional guest reviews. The reviews are worth a decision rather than a default — a translated "verified guest review" is a slightly odd artefact, and leaving them in the reviewer's own language may read as more honest than translating them.
-
-### Two stray `console.log`s
-
-`components/hotels/HotelCard.tsx` and `app/[locale]/(site)/hotels/[slug]/page.tsx` each log on every render. Left in place only because the hotels pass has not run yet; they should not reach a commit.
 
 ### RTL is partial
 
@@ -344,7 +441,7 @@ The Georgian, Russian and Hebrew UI copy was **AI-generated, not human-reviewed*
 
 ---
 
-## 6. File reference
+## 7. File reference
 
 ### Created
 
@@ -379,6 +476,37 @@ components/home/*.tsx             All 10 sections
 ### Structural change
 
 Every route moved from `app/*` to `app/[locale]/*`. `app/globals.css` and `app/icon.svg` stay at the `app/` root.
+
+---
+
+## 8. Error handling
+
+What happens when the API does not answer, decided once rather than per screen.
+
+### The client
+
+`lib/api/client.ts` remains the only `fetch` against the API, and now also decides what "no answer" means:
+
+- **Every request has a timeout** — 15 s by default, overridable per call with `timeoutMs`. It applies to Server Components too, so a socket that never answers cannot hold a page render open indefinitely. A caller-supplied `signal` is still honoured; the two are combined.
+- **`NetworkError extends ApiError`** with `status: 0` and `kind: "network" | "timeout"`. A rejected `fetch` (offline, DNS, connection refused) and a fired timeout both become one, carrying a message fit to show. Only the `fetch` promise is wrapped, so `redirect()` / `notFound()` thrown by callers are untouched. A caller's own abort is re-thrown as-is.
+- **`describeError(error, fallback?)`** is the one way to turn a caught error into a sentence. An `ApiError` (including `NetworkError`) speaks for itself; anything else — a bug — gets the generic fallback, or a domain-specific one where the screen has more to say ("Could not close those dates."). The previous ~26 hand-rolled ternaries all use it.
+
+### Boundaries
+
+| File | Catches | Chrome kept |
+| --- | --- | --- |
+| `app/global-error.tsx` | The root layout itself | None — brings its own `<html>`, imports `globals.css`, English only |
+| `app/[locale]/(site)/error.tsx` | Any public page | Header and footer; localised via `t.error.*` |
+| `app/[locale]/(site)/transfers/error.tsx` | Transfers, with its own wording | As above |
+| `app/[locale]/(admin)/admin/(panel)/error.tsx` | Any panel screen | Sidebar and top bar |
+| `app/[locale]/(admin)/admin/error.tsx` | The panel shell and the sign-in screen | None |
+| `app/[locale]/(portal)/portal/error.tsx` | Any portal page | Portal header and nav |
+
+The new boundaries use Next 16.3's `retry` prop rather than `reset`: the failing content is server-rendered, and re-rendering the same failed payload would only fail again. `app/[locale]/(portal)/portal/not-found.tsx` gives a partner who hits a bad reference a portal-styled 404 instead of the marketing one.
+
+### What is guarded, and what is not
+
+Primary content is left to the boundary — a hotel list, a bookings register or an admin table that cannot load *is* the failure, and a page pretending otherwise is worse. Decoration is guarded: the panel's sidebar counts render as zeros, the hotel page drops its "more properties" rail, and the partner dashboard says its recent-bookings list is unavailable while still showing the figures above it. `useViewer` no longer treats a failed `/api/auth/me` probe as "signed out" — only a 401/403 does; anything else leaves the answer unknown and is retried on the next mount.
 
 ---
 
