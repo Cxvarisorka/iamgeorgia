@@ -80,6 +80,20 @@ export const en = {
       experiences: "Wine, food, craft and adventure",
       about: "The studio behind the journeys",
     },
+    /**
+     * The way into the two staff surfaces, shown in the site header.
+     *
+     * Which of the three labels appears depends on who is signed in, so all
+     * three are needed in every language — a partner must never be offered
+     * "Admin panel", and a signed-out visitor must be offered a way in rather
+     * than a door that redirects.
+     */
+    account: {
+      portal: "Partner portal",
+      admin: "Admin panel",
+      signIn: "Partner login",
+      description: "Bookings, listings and your account",
+    },
     groups: {
       explore: "Explore",
       company: "Company",
@@ -91,6 +105,7 @@ export const en = {
     planYourTrip: "Plan your trip",
     exploreTours: "Explore tours",
     browseDestinations: "Browse destinations",
+    browseHotels: "Browse hotels",
     allTours: "All tours",
     allHotels: "All hotels",
     allExperiences: "All experiences",
@@ -663,16 +678,15 @@ export const en = {
       eyebrow: "Popular routes",
       title: "The journeys we drive most",
       description:
-        "Prices are for a Comfort Sedan carrying two passengers, and include tolls, parking and waiting time.",
-      /** Keyed `fromId>toId`, so a route note travels with the pair it describes. */
-      notes: {
-        "tbs-airport>tbilisi": "The 20-minute run into town",
-        "tbs-airport>batumi": "Cross the country in a day",
-        "tbs-airport>gudauri": "Straight to the snow",
-        "kut-airport>batumi": "The budget-airline arrival",
-        "tbilisi>stepantsminda": "Up the Military Road",
-        "tbilisi>sighnaghi": "Into the wine country",
-      },
+        "From prices, for the most affordable vehicle on each route. Tolls, parking and waiting time are included.",
+      metaTitle: "{from} to {to} transfer",
+      metaDescription:
+        "Private and shared transfers from {from} to {to} — about {distance} km by road, with a fixed price and a driver who tracks your flight.",
+      stopsTitle: "Where this journey stops",
+      stopMinutes: "{count} minutes",
+      seePrices: "See prices for your dates",
+      priceNote:
+        "The price shown is for the cheapest vehicle on this route. Search your dates for every class and the exact total.",
     },
 
     fleet: {
@@ -749,8 +763,10 @@ export const en = {
       groups: {
         airport: "Airports",
         city: "Cities & towns",
-        hotel: "Hotels",
+        resort: "Resorts",
         landmark: "Popular destinations",
+        station: "Stations",
+        hotel: "Hotels",
       },
     },
 
@@ -825,6 +841,18 @@ export const en = {
       metaDescription: "Compare private cars, minivans and shared shuttles for your journey.",
       title: "Available transfers",
       searching: "Searching for available vehicles…",
+      closedTitle: "That road is closed for those dates",
+      closedBody:
+        "Mountain roads in Georgia close for snow and repairs. Try a different date, or a route that does not cross the pass.",
+      unavailable: {
+        TOO_SOON:
+          "That pick-up is sooner than we can arrange a car. Choose a time at least three hours from now.",
+        BEYOND_HORIZON: "That date is further ahead than we take bookings for. Try a nearer date.",
+        RETURN_BEFORE_OUTBOUND: "The return pick-up is before the outbound one.",
+        PARTY_TOO_LARGE:
+          "That is a larger group than we quote online. Get in touch and we will arrange a coach.",
+        SAME_POINT: "The pick-up and drop-off are the same place.",
+      },
       availableFor: "available for your journey",
       show: "Show {count}",
       noJourneyTitle: "Tell us where you're going",
@@ -948,11 +976,17 @@ export const en = {
       requestsBody:
         "Child seats, extra stops, oversized luggage, a wheelchair — tell us and we will confirm before the day.",
       requestsPlaceholder: "Anything the driver should know in advance…",
-      prototypeNote:
-        "This is a front-end prototype. No booking is placed, no payment is taken and nothing you type here leaves this browser tab.",
+      paymentNote:
+        "No card is needed. We confirm the booking now and you settle with the driver, in cash or by card, on the day.",
       errorOne: "One detail still needs your attention.",
       errorMany: "{count} details still need your attention.",
       submit: "Continue to confirmation",
+      submitting: "Confirming your transfer…",
+      priceChanged:
+        "The fare for this journey changed while you were filling this in. Go back to the results for the current price.",
+      quoteExpired:
+        "This quote has expired. Search again and the current fares will come back.",
+      submitFailed: "We could not confirm the booking. Please try again in a moment.",
       back: "Back to transfer details",
       noTransferTitle: "No transfer chosen yet",
       noTransferBody:
@@ -975,6 +1009,7 @@ export const en = {
       copy: "Copy reference",
       copied: "Copied",
       copiedAnnounce: "Booking reference copied to clipboard",
+      cancelled: "Cancelled",
       leadPassenger: "Lead passenger",
       name: "Name",
       email: "Email",
@@ -1172,6 +1207,244 @@ export const en = {
     backHome: "Back to the homepage",
     askUs: "Ask us where to go",
     sections: "Site sections",
+  },
+
+  /** The site-wide error boundary — anything that throws under `(site)`. */
+  error: {
+    title: "Something went wrong on our side",
+    body: "The page did not load as it should. Nothing has been booked and nothing has been charged — try again, or head back to the homepage.",
+    reference: "Reference: {digest}",
+  },
+
+  /**
+   * The booking flow — dated search, live availability, checkout, confirmation
+   * and the guest's own booking page.
+   *
+   * Unlike the rest of this file, these strings sit in front of a real
+   * transaction: a room is genuinely held, a booking is genuinely confirmed and
+   * a cancellation charge is quoted from terms the guest agreed to. Wording
+   * that overstates what is free, or understates what is charged, is not a
+   * translation nit here — it is a dispute later.
+   */
+  booking: {
+    search: {
+      checkIn: "Check-in",
+      checkOut: "Check-out",
+      guests: "Guests",
+      adults: "Adults",
+      children: "Children",
+      rooms: "Rooms",
+      childAge: "Child {number}",
+      childAgeUnit: "years old",
+      addChild: "Add a child",
+      removeChild: "Remove child {number}",
+      ageHint: "A child's age decides how they are priced and where they sleep.",
+      submit: "Check availability",
+      update: "Update search",
+      edit: "Change search",
+      invalidDates: "Check-out must be after check-in.",
+      pastDate: "Check-in cannot be in the past.",
+      datesRequired: "Choose your dates to see real prices and availability.",
+      done: "Done",
+    },
+    results: {
+      metaTitle: "Available stays",
+      heading: "{count} available",
+      subheading: "{stay} · {party}",
+      emptyTitle: "Nothing free on those dates",
+      emptyBody:
+        "Every property is either full or does not open these dates for sale. Shifting the stay by a night usually finds something.",
+      browseCatalogue: "Browse all properties",
+      totalFor: "Total for {nights}",
+      perNight: "{price} per night",
+      refundable: "Free cancellation",
+      nonRefundable: "Non-refundable",
+      ratesAvailable: "{count} rates available",
+      viewRooms: "View rooms",
+      soldOut: "No availability",
+    },
+    availability: {
+      heading: "Choose your room",
+      ratesFor: "Live rates for {stay}",
+      noDatesTitle: "Pick your dates",
+      noDatesBody:
+        "Rates and availability at this property are live. Choose when you are coming and we will show you exactly what can be booked.",
+      emptyTitle: "Nothing available on those dates",
+      emptyBody:
+        "This property has no rooms open for the dates and party you asked for. Try a different date, or fewer guests per room.",
+      sleeps: "Sleeps {count}",
+      unitsLeft: "Only {count} left",
+      lastRoom: "Last room at this rate",
+      freeUntil: "Free cancellation until {date}",
+      nonRefundable: "Non-refundable",
+      extraBeds: "Includes {count} extra beds",
+      extraGuests: "Includes {count} extra guests",
+      taxesIncluded: "Taxes included",
+      payAtProperty: "{amount} payable at the property",
+      totalForStay: "Total for {nights}",
+      showBreakdown: "Night by night",
+      hideBreakdown: "Hide breakdown",
+      reserve: "Reserve",
+      holding: "Holding your room…",
+      selectDates: "Check dates",
+    },
+    checkout: {
+      metaTitle: "Checkout",
+      title: "Confirm your stay",
+      crumb: "Checkout",
+      steps: {
+        choose: "Choose a room",
+        details: "Your details",
+        confirm: "Confirmed",
+      },
+      heldNotice: "These rooms are held for you",
+      expiresIn: "Time left: {time}",
+      expiredTitle: "Your hold has expired",
+      expiredBody:
+        "Rooms are only held for a few minutes so they are not kept from other travellers. Nothing was booked and nothing was charged — pick the room again and it will be held afresh.",
+      backToProperty: "Back to the property",
+      leadGuest: "Lead guest",
+      leadGuestHint: "Whoever is checking in. The property asks for this name at the desk.",
+      firstName: "First name",
+      lastName: "Last name",
+      email: "Email",
+      emailHint: "Your confirmation goes here, and it is how you reach this booking later.",
+      phone: "Phone",
+      phoneOptional: "Phone (optional)",
+      otherGuests: "Other guests",
+      otherGuestsHint:
+        "Optional. Adding the names now saves the property asking for them on arrival.",
+      guestNumber: "Guest {number}",
+      addGuest: "Add a guest",
+      removeGuest: "Remove guest {number}",
+      guestType: "Type",
+      adult: "Adult",
+      child: "Child",
+      infant: "Infant",
+      age: "Age",
+      specialRequests: "Anything the property should know",
+      specialRequestsHint:
+        "A late arrival, a quiet room, a wheelchair. Requests are passed on but never guaranteed.",
+      terms:
+        "By confirming you accept the cancellation terms shown above. Payment is taken by the property, not on this site.",
+      confirmStay: "Confirm booking",
+      confirming: "Confirming…",
+      summary: "Your stay",
+      room: "Room",
+      rate: "Rate",
+      nights: "Nights",
+      total: "Total",
+      taxesIncluded: "Taxes included",
+      payAtProperty: "Payable at the property",
+      payAtPropertyHint: "Charged by the hotel on arrival, not by us.",
+      required: "Required",
+      invalidEmail: "That does not look like an email address.",
+      noHoldTitle: "Nothing to check out",
+      noHoldBody:
+        "This page needs a room held against it. Choose your dates and a room, and you will land back here.",
+      findStay: "Find a stay",
+      partialDraft:
+        "We could not recover the full details of your hold in this tab, but it is still valid and your booking will be confirmed correctly.",
+    },
+    confirmation: {
+      metaTitle: "Booking confirmed",
+      title: "You are booked",
+      subtitle: "{hotel} is expecting you on {date}.",
+      reference: "Booking reference",
+      referenceHint: "Quote this to the property. Keep it with your travel documents.",
+      emailedTo: "A confirmation is on its way to {email}.",
+      whatNext: "What happens now",
+      whatNextSteps: {
+        one: "The property has your booking and your requests.",
+        two: "Payment is settled with the property, not with us.",
+        three: "You can review or cancel from your booking page, under the terms below.",
+      },
+      manageBooking: "View or cancel this booking",
+      print: "Print this page",
+      notFoundTitle: "We cannot find that booking",
+      notFoundBody:
+        "The reference or the email does not match anything we hold. Check both — the reference is on your confirmation email.",
+    },
+    manage: {
+      metaTitle: "Your booking",
+      title: "Find your booking",
+      description:
+        "Your reference is on the confirmation email. We ask for the email too, because a reference on its own is not proof the booking is yours.",
+      crumb: "Your booking",
+      reference: "Booking reference",
+      referencePlaceholder: "BKG-000142 or TRF-000068",
+      email: "Email used to book",
+      find: "Find booking",
+      finding: "Looking…",
+      notFoundTitle: "No booking matches that",
+      notFoundBody:
+        "Check the reference and the email address you booked with. If it still will not open, we can find it for you.",
+      bookedOn: "Booked {date}",
+      property: "Property",
+      stay: "Stay",
+      guestsLabel: "Guests",
+      roomsLabel: "Rooms",
+      leadGuest: "Lead guest",
+      contact: "Contact",
+      specialRequests: "Your requests",
+      noRequests: "None",
+      arrival: "Arrival",
+      departure: "Departure",
+      checkInFrom: "Check-in from {time}",
+      checkOutBy: "Check-out by {time}",
+      roomsTitle: "What you booked",
+      mealPlan: "Board",
+      cancellationTerms: "Cancellation terms",
+      freeUntil: "Free until {date}",
+      thenCharge: "From {date}: {amount}",
+      nonRefundable: "Non-refundable",
+      total: "Total",
+      taxesIncluded: "Taxes included",
+      payAtProperty: "Payable at the property",
+      cancelledOn: "Cancelled {date}",
+      cancellationCharge: "Cancellation charge",
+    },
+    cancel: {
+      title: "Cancel this booking",
+      free: "Cancelling now costs nothing.",
+      charge: "Cancelling now costs {amount}.",
+      refund: "You would be refunded {amount}.",
+      noRefund: "There would be no refund.",
+      deadline: "Free cancellation ends {date}.",
+      reason: "Reason (optional)",
+      reasonHint: "Not required, and it does not change the charge.",
+      confirm: "Cancel booking",
+      cancelling: "Cancelling…",
+      keep: "Keep my booking",
+      irreversible: "Cancelling releases the rooms immediately and cannot be undone.",
+      doneTitle: "Booking cancelled",
+      doneBody: "The rooms have been released and the property has been told.",
+      alreadyCancelled: "This booking was already cancelled.",
+      notCancellable: "This booking can no longer be cancelled online. Please contact us.",
+    },
+    window: {
+      title: "We cannot sell those dates",
+      tooFarAhead: "We take bookings up to {limit} days ahead. Try a nearer date.",
+      inThePast: "That check-in has already passed. Choose a date from today onwards.",
+      tooLong: "One booking can run to at most {limit} nights. Split the stay, or ask us to arrange it.",
+    },
+    status: {
+      PENDING: "Pending",
+      CONFIRMED: "Confirmed",
+      CANCELLED: "Cancelled",
+      COMPLETED: "Completed",
+      NO_SHOW: "No show",
+    },
+    errors: {
+      generic: "Something went wrong. Nothing was booked — please try again.",
+      soldOut: "That room went while you were deciding. Choose another and nothing is lost.",
+      holdExpired: "Your hold ran out. Pick the room again and we will hold it afresh.",
+      priceChanged: "The price for this room has changed. Go back and choose again.",
+      notFound: "We could not find that.",
+    },
+    nav: {
+      manage: "Your booking",
+    },
   },
 
   share: {
