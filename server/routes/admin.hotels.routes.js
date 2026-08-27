@@ -1,0 +1,202 @@
+import { Router } from 'express';
+
+import { authenticate, requireAdmin } from '../middleware/auth.js';
+import { validate } from '../middleware/validate.js';
+import {
+    archiveHotelSchema,
+    createHotelSchema,
+    hotelAmenitiesSchema,
+    hotelLocaleParamSchema,
+    hotelQuerySchema,
+    hotelTranslationSchema,
+    idParamSchema,
+    updateHotelSchema
+} from '../validation/hotel.js';
+import {
+    archiveHotel,
+    buildPublishChecklist,
+    createHotel,
+    deleteHotel,
+    findHotelOr404,
+    listHotels,
+    publishHotel,
+    replaceHotelAmenities,
+    unpublishHotel,
+    updateHotel,
+    upsertHotelTranslation
+} from '../services/hotel/hotel.service.js';
+import { toHotelDetail, toHotelSummary, toHotelTranslation } from '../serializers/hotel.js';
+import { toHotelImage } from '../serializers/media.js';
+import {
+    attachHotelImageSchema,
+    hotelImageParamSchema,
+    reorderHotelImagesSchema,
+    updateHotelImageSchema
+} from '../validation/media.js';
+import { hotelGallery } from '../services/hotel/gallery.service.js';
+import { adminChildPolicyRoutes, adminRoomTypeRoutes } from './admin.roomTypes.routes.js';
+import { adminHotelMealPlanRoutes, adminPolicyRoutes } from './admin.ratePlans.routes.js';
+import { adminTaxFeeRoutes } from './admin.inventory.routes.js';
+
+/**
+ * Hotel administration — the eleven-step wizard's back end.
+ *
+ * Step 1 POSTs a DRAFT; every later step PATCHes a field or a sub-resource, so
+ * an interrupted wizard is a resumable record rather than lost form state. The
+ * guards are on the router: a new endpoint here cannot be added without them.
+ */
+export const adminHotelRoutes = Router();
+
+adminHotelRoutes.use(authenticate, requireAdmin);
+
+// Room types and the child policy hang off a hotel and are only ever
+// addressable through it. Mounted here rather than at the top level so they
+// inherit the guards above — a sub-router that re-applies its own is a
+// sub-router someone will eventually add without them.
+adminHotelRoutes.use('/:hotelId/room-types', adminRoomTypeRoutes);
+adminHotelRoutes.use('/:hotelId/child-policy', adminChildPolicyRoutes);
+adminHotelRoutes.use('/:hotelId/policies', adminPolicyRoutes);
+adminHotelRoutes.use('/:hotelId/meal-plans', adminHotelMealPlanRoutes);
+adminHotelRoutes.use('/:hotelId/tax-fees', adminTaxFeeRoutes);
+
+adminHotelRoutes.get('/', validate({ query: hotelQuerySchema }), async (req, res) => {
+    const { locale } = req.valid.query;
+    const { hotels, ...page } = await listHotels(req.valid.query);
+
+    res.json({ data: hotels.map((hotel) => toHotelSummary(hotel, locale, req.user)), ...page });
+});
+
+adminHotelRoutes.get('/:id', validate({ params: idParamSchema, query: hotelQuerySchema }), async (req, res) => {
+    const { locale } = req.valid.query;
+    const hotel = await findHotelOr404(req.valid.params.id, { locale });
+
+    res.json({
+        ...toHotelDetail(hotel, locale, req.user),
+        // The review step needs to know what is outstanding before it lets an
+        // admin press publish, so the checklist travels with the record rather
+        // than only appearing in the 422 from a failed attempt.
+        publishChecklist: buildPublishChecklist(hotel)
+    });
+});
+
+adminHotelRoutes.post('/', validate({ body: createHotelSchema }), async (req, res) => {
+    const created = await createHotel(req.valid.body, req.user, req);
+    const hotel = await findHotelOr404(created.id);
+
+    res.status(201).json({ ...toHotelDetail(hotel, 'en', req.user), publishChecklist: buildPublishChecklist(hotel) });
+});
+
+adminHotelRoutes.patch(
+    '/:id',
+    validate({ params: idParamSchema, body: updateHotelSchema }),
+    async (req, res) => {
+        await updateHotel(req.valid.params.id, req.valid.body, req.user, req);
+        const hotel = await findHotelOr404(req.valid.params.id);
+
+        res.json({ ...toHotelDetail(hotel, 'en', req.user), publishChecklist: buildPublishChecklist(hotel) });
+    }
+);
+
+adminHotelRoutes.put(
+    '/:id/amenities',
+    validate({ params: idParamSchema, body: hotelAmenitiesSchema }),
+    async (req, res) => {
+        await replaceHotelAmenities(req.valid.params.id, req.valid.body.amenities, req.user, req);
+        const hotel = await findHotelOr404(req.valid.params.id);
+
+        res.json(toHotelDetail(hotel, 'en', req.user));
+    }
+);
+
+// Transitions, each with its own rules — deliberately not a PATCH of `status`.
+const transition = (handler) => [
+    validate({ params: idParamSchema }),
+    async (req, res) => {
+        await handler(req.valid.params.id, req.user, req);
+        const hotel = await findHotelOr404(req.valid.params.id);
+
+        res.json(toHotelDetail(hotel, 'en', req.user));
+    }
+];
+
+// Open only while the property has no booking history; 409 otherwise, with
+// archiving as the answer. The service also removes gallery images that
+// nothing else references, bytes included.
+adminHotelRoutes.delete('/:id', validate({ params: idParamSchema }), async (req, res) => {
+    await deleteHotel(req.valid.params.id, req.user, req);
+
+    res.status(204).end();
+});
+
+adminHotelRoutes.post('/:id/publish', ...transition(publishHotel));
+adminHotelRoutes.post('/:id/unpublish', ...transition(unpublishHotel));
+
+adminHotelRoutes.post(
+    '/:id/archive',
+    validate({ params: idParamSchema, body: archiveHotelSchema }),
+    async (req, res) => {
+        await archiveHotel(req.valid.params.id, req.valid.body, req.user, req);
+        const hotel = await findHotelOr404(req.valid.params.id);
+
+        res.json(toHotelDetail(hotel, 'en', req.user));
+    }
+);
+
+// --- gallery ---------------------------------------------------------------
+// Attaching is separate from uploading: an asset is uploaded once to the media
+// library and may then be attached, detached and re-attached without the bytes
+// moving or its key changing.
+
+adminHotelRoutes.post(
+    '/:id/images',
+    validate({ params: idParamSchema, body: attachHotelImageSchema }),
+    async (req, res) => {
+        const image = await hotelGallery.attach(req.valid.params.id, req.valid.body, req.user, req);
+
+        res.status(201).json(toHotelImage(image));
+    }
+);
+
+adminHotelRoutes.patch(
+    '/:id/images/:imageId',
+    validate({ params: hotelImageParamSchema, body: updateHotelImageSchema }),
+    async (req, res) => {
+        const { id, imageId } = req.valid.params;
+        const image = await hotelGallery.update(id, imageId, req.valid.body, req.user, req);
+
+        res.json(toHotelImage(image));
+    }
+);
+
+adminHotelRoutes.delete(
+    '/:id/images/:imageId',
+    validate({ params: hotelImageParamSchema }),
+    async (req, res) => {
+        const { id, imageId } = req.valid.params;
+        await hotelGallery.detach(id, imageId, req.user, req);
+
+        res.status(204).end();
+    }
+);
+
+adminHotelRoutes.put(
+    '/:id/images/order',
+    validate({ params: idParamSchema, body: reorderHotelImagesSchema }),
+    async (req, res) => {
+        await hotelGallery.reorder(req.valid.params.id, req.valid.body.order, req.user, req);
+        const hotel = await findHotelOr404(req.valid.params.id);
+
+        res.json({ data: hotel.images.map(toHotelImage) });
+    }
+);
+
+adminHotelRoutes.put(
+    '/:id/translations/:locale',
+    validate({ params: hotelLocaleParamSchema, body: hotelTranslationSchema }),
+    async (req, res) => {
+        const { id, locale } = req.valid.params;
+        const translation = await upsertHotelTranslation(id, locale, req.valid.body, req.user, req);
+
+        res.json(toHotelTranslation(translation));
+    }
+);
