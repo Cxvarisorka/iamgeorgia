@@ -20,10 +20,16 @@ import {
   type TransferQueryField,
 } from "@/lib/transfers/query";
 import { cn } from "@/lib/utils";
+import type { TransferPoint } from "@/types/transfer";
 
 interface TransferSearchProps {
   /** Seeds the form — the results page passes the query back in so it persists. */
   initialQuery?: TransferQuery;
+  /**
+   * The popular pick-up points, so the picker opens with something in it
+   * rather than filling in a moment after the traveller looks at it.
+   */
+  suggestions?: TransferPoint[];
   /** Overrides the default "Search transfers" — the results page says "Update search". */
   submitLabel?: string;
   /** Fired after a valid submit, e.g. to close the disclosure it sits inside. */
@@ -40,6 +46,7 @@ interface TransferSearchProps {
  */
 export function TransferSearch({
   initialQuery,
+  suggestions,
   submitLabel,
   onSubmitted,
   className,
@@ -144,6 +151,7 @@ export function TransferSearch({
             onChange={(from) => update({ from })}
             placeholder={t.transfers.search.pickUpPlaceholder}
             excludeId={query.to || undefined}
+            suggestions={suggestions}
             error={messageFor(errors.from)}
             className={cn(fieldClass, "min-w-0")}
           />
@@ -154,6 +162,7 @@ export function TransferSearch({
             onChange={(to) => update({ to })}
             placeholder={t.transfers.search.dropOffPlaceholder}
             excludeId={query.from || undefined}
+            suggestions={suggestions}
             error={messageFor(errors.to)}
             className={cn(fieldClass, "min-w-0")}
           />

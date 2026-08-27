@@ -9,18 +9,11 @@ import { Reveal } from "@/components/motion/Reveal";
 import { Container } from "@/components/ui/Container";
 import { PageHero } from "@/components/ui/PageHero";
 import { SectionHeading } from "@/components/ui/SectionHeading";
-import { transferOffers } from "@/data/transfers";
-import { getTransferLocation } from "@/data/transferLocations";
 import { plural } from "@/lib/i18n/plural";
 import { getI18n } from "@/lib/i18n/server";
-import {
-  emptyQuery,
-  formatDuration,
-  getRouteMetrics,
-  quoteFor,
-  serializeTransferQuery,
-} from "@/lib/transfers/query";
-import { formatPrice } from "@/lib/utils";
+import { listTransferPoints, listTransferRoutes, listTransferVehicles } from "@/lib/api/transfers";
+import { emptyQuery, formatDuration, serializeTransferQuery } from "@/lib/transfers/query";
+import { formatMoney } from "@/lib/money";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -31,58 +24,51 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * Routes worth showing on the landing page. Each is priced live from the same
- * engine the results page uses, so the "from" figures can never drift out of
- * step with what a traveller actually sees after searching.
+ * The landing page reads the catalogue rather than carrying one.
  *
- * The one-line note for each pair lives in `t.transfers.routes.notes`, keyed
- * `from>to`, so the copy travels with the route it describes rather than
- * needing a parallel list in every language.
+ * The routes shown here are whichever the operator has marked Tier 1 in the
+ * panel, with the fare and journey time the panel set — so what a visitor sees
+ * on the front page is what search will quote them, without a second list that
+ * can drift out of step.
+ *
+ * The whole page is one render because all three reads are independent; running
+ * them in sequence would be three round trips for one screen.
  */
-const popularRoutes = [
-  { from: "tbs-airport", to: "tbilisi" },
-  { from: "tbs-airport", to: "batumi" },
-  { from: "tbs-airport", to: "gudauri" },
-  { from: "kut-airport", to: "batumi" },
-  { from: "tbilisi", to: "stepantsminda" },
-  { from: "tbilisi", to: "sighnaghi" },
-];
-
-/** One representative class per size, cheapest-first, for the fleet section. */
-const fleetSlugs = [
-  "comfort-sedan-private-transfer",
-  "premium-suv-private-transfer",
-  "comfort-minivan-private-transfer",
-  "group-van-private-transfer",
-];
+export const revalidate = 300;
 
 export default async function TransfersPage() {
   const { t, path, locale, intlLocale, fill } = await getI18n();
 
+  const [routeList, vehicleList, pointList] = await Promise.all([
+    listTransferRoutes({ tier: "TIER_1", locale, pageSize: 6 }),
+    listTransferVehicles({ locale }),
+    listTransferPoints({ popular: true, locale }),
+  ]);
+
   const sampleQuery = { ...emptyQuery, adults: 2, children: 0, luggage: 2 };
-  const sedan = transferOffers[0];
 
-  const routes = popularRoutes
-    .map((route) => {
-      const query = { ...sampleQuery, from: route.from, to: route.to };
-      const metrics = getRouteMetrics(query);
-      if (!metrics) return null;
-      const quote = quoteFor(sedan, metrics);
-      const noteKey = `${route.from}>${route.to}` as keyof typeof t.transfers.routes.notes;
-      return {
-        ...route,
-        note: t.transfers.routes.notes[noteKey],
-        fromName: getTransferLocation(route.from, locale)?.name ?? route.from,
-        toName: getTransferLocation(route.to, locale)?.name ?? route.to,
-        quote,
-        href: `${path("/transfers/search")}?${serializeTransferQuery(query)}`,
-      };
-    })
-    .filter((route) => route !== null);
+  const routes = routeList.data.map((route) => {
+    const query = { ...sampleQuery, from: route.from.slug, to: route.to.slug };
 
-  const fleet = fleetSlugs
-    .map((slug) => transferOffers.find((offer) => offer.slug === slug))
-    .filter((offer) => offer !== undefined);
+    return {
+      id: route.id,
+      fromName: route.from.name,
+      toName: route.to.name,
+      // The route's own summary, translated with it, rather than a note kept in
+      // a parallel list that has to be edited in four files whenever a route
+      // is added.
+      note: route.summary ?? "",
+      durationMinutes: route.durationMinutes,
+      startingFromCents: route.startingFromCents,
+      href: `${path("/transfers/search")}?${serializeTransferQuery(query)}`,
+    };
+  });
+
+  /** Four classes across the size range, so the fleet reads as a spread. */
+  const fleet = [...vehicleList.data]
+    .sort((a, b) => a.maxPassengers - b.maxPassengers)
+    .filter((vehicle, index, all) => all.findIndex((v) => v.body === vehicle.body) === index)
+    .slice(0, 4);
 
   return (
     <>
@@ -99,7 +85,7 @@ export default async function TransfersPage() {
           overlap has to stay inside the hero's own bottom padding (56px, 64px
           at lg) or it crops the last line of the description. */}
       <Container className="relative z-20 -mt-10 lg:-mt-12">
-        <TransferSearch />
+        <TransferSearch suggestions={pointList.data} />
       </Container>
 
       <Container className="pt-16 pb-20 lg:pt-24 lg:pb-24">
@@ -127,7 +113,7 @@ export default async function TransfersPage() {
 
           <ul className="mt-12 grid gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
             {routes.map((route, index) => (
-              <li key={`${route.from}-${route.to}`}>
+              <li key={route.id}>
                 <Reveal delay={Math.min(index, 3) * 0.06}>
                   <Link
                     href={route.href}
@@ -151,18 +137,20 @@ export default async function TransfersPage() {
                       <p className="type-caption flex items-center gap-1.5 text-muted">
                         <Clock size={13} aria-hidden />
                         {fill(t.common.approx, {
-                          value: formatDuration(route.quote.durationMinutes, {
+                          value: formatDuration(route.durationMinutes, {
                             hour: t.common.hourShort,
                             minute: t.common.minuteShort,
                           }),
                         })}
                       </p>
-                      <p className="text-end">
-                        <span className="type-caption block text-muted">{t.common.from}</span>
-                        <span className="type-h4 tabular-nums">
-                          {formatPrice(route.quote.price, intlLocale)}
-                        </span>
-                      </p>
+                      {route.startingFromCents !== null && (
+                        <p className="text-end">
+                          <span className="type-caption block text-muted">{t.common.from}</span>
+                          <span className="type-h4 tabular-nums">
+                            {formatMoney(route.startingFromCents, "GEL", intlLocale)}
+                          </span>
+                        </p>
+                      )}
                     </div>
                   </Link>
                 </Reveal>
@@ -182,29 +170,26 @@ export default async function TransfersPage() {
         </Reveal>
 
         <ul className="mt-12 grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
-          {fleet.map((offer, index) => (
-            <li key={offer.id}>
+          {fleet.map((vehicle, index) => (
+            <li key={vehicle.id}>
               <Reveal delay={Math.min(index, 3) * 0.06}>
                 <div className="flex aspect-4/3 items-center justify-center rounded-sm bg-surface-earth/70 p-6 text-ink">
-                  <VehicleIllustration
-                    vehicleClass={offer.vehicleClass}
-                    className="max-w-48"
-                  />
+                  <VehicleIllustration vehicleClass={vehicle.body} className="max-w-48" />
                 </div>
-                <h3 className="type-h4 mt-5">{offer.name}</h3>
+                <h3 className="type-h4 mt-5">{vehicle.name}</h3>
                 <p className="type-caption mt-1 text-muted">
-                  {t.transfers.vehicleClasses[offer.vehicleClass]} · {offer.vehicleExample}
+                  {t.transfers.vehicleClasses[vehicle.body]} · {vehicle.vehicleExample}
                 </p>
                 <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
                   <li className="type-caption flex items-center gap-1.5 text-body">
                     <Users size={13} className="text-subtle" aria-hidden />
                     {fill(t.transfers.fleet.upTo, {
-                      count: plural(locale, offer.maxPassengers, t.units.passenger),
+                      count: plural(locale, vehicle.maxPassengers, t.units.passenger),
                     })}
                   </li>
                   <li className="type-caption flex items-center gap-1.5 text-body">
                     <Briefcase size={13} className="text-subtle" aria-hidden />
-                    {plural(locale, offer.maxLuggage, t.units.largeBag)}
+                    {plural(locale, vehicle.maxLuggage, t.units.largeBag)}
                   </li>
                 </ul>
               </Reveal>

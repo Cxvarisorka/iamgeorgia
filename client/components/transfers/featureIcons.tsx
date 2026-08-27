@@ -13,7 +13,7 @@ import type { LucideIcon } from "lucide-react";
 import type { TransferFeature } from "@/types";
 
 /**
- * Icon per transfer feature. Labels live in `data/transfers.ts` and always
+ * Icon per transfer feature. Labels live in the dictionary and always
  * accompany the glyph — the icon is a scanning aid, never the only carrier of
  * the information.
  */

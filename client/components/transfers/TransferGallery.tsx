@@ -7,12 +7,12 @@ import { VehicleIllustration } from "./VehicleIllustration";
 import { fill } from "@/lib/i18n/dictionaries";
 import { useI18n } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
-import type { TransferLocation, TransferOffer } from "@/types";
+import type { TransferPoint, TransferVehicle } from "@/types/transfer";
 
 interface TransferGalleryProps {
-  offer: TransferOffer;
-  from?: TransferLocation;
-  to?: TransferLocation;
+  vehicle: TransferVehicle;
+  from?: TransferPoint | null;
+  to?: TransferPoint | null;
   className?: string;
 }
 
@@ -28,14 +28,14 @@ type Frame =
  * particular car is not. The supporting frames are the two ends of the
  * journey, which is the thing a traveller is actually buying.
  */
-export function TransferGallery({ offer, from, to, className }: TransferGalleryProps) {
+export function TransferGallery({ vehicle, from, to, className }: TransferGalleryProps) {
   const { t } = useI18n();
 
   const frames: Frame[] = [
     {
       kind: "vehicle",
       id: "vehicle",
-      label: `${t.transfers.vehicleClasses[offer.vehicleClass]} — ${offer.vehicleExample}`,
+      label: `${t.transfers.vehicleClasses[vehicle.body]} — ${vehicle.vehicleExample}`,
     },
     ...(from?.image
       ? [
@@ -68,7 +68,7 @@ export function TransferGallery({ offer, from, to, className }: TransferGalleryP
         {active.kind === "vehicle" ? (
           <div className="flex h-full w-full items-center justify-center p-8 text-ink">
             <VehicleIllustration
-              vehicleClass={offer.vehicleClass}
+              vehicleClass={vehicle.body}
               className="max-h-full max-w-lg"
             />
           </div>
@@ -105,7 +105,7 @@ export function TransferGallery({ offer, from, to, className }: TransferGalleryP
                 >
                   {frame.kind === "vehicle" ? (
                     <span className="flex h-full w-full items-center justify-center bg-surface-earth px-2 text-ink">
-                      <VehicleIllustration vehicleClass={offer.vehicleClass} />
+                      <VehicleIllustration vehicleClass={vehicle.body} />
                     </span>
                   ) : (
                     <Image

@@ -1,8 +1,8 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { CarFront, MapPinned, SlidersHorizontal } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { CarFront, MapPinned, SlidersHorizontal, SnowflakeIcon } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import { TransferCard } from "./TransferCard";
 import {
@@ -17,32 +17,36 @@ import { Button } from "@/components/ui/Button";
 import { Container } from "@/components/ui/Container";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
-import { TransferCardSkeleton } from "@/components/ui/Skeleton";
-import { passengerBands, transferSortOptions, type TransferSort } from "@/data/transfers";
 import { fill } from "@/lib/i18n/dictionaries";
 import { plural } from "@/lib/i18n/plural";
 import { useI18n, useLocalePath } from "@/lib/i18n/provider";
-import {
-  isSearchable,
-  parseTransferQuery,
-  quotesForQuery,
-  serializeTransferQuery,
-  totalFor,
-} from "@/lib/transfers/query";
-import type { TransferQuote } from "@/types";
+import { isSearchable, parseTransferQuery, serializeTransferQuery } from "@/lib/transfers/query";
+import { passengerBands, transferSortOptions, type TransferSort } from "@/lib/transfers/vocabulary";
+import type { TransferOffer, TransferPoint, TransferQuoteResult } from "@/types/transfer";
 
-/** How long the mocked search "takes". Long enough to see the skeletons, short
- *  enough not to be theatre. A real build would swap this for the fetch. */
-const MOCK_SEARCH_MS = 650;
-
-export function TransferResults() {
+/**
+ * The results list.
+ *
+ * Offers arrive already priced, from the server, as a prop. This component used
+ * to compute the fares itself and fake a network delay to make the skeletons
+ * visible; both are gone. What it still owns is everything that happens to
+ * results already in hand — narrowing and ordering them — which is the right
+ * split, because a chip toggle should not cost a round trip.
+ */
+export function TransferResults({
+  result,
+  unavailableReason,
+}: {
+  result: TransferQuoteResult | null;
+  /** Why there is nothing to show, when the server declined to quote. */
+  unavailableReason?: string | null;
+}) {
   const searchParams = useSearchParams();
   const path = useLocalePath();
-  const { t, locale } = useI18n();
+  const { t, locale, intlLocale } = useI18n();
 
   const query = useMemo(() => parseTransferQuery(searchParams), [searchParams]);
   const selectedSlug = searchParams.get("selected");
-  /** Only the journey — filter and sort changes must not re-trigger the search. */
   const journeyKey = serializeTransferQuery(query);
 
   /**
@@ -64,47 +68,42 @@ export function TransferResults() {
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const searchable = isSearchable(query);
+  // Memoised because it feeds two more memos: without it the `?? []` builds a
+  // fresh array every render and neither of them would ever cache.
+  const available = useMemo(() => result?.offers ?? [], [result]);
+  const currency = available[0]?.quote.currency ?? "GEL";
 
-  /**
-   * Stands in for the network round-trip a live build would make. Only the
-   * journey triggers it — filtering and sorting happen on results already in
-   * hand, and putting a spinner in front of a chip toggle would be theatre.
-   */
-  const [settledJourney, setSettledJourney] = useState<string | null>(null);
-  const loading = searchable && settledJourney !== journeyKey;
-
-  useEffect(() => {
-    if (!searchable) return;
-    const timer = setTimeout(() => setSettledJourney(journeyKey), MOCK_SEARCH_MS);
-    return () => clearTimeout(timer);
-  }, [journeyKey, searchable]);
-
-  /** Everything the route can carry, before the traveller narrows it down. */
-  const available = useMemo(() => quotesForQuery(query), [query]);
+  const total = (offer: TransferOffer) => offer.quote.totals.totalCents;
+  const duration = (offer: TransferOffer) =>
+    offer.quote.legs.reduce((longest, leg) => Math.max(longest, leg.durationMinutes), 0);
 
   const priceBounds = useMemo(() => {
     if (available.length === 0) return { min: 0, max: 100 };
-    const totals = available.map((quote) => totalFor(quote, query));
+    const totals = available.map(total);
     return { min: Math.floor(Math.min(...totals)), max: Math.ceil(Math.max(...totals)) };
-  }, [available, query]);
+  }, [available]);
 
   const results = useMemo(() => {
-    const filtered = available.filter(({ offer }) => {
-      if (filters.vehicleClasses.length && !filters.vehicleClasses.includes(offer.vehicleClass)) {
+    const filtered = available.filter(({ vehicle }) => {
+      if (filters.vehicleBodies.length && !filters.vehicleBodies.includes(vehicle.body)) {
         return false;
       }
-      if (filters.kinds.length && !filters.kinds.includes(offer.kind)) return false;
-      if (filters.minRating > 0 && offer.provider.rating < filters.minRating) return false;
+      if (filters.kinds.length && !filters.kinds.includes(vehicle.kind)) return false;
+      if (filters.minRating > 0 && (vehicle.provider?.rating ?? 0) < filters.minRating) {
+        return false;
+      }
       if (
         filters.features.length &&
-        !filters.features.every((feature) => offer.features.includes(feature))
+        !filters.features.every((feature) => vehicle.features.includes(feature))
       ) {
         return false;
       }
       if (filters.passengerBands.length) {
         const inBand = filters.passengerBands.some((value) => {
           const band = passengerBands.find((entry) => entry.value === value);
-          return band ? offer.maxPassengers >= band.min && offer.maxPassengers <= band.max : false;
+          return band
+            ? vehicle.maxPassengers >= band.min && vehicle.maxPassengers <= band.max
+            : false;
         });
         if (!inBand) return false;
       }
@@ -112,34 +111,29 @@ export function TransferResults() {
     });
 
     const ceiling = filters.maxPrice;
-    const priced =
-      ceiling === null
-        ? filtered
-        : filtered.filter((quote) => totalFor(quote, query) <= ceiling);
+    const priced = ceiling === null ? filtered : filtered.filter((offer) => total(offer) <= ceiling);
 
     const sorted = [...priced];
     if (sort === "recommended") {
-      sorted.sort((a, b) => a.offer.recommendedRank - b.offer.recommendedRank);
+      sorted.sort((a, b) => a.vehicle.recommendedRank - b.vehicle.recommendedRank);
     }
-    if (sort === "price-low") {
-      sorted.sort((a, b) => totalFor(a, query) - totalFor(b, query));
-    }
+    if (sort === "price-low") sorted.sort((a, b) => total(a) - total(b));
     if (sort === "rating") {
       sorted.sort(
         (a, b) =>
-          b.offer.provider.rating - a.offer.provider.rating ||
-          b.offer.provider.reviewCount - a.offer.provider.reviewCount,
+          (b.vehicle.provider?.rating ?? 0) - (a.vehicle.provider?.rating ?? 0) ||
+          (b.vehicle.provider?.reviewCount ?? 0) - (a.vehicle.provider?.reviewCount ?? 0),
       );
     }
-    if (sort === "duration") sorted.sort((a, b) => a.durationMinutes - b.durationMinutes);
+    if (sort === "duration") sorted.sort((a, b) => duration(a) - duration(b));
     return sorted;
-  }, [available, filters, sort, query]);
+  }, [available, filters, sort]);
 
   const activeFilterCount = countActiveFilters(filters);
   const reset = () => setFilters(defaultTransferFilters);
 
-  const detailHref = (quote: TransferQuote) =>
-    `${path(`/transfers/${quote.offer.slug}`)}?${serializeTransferQuery(query)}`;
+  const detailHref = (offer: TransferOffer) =>
+    `${path(`/transfers/${offer.vehicle.slug}`)}?${serializeTransferQuery(query)}`;
 
   /* --- No journey to price yet ------------------------------------------- */
   if (!searchable) {
@@ -157,10 +151,27 @@ export function TransferResults() {
     );
   }
 
+  /* --- The server declined to quote --------------------------------------- */
+  if (unavailableReason) {
+    return (
+      <Container className="pt-10 pb-24 lg:pt-14 lg:pb-32">
+        <EmptyState
+          icon={MapPinned}
+          title={t.transfers.results.emptyTitle}
+          description={unavailableReason}
+          action={{ label: t.transfers.results.changeSearch, href: path("/transfers") }}
+        />
+        <div className="mx-auto mt-10 max-w-4xl">
+          <TransferSearch initialQuery={query} />
+        </div>
+      </Container>
+    );
+  }
+
   return (
     <>
       <Container className="pt-8">
-        <TransferJourneyBar query={query} />
+        <TransferJourneyBar query={query} from={result?.from} to={result?.to} />
       </Container>
 
       <Container className="pt-8 pb-24 lg:pt-10 lg:pb-32">
@@ -184,6 +195,7 @@ export function TransferResults() {
                   value={filters}
                   onChange={setFilters}
                   priceBounds={priceBounds}
+                  currency={currency}
                 />
               </div>
             </div>
@@ -192,16 +204,10 @@ export function TransferResults() {
           <div className="min-w-0 lg:col-span-9">
             <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-5">
               <p className="type-body-sm text-muted" aria-live="polite">
-                {loading ? (
-                  t.transfers.results.searching
-                ) : (
-                  <>
-                    <span className="font-medium text-ink">
-                      {plural(locale, results.length, t.units.transfer)}
-                    </span>{" "}
-                    {t.transfers.results.availableFor}
-                  </>
-                )}
+                <span className="font-medium text-ink">
+                  {plural(locale, results.length, t.units.transfer)}
+                </span>{" "}
+                {t.transfers.results.availableFor}
               </p>
 
               <div className="flex items-center gap-3">
@@ -235,33 +241,34 @@ export function TransferResults() {
               </div>
             </div>
 
-            {loading ? (
+            {results.length > 0 ? (
               <div className="mt-6 flex flex-col gap-5">
-                {Array.from({ length: 4 }, (_, index) => (
-                  <TransferCardSkeleton key={index} />
-                ))}
-              </div>
-            ) : results.length > 0 ? (
-              <div className="mt-6 flex flex-col gap-5">
-                {results.map((quote) => (
+                {results.map((offer) => (
                   <TransferCard
-                    key={quote.offer.id}
-                    quote={quote}
+                    key={offer.vehicle.id}
+                    offer={offer}
                     query={query}
-                    href={detailHref(quote)}
-                    selected={quote.offer.slug === selectedSlug}
+                    href={detailHref(offer)}
+                    selected={offer.vehicle.slug === selectedSlug}
+                    intlLocale={intlLocale}
                   />
                 ))}
               </div>
             ) : (
               <div className="mt-6">
                 <EmptyState
-                  icon={CarFront}
-                  title={t.transfers.results.emptyTitle}
+                  icon={result?.closed ? SnowflakeIcon : CarFront}
+                  title={
+                    result?.closed
+                      ? t.transfers.results.closedTitle
+                      : t.transfers.results.emptyTitle
+                  }
                   description={
-                    available.length === 0
-                      ? t.transfers.results.emptyCapacity
-                      : t.transfers.results.emptyFilters
+                    result?.closed
+                      ? t.transfers.results.closedBody
+                      : available.length === 0
+                        ? t.transfers.results.emptyCapacity
+                        : t.transfers.results.emptyFilters
                   }
                   onReset={activeFilterCount > 0 ? reset : undefined}
                   resetLabel={t.actions.clearFilters}
@@ -283,7 +290,12 @@ export function TransferResults() {
         size="md"
       >
         <div className="px-6 pt-4 pb-6">
-          <TransferFilters value={filters} onChange={setFilters} priceBounds={priceBounds} />
+          <TransferFilters
+            value={filters}
+            onChange={setFilters}
+            priceBounds={priceBounds}
+            currency={currency}
+          />
           <div className="mt-8 flex gap-3">
             <Button variant="outline" fullWidth onClick={reset}>
               {t.actions.clearAll}
@@ -299,3 +311,5 @@ export function TransferResults() {
     </>
   );
 }
+
+export type { TransferPoint };

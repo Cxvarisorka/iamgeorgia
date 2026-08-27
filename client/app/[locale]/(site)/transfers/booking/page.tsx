@@ -8,17 +8,16 @@ import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
 import { Button } from "@/components/ui/Button";
 import { Container } from "@/components/ui/Container";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { getTransferOfferBySlug } from "@/data/transfers";
+import { ApiError } from "@/lib/api/client";
+import { quoteTransfers } from "@/lib/api/transfers";
 import { getI18n } from "@/lib/i18n/server";
 import {
-  getRouteMetrics,
   paramsFromSearchParams,
   parseTransferQuery,
-  quoteFor,
   serializeTransferQuery,
-  totalFor,
 } from "@/lib/transfers/query";
-import { formatPrice } from "@/lib/utils";
+import { formatMoney } from "@/lib/money";
+import type { TransferQuoteResult } from "@/types/transfer";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -28,6 +27,15 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
+/**
+ * Checkout.
+ *
+ * The quote is taken again here rather than carried from the previous page,
+ * which is deliberate: the traveller may have had this tab open for an hour,
+ * and the figure they are about to agree to should be the current one. The
+ * token that comes back with it is what the form submits, and the server
+ * re-prices that a third time before it writes anything.
+ */
 export default async function TransferBookingPage(
   props: PageProps<"/[locale]/transfers/booking">,
 ) {
@@ -38,12 +46,35 @@ export default async function TransferBookingPage(
 
   const params = paramsFromSearchParams(searchParams);
   const query = parseTransferQuery(params);
-  const offer = getTransferOfferBySlug(params.get("offer") ?? "", locale);
-  const route = getRouteMetrics(query);
-  const quote = offer && route ? quoteFor(offer, route) : null;
+  const slug = params.get("offer") ?? "";
 
-  /* Arriving here without a chosen transfer means a stale or hand-typed link. */
-  if (!offer || !quote) {
+  let result: TransferQuoteResult | null = null;
+
+  if (slug && query.from && query.to && query.date && query.time) {
+    try {
+      result = await quoteTransfers({
+        from: query.from,
+        to: query.to,
+        date: query.date,
+        time: query.time,
+        tripType: query.type === "return" ? "RETURN" : "ONE_WAY",
+        returnDate: query.type === "return" ? query.returnDate : undefined,
+        returnTime: query.type === "return" ? query.returnTime : undefined,
+        adults: query.adults,
+        children: query.children,
+        luggage: query.luggage,
+        cabinBags: query.cabinBags,
+        locale,
+      });
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+    }
+  }
+
+  const offer = result?.offers.find((entry) => entry.vehicle.slug === slug) ?? null;
+
+  /* Arriving here without a bookable transfer means a stale or hand-typed link. */
+  if (!offer) {
     return (
       <Container className="py-24">
         <EmptyState
@@ -58,7 +89,7 @@ export default async function TransferBookingPage(
     );
   }
 
-  const detailHref = `${path(`/transfers/${offer.slug}`)}?${serializeTransferQuery(query)}`;
+  const detailHref = `${path(`/transfers/${offer.vehicle.slug}`)}?${serializeTransferQuery(query)}`;
 
   return (
     <Container className="pt-8 pb-24 lg:pb-32">
@@ -66,7 +97,7 @@ export default async function TransferBookingPage(
         items={[
           { label: t.common.home, href: path("/") },
           { label: t.nav.transfers, href: path("/transfers") },
-          { label: offer.name, href: detailHref },
+          { label: offer.vehicle.name, href: detailHref },
           { label: t.transfers.booking.breadcrumb },
         ]}
       />
@@ -85,7 +116,7 @@ export default async function TransferBookingPage(
           <span className="type-h4">{t.transfers.summary.transferSummary}</span>
           <span className="flex items-center gap-3">
             <span className="type-h4 tabular-nums">
-              {formatPrice(totalFor(quote, query), intlLocale)}
+              {formatMoney(offer.quote.totals.totalCents, offer.quote.currency, intlLocale)}
             </span>
             <ChevronDown
               size={18}
@@ -94,12 +125,23 @@ export default async function TransferBookingPage(
             />
           </span>
         </summary>
-        <TransferBookingSummary quote={quote} query={query} className="mt-2" />
+        <TransferBookingSummary
+          offer={offer}
+          query={query}
+          from={result?.from}
+          to={result?.to}
+          className="mt-2"
+        />
       </details>
 
       <div className="mt-10 grid gap-12 lg:grid-cols-12 lg:gap-12 xl:gap-16">
         <div className="min-w-0 lg:col-span-7">
-          <TransferBookingForm offer={offer} query={query} />
+          <TransferBookingForm
+            offer={offer}
+            query={query}
+            from={result?.from}
+            to={result?.to}
+          />
 
           <Button href={detailHref} variant="ghost" className="mt-6">
             <ArrowLeft size={16} className="rtl:-scale-x-100" aria-hidden />
@@ -110,7 +152,12 @@ export default async function TransferBookingPage(
         <aside className="hidden lg:col-span-5 lg:block">
           <div className="lg:sticky lg:top-36">
             <h2 className="type-h4 mb-4">{t.transfers.summary.transferSummary}</h2>
-            <TransferBookingSummary quote={quote} query={query} />
+            <TransferBookingSummary
+              offer={offer}
+              query={query}
+              from={result?.from}
+              to={result?.to}
+            />
           </div>
         </aside>
       </div>

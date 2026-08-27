@@ -1,37 +1,49 @@
 "use client";
 
-import { Building2, Landmark, MapPin, Plane, Search } from "lucide-react";
+import { Building2, Landmark, MapPin, Plane, Search, TrainFront, TreePalm } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Modal } from "@/components/ui/Modal";
-import {
-  getTransferLocation,
-  locationGroupOrder,
-  searchTransferLocations,
-} from "@/data/transferLocations";
 import { fill } from "@/lib/i18n/dictionaries";
 import { useI18n } from "@/lib/i18n/provider";
+import { searchTransferPoints } from "@/lib/api/transfers";
+import { pointKindOrder } from "@/lib/transfers/vocabulary";
 import { cn } from "@/lib/utils";
-import type { TransferLocation, TransferLocationType } from "@/types";
+import type { TransferPoint, TransferPointKind } from "@/types/transfer";
 
-const typeIcons: Record<TransferLocationType, typeof Plane> = {
-  airport: Plane,
-  city: MapPin,
-  hotel: Building2,
-  landmark: Landmark,
+const kindIcons: Record<TransferPointKind, typeof Plane> = {
+  AIRPORT: Plane,
+  CITY: MapPin,
+  RESORT: TreePalm,
+  HOTEL: Building2,
+  LANDMARK: Landmark,
+  STATION: TrainFront,
 };
+
+/** `AIRPORT` → `airport`, which is how the dictionary keys its group labels. */
+const groupKey = (kind: TransferPointKind) =>
+  kind.toLowerCase() as Lowercase<TransferPointKind>;
 
 interface LocationSelectorProps {
   id: string;
   label: string;
+  /** The chosen point's slug. */
   value: string;
-  onChange: (locationId: string) => void;
+  onChange: (slug: string) => void;
   placeholder: string;
   /** The opposite end of the journey — never offered as its own destination. */
   excludeId?: string;
   error?: string;
+  /**
+   * The popular points, rendered before anyone types. Passed in from the page
+   * so the first open costs nothing: without them the picker would open empty
+   * and then fill in, which reads as a bug rather than as loading.
+   */
+  suggestions?: TransferPoint[];
   className?: string;
 }
+
+const SEARCH_DEBOUNCE_MS = 200;
 
 /**
  * Pick-up / drop-off chooser.
@@ -39,8 +51,14 @@ interface LocationSelectorProps {
  * A dialog rather than a `<select>`: the list is grouped, searchable and each
  * row carries a second line of context, none of which a native select can do.
  * It runs through the shared `Modal`, so focus trapping, Escape, scroll lock
- * and focus return are the same here as everywhere else in the product — and
- * on a phone it lands as a bottom sheet, which is where a thumb already is.
+ * and focus return are the same here as everywhere else — and on a phone it
+ * lands as a bottom sheet, which is where a thumb already is.
+ *
+ * The list is now the live catalogue rather than nineteen hardcoded places, so
+ * typing asks the server. The server matches names, regions, IATA codes **and
+ * every translation**, which is what makes the picker work for a Russian reader
+ * typing "Кутаиси" — something a client-side filter over English fixtures could
+ * never do.
  */
 export function LocationSelector({
   id,
@@ -50,14 +68,27 @@ export function LocationSelector({
   placeholder,
   excludeId,
   error,
+  suggestions = [],
   className,
 }: LocationSelectorProps) {
   const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  /** Only ever the *typed* results. What shows before that is derived. */
+  const [results, setResults] = useState<TransferPoint[]>([]);
+  const [searching, setSearching] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const selected = getTransferLocation(value, locale);
+  /**
+   * The chosen point, remembered rather than looked up.
+   *
+   * There is no local catalogue to resolve a slug against any more, and asking
+   * the server on every render to redraw one line of text would be absurd. The
+   * row that was clicked is kept, and the suggestions cover a value that
+   * arrived from the URL.
+   */
+  const [chosen, setChosen] = useState<TransferPoint | null>(null);
+  const selected = chosen?.slug === value ? chosen : (suggestions.find((p) => p.slug === value) ?? null);
 
   useEffect(() => {
     if (!open) return;
@@ -67,27 +98,73 @@ export function LocationSelector({
     return () => cancelAnimationFrame(frame);
   }, [open]);
 
+  /**
+   * Debounced, and guarded against out-of-order replies.
+   *
+   * Two keystrokes produce two requests, and the second can land first — which
+   * would leave the list showing results for a prefix of what was typed. The
+   * `stale` flag is what stops that, and it matters more here than the debounce
+   * does.
+   */
+  useEffect(() => {
+    if (!open) return;
+
+    const term = query.trim();
+
+    // Nothing typed: the suggestions are already what renders, so there is no
+    // request to make and no state to set.
+    if (term.length === 0) return;
+
+    let stale = false;
+
+    const timer = setTimeout(async () => {
+      // Announced when the request actually starts, not when the key is
+      // pressed: a debounce that flashes "searching" between every keystroke
+      // is noisier than one that waits.
+      setSearching(true);
+
+      try {
+        const { data } = await searchTransferPoints(term, locale);
+        if (!stale) setResults(data);
+      } catch {
+        // A failed lookup shows nothing found rather than an error dialog: the
+        // traveller's next move is the same either way, which is to retype.
+        if (!stale) setResults([]);
+      } finally {
+        if (!stale) setSearching(false);
+      }
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [query, open, locale]);
+
   /** Opening always starts from an empty search rather than the last one. */
   const openPicker = () => {
     setQuery("");
+    setResults([]);
+    setSearching(false);
     setOpen(true);
   };
 
   const groups = useMemo(() => {
-    const matches = searchTransferLocations(query, locale).filter(
-      (location) => location.id !== excludeId,
-    );
-    return locationGroupOrder
-      .map((type) => ({
-        type,
-        label: t.transfers.locationPicker.groups[type],
-        items: matches.filter((location) => location.type === type),
+    const shown = query.trim().length === 0 ? suggestions : results;
+    const matches = shown.filter((point) => point.slug !== excludeId);
+
+    return pointKindOrder
+      .map((kind) => ({
+        kind,
+        label: t.transfers.locationPicker.groups[groupKey(kind)],
+        items: matches.filter((point) => point.kind === kind),
       }))
       .filter((group) => group.items.length > 0);
-  }, [query, excludeId, locale, t]);
+  }, [results, suggestions, query, excludeId, t]);
 
-  const select = (location: TransferLocation) => {
-    onChange(location.id);
+  const select = (point: TransferPoint) => {
+    setChosen(point);
+    onChange(point.slug);
     setOpen(false);
   };
 
@@ -107,15 +184,13 @@ export function LocationSelector({
         aria-describedby={error ? `${id}-error` : undefined}
         className={cn(
           "mt-1 min-h-6 w-full truncate text-start text-sm transition-colors",
-          selected ? "text-ink" : "text-subtle",
+          selected || value ? "text-ink" : "text-subtle",
         )}
       >
-        {selected ? selected.name : placeholder}
+        {selected ? selected.name : value || placeholder}
       </button>
 
-      {selected && (
-        <span className="type-caption truncate text-subtle">{selected.region}</span>
-      )}
+      {selected && <span className="type-caption truncate text-subtle">{selected.region}</span>}
 
       {error && (
         <p id={`${id}-error`} role="alert" className="type-caption mt-1 text-error-text">
@@ -145,19 +220,19 @@ export function LocationSelector({
           </div>
 
           {groups.length > 0 ? (
-            <div className="mt-5 space-y-6">
+            <div className="mt-5 space-y-6" aria-busy={searching}>
               {groups.map((group) => (
-                <section key={group.type}>
+                <section key={group.kind}>
                   <h3 className="type-eyebrow text-muted">{group.label}</h3>
                   <ul className="mt-2.5 -mx-2">
-                    {group.items.map((location) => {
-                      const Icon = typeIcons[location.type];
-                      const isSelected = location.id === value;
+                    {group.items.map((point) => {
+                      const Icon = kindIcons[point.kind];
+                      const isSelected = point.slug === value;
                       return (
-                        <li key={location.id}>
+                        <li key={point.id}>
                           <button
                             type="button"
-                            onClick={() => select(location)}
+                            onClick={() => select(point)}
                             aria-pressed={isSelected}
                             className={cn(
                               "flex w-full items-center gap-3 rounded-sm px-2 py-2.5 text-start transition-colors",
@@ -176,15 +251,15 @@ export function LocationSelector({
                             </span>
                             <span className="min-w-0 flex-1">
                               <span className="type-body-sm block truncate font-medium text-ink">
-                                {location.name}
+                                {point.name}
                               </span>
                               <span className="type-caption block truncate text-muted">
-                                {location.region}
+                                {point.region}
                               </span>
                             </span>
-                            {location.code && (
+                            {point.code && (
                               <span className="type-caption shrink-0 rounded-sm border border-line px-1.5 py-0.5 font-medium text-muted">
-                                {location.code}
+                                {point.code}
                               </span>
                             )}
                           </button>
@@ -196,8 +271,10 @@ export function LocationSelector({
               ))}
             </div>
           ) : (
-            <p className="type-body-sm mt-8 text-center text-muted">
-              {fill(t.transfers.locationPicker.noResults, { query })}
+            <p className="type-body-sm mt-8 text-center text-muted" aria-live="polite">
+              {searching
+                ? t.transfers.results.searching
+                : fill(t.transfers.locationPicker.noResults, { query })}
             </p>
           )}
 

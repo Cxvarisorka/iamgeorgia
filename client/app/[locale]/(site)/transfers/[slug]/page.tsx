@@ -13,19 +13,17 @@ import { Button } from "@/components/ui/Button";
 import { Container } from "@/components/ui/Container";
 import { Rating } from "@/components/ui/Rating";
 import { ShareSave } from "@/components/ui/ShareSave";
-import { getTransferOfferBySlug } from "@/data/transfers";
-import { getTransferLocation } from "@/data/transferLocations";
+import { ApiError } from "@/lib/api/client";
+import { getTransferVehicle, quoteTransfers } from "@/lib/api/transfers";
 import { getI18n } from "@/lib/i18n/server";
 import {
   formatDuration,
-  getRouteMetrics,
   paramsFromSearchParams,
   parseTransferQuery,
-  quoteFor,
   serializeTransferQuery,
-  totalFor,
 } from "@/lib/transfers/query";
-import { formatPrice } from "@/lib/utils";
+import { formatMoney } from "@/lib/money";
+import type { TransferOffer, TransferQuoteResult } from "@/types/transfer";
 
 /**
  * A quote for one vehicle class on one journey.
@@ -39,14 +37,18 @@ export async function generateMetadata(
   props: PageProps<"/[locale]/transfers/[slug]">,
 ): Promise<Metadata> {
   const [{ slug }, { t, locale, fill }] = await Promise.all([props.params, getI18n()]);
-  const offer = getTransferOfferBySlug(slug, locale);
-  if (!offer) return { title: t.transfers.detail.notFound };
 
-  return {
-    title: fill(t.transfers.detail.metaTitle, { name: offer.name }),
-    description: offer.summary,
-    robots: { index: false, follow: true },
-  };
+  try {
+    const vehicle = await getTransferVehicle(slug, locale);
+
+    return {
+      title: fill(t.transfers.detail.metaTitle, { name: vehicle.name }),
+      description: vehicle.summary,
+      robots: { index: false, follow: true },
+    };
+  } catch {
+    return { title: t.transfers.detail.notFound };
+  }
 }
 
 export default async function TransferDetailPage(
@@ -58,23 +60,62 @@ export default async function TransferDetailPage(
     getI18n(),
   ]);
 
-  const offer = getTransferOfferBySlug(slug, locale);
-  if (!offer) notFound();
-
   const query = parseTransferQuery(paramsFromSearchParams(searchParams));
-  const route = getRouteMetrics(query);
-  const quote = route ? quoteFor(offer, route) : null;
 
-  const from = getTransferLocation(query.from, locale);
-  const to = getTransferLocation(query.to, locale);
+  /**
+   * The class itself, and — when the URL carries a journey — a live quote for
+   * it. The class read is what decides whether the page exists; a trade-only
+   * one 404s for an anonymous visitor because the endpoint will not return it,
+   * which is a stronger guarantee than a flag checked here would be.
+   */
+  let vehicle;
+
+  try {
+    vehicle = await getTransferVehicle(slug, locale);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) notFound();
+    throw error;
+  }
+
+  let result: TransferQuoteResult | null = null;
+
+  if (query.from && query.to && query.from !== query.to && query.date && query.time) {
+    try {
+      result = await quoteTransfers({
+        from: query.from,
+        to: query.to,
+        date: query.date,
+        time: query.time,
+        tripType: query.type === "return" ? "RETURN" : "ONE_WAY",
+        returnDate: query.type === "return" ? query.returnDate : undefined,
+        returnTime: query.type === "return" ? query.returnTime : undefined,
+        adults: query.adults,
+        children: query.children,
+        luggage: query.luggage,
+        cabinBags: query.cabinBags,
+        locale,
+      });
+    } catch (error) {
+      // A journey we cannot run leaves the page describing the vehicle without
+      // a price, which is the honest thing to show.
+      if (!(error instanceof ApiError)) throw error;
+    }
+  }
+
+  const offer: TransferOffer | null =
+    result?.offers.find((entry) => entry.vehicle.slug === slug) ?? null;
+  const quote = offer?.quote ?? null;
+  const from = result?.from ?? null;
+  const to = result?.to ?? null;
+  const currency = quote?.currency ?? vehicle.currency;
   const passengers = Math.max(1, query.adults + query.children);
 
   const journeyQuery = serializeTransferQuery(query);
-  const backHref = `${path("/transfers/search")}?${journeyQuery}&selected=${offer.slug}`;
-  const continueHref = `${path("/transfers/booking")}?${journeyQuery}&offer=${offer.slug}`;
+  const backHref = `${path("/transfers/search")}?${journeyQuery}&selected=${vehicle.slug}`;
+  const continueHref = `${path("/transfers/booking")}?${journeyQuery}&offer=${vehicle.slug}`;
 
   const duration = quote
-    ? formatDuration(quote.durationMinutes, {
+    ? formatDuration(quote.legs[0]?.durationMinutes ?? 0, {
         hour: t.common.hourShort,
         minute: t.common.minuteShort,
       })
@@ -89,16 +130,16 @@ export default async function TransferDetailPage(
     from && to
       ? fill(t.transfers.detail.titleRoute, {
           kind:
-            offer.kind === "private"
+            vehicle.kind === "PRIVATE"
               ? t.transfers.detail.kindPrivate
               : t.transfers.detail.kindShared,
           from: from.name,
           to: to.name,
         })
       : fill(t.transfers.detail.titleFallback, {
-          name: offer.name,
+          name: vehicle.name,
           kind:
-            offer.kind === "private"
+            vehicle.kind === "PRIVATE"
               ? t.transfers.detail.kindPrivateLower
               : t.transfers.detail.kindSharedLower,
         });
@@ -122,29 +163,29 @@ export default async function TransferDetailPage(
     {
       icon: Route,
       label: t.transfers.detail.distance,
-      value: quote ? fill(t.transfers.detail.kmByRoad, { count: quote.distanceKm }) : "—",
+      value: quote ? fill(t.transfers.detail.kmByRoad, { count: quote.legs[0]?.distanceKm ?? 0 }) : "—",
     },
     {
       icon: Users,
       label: t.transfers.detail.vehicle,
-      value: `${t.transfers.vehicleClasses[offer.vehicleClass]} · ${offer.vehicleExample}`,
+      value: `${t.transfers.vehicleClasses[vehicle.body]} · ${vehicle.vehicleExample}`,
     },
     {
       icon: Users,
       label: t.transfers.detail.passengers,
       value: quote
         ? fill(t.transfers.detail.upToTravelling, {
-            max: offer.maxPassengers,
+            max: vehicle.maxPassengers,
             count: passengers,
           })
-        : fill(t.transfers.detail.upTo, { max: offer.maxPassengers }),
+        : fill(t.transfers.detail.upTo, { max: vehicle.maxPassengers }),
     },
     {
       icon: Briefcase,
       label: t.transfers.detail.luggage,
       value: fill(t.transfers.detail.luggageValue, {
-        large: offer.maxLuggage,
-        cabin: offer.maxCabinBags,
+        large: vehicle.maxLuggage,
+        cabin: vehicle.maxCabinBags,
       }),
     },
   ];
@@ -157,7 +198,7 @@ export default async function TransferDetailPage(
             { label: t.common.home, href: path("/") },
             { label: t.nav.transfers, href: path("/transfers") },
             ...(quote ? [{ label: t.transfers.results.title, href: backHref }] : []),
-            { label: offer.name },
+            { label: vehicle.name },
           ]}
         />
 
@@ -166,29 +207,33 @@ export default async function TransferDetailPage(
         <div className="mt-6 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
-              <Badge tone={offer.kind === "private" ? "brand" : "neutral"}>
-                {offer.kind === "private"
+              <Badge tone={vehicle.kind === "PRIVATE" ? "brand" : "neutral"}>
+                {vehicle.kind === "PRIVATE"
                   ? t.transfers.kinds.privateTransfer
                   : t.transfers.kinds.sharedTransfer}
               </Badge>
-              <Badge tone="outline">{t.transfers.vehicleClasses[offer.vehicleClass]}</Badge>
+              <Badge tone="outline">{t.transfers.vehicleClasses[vehicle.body]}</Badge>
             </div>
             <h1 className="type-h1 mt-4 text-balance">{title}</h1>
-            <p className="type-body-sm mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted">
-              <span className="font-medium text-ink">{offer.provider.name}</span>
-              <Rating
-                value={offer.provider.rating}
-                reviewCount={offer.provider.reviewCount}
-              />
-              <span>·</span>
-              <span>
-                {fill(t.transfers.detail.yearsOperating, { count: offer.provider.yearsActive })}
-              </span>
-            </p>
+            {vehicle.provider && (
+              <p className="type-body-sm mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted">
+                <span className="font-medium text-ink">{vehicle.provider.name}</span>
+                <Rating
+                  value={vehicle.provider.rating}
+                  reviewCount={vehicle.provider.reviewCount}
+                />
+                <span>·</span>
+                <span>
+                  {fill(t.transfers.detail.yearsOperating, {
+                    count: vehicle.provider.yearsActive,
+                  })}
+                </span>
+              </p>
+            )}
           </div>
 
           <div className="shrink-0">
-            <ShareSave title={offer.name} />
+            <ShareSave title={vehicle.name} />
           </div>
         </div>
       </Container>
@@ -202,7 +247,7 @@ export default async function TransferDetailPage(
       <Container className="pb-28 lg:pb-32">
         <div className="grid gap-12 lg:grid-cols-12 lg:gap-12 xl:gap-16">
           <div className="min-w-0 lg:col-span-8">
-            <TransferGallery offer={offer} from={from} to={to} />
+            <TransferGallery vehicle={vehicle} from={from} to={to} />
 
             <section className="mt-12">
               <h2 className="type-h2">{t.transfers.detail.keyInformation}</h2>
@@ -230,9 +275,9 @@ export default async function TransferDetailPage(
 
             <section className="mt-14 border-t border-line pt-12">
               <h2 className="type-h2">{t.transfers.detail.about}</h2>
-              <p className="type-body-lg mt-5 text-body">{offer.summary}</p>
+              <p className="type-body-lg mt-5 text-body">{vehicle.summary}</p>
               <div className="mt-5 space-y-5">
-                {offer.description.map((paragraph) => (
+                {vehicle.description.map((paragraph) => (
                   <p key={paragraph.slice(0, 40)} className="type-body text-body">
                     {paragraph}
                   </p>
@@ -241,7 +286,7 @@ export default async function TransferDetailPage(
 
               <h3 className="type-h4 mt-10">{t.transfers.detail.onBoard}</h3>
               <ul className="mt-4 grid gap-3 sm:grid-cols-2">
-                {offer.features.map((feature) => {
+                {vehicle.features.map((feature) => {
                   const Icon = featureIcons[feature];
                   return (
                     <li key={feature} className="flex items-center gap-2.5">
@@ -260,7 +305,7 @@ export default async function TransferDetailPage(
                 <div>
                   <h2 className="type-h3">{t.transfers.detail.included}</h2>
                   <ul className="mt-5 space-y-3">
-                    {offer.included.map((item) => (
+                    {vehicle.included.map((item) => (
                       <li key={item} className="flex gap-3">
                         <Check size={17} className="mt-0.5 shrink-0 text-success" aria-hidden />
                         <span className="type-body-sm text-body">{item}</span>
@@ -272,7 +317,7 @@ export default async function TransferDetailPage(
                 <div>
                   <h2 className="type-h3">{t.transfers.detail.excluded}</h2>
                   <ul className="mt-5 space-y-3">
-                    {offer.excluded.map((item) => (
+                    {vehicle.excluded.map((item) => (
                       <li key={item} className="flex gap-3">
                         <X size={17} className="mt-0.5 shrink-0 text-subtle" aria-hidden />
                         <span className="type-body-sm text-muted">{item}</span>
@@ -285,7 +330,7 @@ export default async function TransferDetailPage(
 
             <section className="mt-14 border-t border-line pt-12">
               <h2 className="type-h2">{t.transfers.detail.howPickupWorks}</h2>
-              <p className="type-body mt-5 text-body">{offer.pickupProcedure}</p>
+              <p className="type-body mt-5 text-body">{vehicle.pickupProcedure}</p>
 
               <div className="mt-8 flex gap-3.5 rounded-sm bg-surface-soft p-5">
                 <Info size={18} className="mt-0.5 shrink-0 text-brand-text" aria-hidden />
@@ -298,10 +343,10 @@ export default async function TransferDetailPage(
               </div>
 
               <h3 className="type-h4 mt-10">{t.transfers.detail.cancellation}</h3>
-              <p className="type-body-sm mt-3 text-body">{offer.cancellation}</p>
+              <p className="type-body-sm mt-3 text-body">{vehicle.cancellation?.description}</p>
               <p className="type-caption mt-3 text-subtle">
                 {fill(t.transfers.detail.cancellationNote, {
-                  provider: offer.provider.name,
+                  provider: vehicle.provider?.name ?? vehicle.name,
                 })}
               </p>
             </section>
@@ -311,7 +356,7 @@ export default async function TransferDetailPage(
             <div className="lg:sticky lg:top-36">
               {quote ? (
                 <>
-                  <TransferBookingSummary quote={quote} query={query}>
+                  <TransferBookingSummary offer={offer!} query={query} from={from} to={to}>
                     <Button href={continueHref} size="lg" fullWidth>
                       {t.actions.continue}
                     </Button>
@@ -346,7 +391,7 @@ export default async function TransferDetailPage(
             <p>
               <span className="type-caption block text-muted">{t.common.total}</span>
               <span className="type-h4 tabular-nums">
-                {formatPrice(totalFor(quote, query), intlLocale)}
+                {formatMoney(quote.totals.totalCents, currency, intlLocale)}
               </span>
             </p>
             <Button href={continueHref} size="md">

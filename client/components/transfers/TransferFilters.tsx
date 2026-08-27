@@ -5,15 +5,20 @@ import {
   featureFilters,
   passengerBands,
   ratingFilters,
-  vehicleClasses,
+  vehicleBodies,
   type PassengerBand,
-} from "@/data/transfers";
+} from "@/lib/transfers/vocabulary";
 import { useI18n } from "@/lib/i18n/provider";
-import { formatPrice } from "@/lib/utils";
-import type { TransferFeature, TransferKind, VehicleClass } from "@/types";
+import { formatMoney } from "@/lib/money";
+import type { TransferFeature, TransferKind, TransferVehicleBody } from "@/types/transfer";
 
 export interface TransferFilterState {
-  vehicleClasses: VehicleClass[];
+  /**
+   * Filtered on the body rather than the commercial class, because "a saloon"
+   * is what a traveller is choosing between and Economy versus Comfort is a
+   * price difference they can already see.
+   */
+  vehicleBodies: TransferVehicleBody[];
   passengerBands: PassengerBand[];
   kinds: TransferKind[];
   features: TransferFeature[];
@@ -24,7 +29,7 @@ export interface TransferFilterState {
 }
 
 export const defaultTransferFilters: TransferFilterState = {
-  vehicleClasses: [],
+  vehicleBodies: [],
   passengerBands: [],
   kinds: [],
   features: [],
@@ -34,7 +39,7 @@ export const defaultTransferFilters: TransferFilterState = {
 
 export function countActiveFilters(filters: TransferFilterState): number {
   return (
-    filters.vehicleClasses.length +
+    filters.vehicleBodies.length +
     filters.passengerBands.length +
     filters.kinds.length +
     filters.features.length +
@@ -46,12 +51,18 @@ export function countActiveFilters(filters: TransferFilterState): number {
 interface TransferFiltersProps {
   value: TransferFilterState;
   onChange: (next: TransferFilterState) => void;
-  /** Cheapest and dearest quote on this route — the slider's real range. */
+  /** Cheapest and dearest quote on this route — the slider's real range. In minor units. */
   priceBounds: { min: number; max: number };
+  currency: string;
 }
 
 /** Presentational filter panel — rendered in the sidebar and the mobile dialog. */
-export function TransferFilters({ value, onChange, priceBounds }: TransferFiltersProps) {
+export function TransferFilters({
+  value,
+  onChange,
+  priceBounds,
+  currency,
+}: TransferFiltersProps) {
   const { t, intlLocale } = useI18n();
 
   const toggle = <T,>(list: T[], item: T): T[] =>
@@ -65,18 +76,18 @@ export function TransferFilters({ value, onChange, priceBounds }: TransferFilter
       <fieldset>
         <legend className="type-eyebrow text-muted">{t.transfers.filters.vehicleType}</legend>
         <div className="mt-4 flex flex-wrap gap-2">
-          {vehicleClasses.map((vehicleClass) => (
+          {vehicleBodies.map((body) => (
             <FilterChip
-              key={vehicleClass}
-              selected={value.vehicleClasses.includes(vehicleClass)}
+              key={body}
+              selected={value.vehicleBodies.includes(body)}
               onClick={() =>
                 onChange({
                   ...value,
-                  vehicleClasses: toggle(value.vehicleClasses, vehicleClass),
+                  vehicleBodies: toggle(value.vehicleBodies, body),
                 })
               }
             >
-              {t.transfers.vehicleClasses[vehicleClass]}
+              {t.transfers.vehicleClasses[body]}
             </FilterChip>
           ))}
         </div>
@@ -107,8 +118,8 @@ export function TransferFilters({ value, onChange, priceBounds }: TransferFilter
         <div className="mt-4 flex flex-wrap gap-2">
           {(
             [
-              { value: "private" as const, label: t.transfers.kinds.private },
-              { value: "shared" as const, label: t.transfers.kinds.shared },
+              { value: "PRIVATE" as const, label: t.transfers.kinds.private },
+              { value: "SHARED" as const, label: t.transfers.kinds.shared },
             ]
           ).map((option) => (
             <FilterChip
@@ -128,14 +139,14 @@ export function TransferFilters({ value, onChange, priceBounds }: TransferFilter
           <span className="type-body-sm flex items-baseline justify-between text-body">
             {t.transfers.filters.upTo}
             <span className="type-h4 tabular-nums">
-              {value.maxPrice === null ? t.common.any : formatPrice(value.maxPrice, intlLocale)}
+              {value.maxPrice === null ? t.common.any : formatMoney(value.maxPrice, currency, intlLocale)}
             </span>
           </span>
           <input
             type="range"
             min={priceBounds.min}
             max={sliderMax}
-            step={5}
+            step={500}
             value={current}
             onChange={(event) => {
               const next = Number(event.target.value);
@@ -145,8 +156,8 @@ export function TransferFilters({ value, onChange, priceBounds }: TransferFilter
             aria-label={t.a11y.maximumPrice}
           />
           <span className="type-caption mt-2 flex justify-between text-muted tabular-nums">
-            <span>{formatPrice(priceBounds.min, intlLocale)}</span>
-            <span>{formatPrice(sliderMax, intlLocale)}+</span>
+            <span>{formatMoney(priceBounds.min, currency, intlLocale)}</span>
+            <span>{formatMoney(sliderMax, currency, intlLocale)}+</span>
           </span>
         </label>
       </fieldset>

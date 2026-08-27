@@ -11,22 +11,20 @@ import { Rating } from "@/components/ui/Rating";
 import { fill } from "@/lib/i18n/dictionaries";
 import { plural } from "@/lib/i18n/plural";
 import { useI18n } from "@/lib/i18n/provider";
-import {
-  formatDuration,
-  isPerPerson,
-  totalFor,
-  type TransferQuery,
-} from "@/lib/transfers/query";
-import { cn, formatPrice } from "@/lib/utils";
-import type { TransferQuote } from "@/types";
+import { formatDuration, type TransferQuery } from "@/lib/transfers/query";
+import { formatMoney } from "@/lib/money";
+import { cn } from "@/lib/utils";
+import type { TransferOffer } from "@/types/transfer";
 
 interface TransferCardProps {
-  quote: TransferQuote;
+  offer: TransferOffer;
   query: TransferQuery;
   /** Locale-prefixed detail URL, already carrying the search query. */
   href: string;
   /** Marks the option the traveller has already chosen. */
   selected?: boolean;
+  /** Passed down rather than read here, so a server render formats identically. */
+  intlLocale?: string;
   className?: string;
 }
 
@@ -39,11 +37,20 @@ interface TransferCardProps {
  * rest live on the details page, because a card that lists everything is a card
  * nobody compares.
  */
-export function TransferCard({ quote, query, href, selected, className }: TransferCardProps) {
+export function TransferCard({ offer, query, href, selected, className }: TransferCardProps) {
   const { t, locale, intlLocale } = useI18n();
-  const { offer, price, durationMinutes } = quote;
-  const perPerson = isPerPerson(offer);
-  const total = totalFor(quote, query);
+  const { vehicle, quote } = offer;
+  const perPerson = quote.perSeat;
+  const total = quote.totals.totalCents;
+  const currency = quote.currency;
+  const passengers = Math.max(1, query.adults + query.children);
+  // The per-seat figure the card leads with. The server has already multiplied
+  // it into the total, so this divides back out rather than re-deriving a fare.
+  const perSeatCents = perPerson ? Math.round(total / passengers) : total;
+  const durationMinutes = quote.legs.reduce(
+    (longest, leg) => Math.max(longest, leg.durationMinutes),
+    0,
+  );
   const isReturn = query.type === "return";
 
   return (
@@ -66,37 +73,37 @@ export function TransferCard({ quote, query, href, selected, className }: Transf
 
       <div className="flex flex-col gap-5 p-4 sm:flex-row sm:gap-6 sm:p-5">
         <div className="flex shrink-0 items-center justify-center rounded-sm bg-surface-earth/60 px-4 py-6 text-ink sm:w-48 lg:w-56">
-          <VehicleIllustration vehicleClass={offer.vehicleClass} className="max-w-44" />
+          <VehicleIllustration vehicleClass={vehicle.body} className="max-w-44" />
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone="outline">{t.transfers.vehicleClasses[offer.vehicleClass]}</Badge>
-            <Badge tone={offer.kind === "private" ? "brand" : "neutral"}>
-              {offer.kind === "private" ? t.transfers.kinds.private : t.transfers.kinds.shared}
+            <Badge tone="outline">{t.transfers.vehicleClasses[vehicle.body]}</Badge>
+            <Badge tone={vehicle.kind === "PRIVATE" ? "brand" : "neutral"}>
+              {vehicle.kind === "PRIVATE" ? t.transfers.kinds.private : t.transfers.kinds.shared}
             </Badge>
           </div>
 
           <h3 className="type-h3 mt-3">
             <Link href={href} className="focus-visible:outline-offset-4">
               <span className="bg-[linear-gradient(currentColor,currentColor)] bg-[length:0%_1px] bg-left-bottom bg-no-repeat transition-[background-size] duration-400 ease-(--ease-out-soft) group-hover:bg-[length:100%_1px]">
-                {offer.name}
+                {vehicle.name}
               </span>
             </Link>
           </h3>
 
-          <p className="type-caption mt-1.5 text-muted">{offer.vehicleExample}</p>
+          <p className="type-caption mt-1.5 text-muted">{vehicle.vehicleExample}</p>
 
           <ul className="mt-4 flex flex-wrap gap-x-5 gap-y-2">
             <li className="type-body-sm flex items-center gap-1.5 text-body">
               <Users size={15} className="shrink-0 text-subtle" aria-hidden />
               {fill(t.transfers.card.upToPassengers, {
-                count: plural(locale, offer.maxPassengers, t.units.passenger),
+                count: plural(locale, vehicle.maxPassengers, t.units.passenger),
               })}
             </li>
             <li className="type-body-sm flex items-center gap-1.5 text-body">
               <Briefcase size={15} className="shrink-0 text-subtle" aria-hidden />
-              {plural(locale, offer.maxLuggage, t.units.largeBag)}
+              {plural(locale, vehicle.maxLuggage, t.units.largeBag)}
             </li>
             <li className="type-body-sm flex items-center gap-1.5 text-body">
               <Clock size={15} className="shrink-0 text-subtle" aria-hidden />
@@ -110,7 +117,7 @@ export function TransferCard({ quote, query, href, selected, className }: Transf
           </ul>
 
           <ul className="mt-3.5 flex flex-wrap gap-x-4 gap-y-2">
-            {offer.features.slice(0, 3).map((feature) => {
+            {vehicle.features.slice(0, 3).map((feature) => {
               const Icon = featureIcons[feature];
               return (
                 <li key={feature} className="type-caption flex items-center gap-1.5 text-muted">
@@ -124,19 +131,21 @@ export function TransferCard({ quote, query, href, selected, className }: Transf
           <div className="mt-5 flex flex-wrap items-end justify-between gap-4 border-t border-line pt-4 sm:mt-auto">
             <div className="min-w-0">
               <p className="type-body-sm flex items-center gap-1.5 font-medium text-ink">
-                {offer.provider.name}
-                {offer.provider.verified && (
+                {vehicle.provider?.name}
+                {vehicle.provider?.verified && (
                   <span className="inline-flex items-center gap-1 text-success">
                     <BadgeCheck size={14} aria-hidden />
                     <span className="type-caption font-normal">{t.transfers.card.verified}</span>
                   </span>
                 )}
               </p>
-              <Rating
-                value={offer.provider.rating}
-                reviewCount={offer.provider.reviewCount}
-                className="mt-1.5"
-              />
+              {vehicle.provider && (
+                <Rating
+                  value={vehicle.provider.rating}
+                  reviewCount={vehicle.provider.reviewCount}
+                  className="mt-1.5"
+                />
+              )}
             </div>
 
             <div className="flex items-end gap-5">
@@ -145,12 +154,12 @@ export function TransferCard({ quote, query, href, selected, className }: Transf
                   {perPerson ? t.transfers.card.fromPerPerson : t.common.total}
                 </span>
                 <span className="type-h3 block text-ink tabular-nums">
-                  {formatPrice(perPerson ? price : total, intlLocale)}
+                  {formatMoney(perPerson ? perSeatCents : total, currency, intlLocale)}
                 </span>
                 <span className="type-caption block text-muted">
                   {perPerson
                     ? fill(t.transfers.card.forYourParty, {
-                        price: formatPrice(total, intlLocale),
+                        price: formatMoney(total, currency, intlLocale),
                       })
                     : isReturn
                       ? t.transfers.card.bothJourneys

@@ -1,9 +1,6 @@
-import { getTransferLocation } from "@/data/transferLocations";
-import { transferOffers } from "@/data/transfers";
 import type { Locale } from "@/lib/i18n/config";
 import { plural } from "@/lib/i18n/plural";
 import type { UiDictionary } from "@/lib/i18n/ui/en";
-import type { TransferLocation, TransferOffer, TransferQuote } from "@/types";
 
 /**
  * The transfer search query and everything derived from it.
@@ -184,95 +181,24 @@ export function isSearchable(query: TransferQuery): boolean {
 }
 
 /* ==========================================================================
-   Journey maths
+   Journey maths — moved to the server
+   ==========================================================================
+
+   `getRouteMetrics`, `quoteFor`, `quotesForQuery`, `isPerPerson` and
+   `totalFor` used to live here, computing a fare from two sets of coordinates
+   and a per-kilometre rate held in `data/transfers.ts`.
+
+   They are gone, and not because the arithmetic was wrong. A price the browser
+   computes is a price the browser can change, and a catalogue the browser
+   carries is one that goes stale the moment an admin edits it. The same maths
+   now runs in `server/services/transfer/pricing.service.js`, which is also
+   where the curated route prices are — so a quote reflects what the operator
+   actually charges rather than an estimate the client happened to agree with.
+
+   Ask `lib/api/transfers.ts` instead. What stays here is everything that never
+   needed a fare: reading the journey out of the URL, checking it makes sense,
+   and formatting it for a reader.
    ========================================================================== */
-
-/**
- * Great-circle distance, scaled for the fact that roads are not straight lines.
- * 1.3 is a fair factor for Georgia, where almost every long route crosses a
- * ridge or follows a river valley rather than going over the top.
- */
-const ROAD_FACTOR = 1.3;
-/** Blended average across motorway, trunk and mountain sections. */
-const AVERAGE_SPEED_KMH = 62;
-/** Loading, terminal walk and getting clear of the kerb. */
-const FIXED_OVERHEAD_MINUTES = 12;
-
-function haversineKm(a: TransferLocation, b: TransferLocation): number {
-  const toRad = (value: number) => (value * Math.PI) / 180;
-  const R = 6371;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
-  const h =
-    Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-}
-
-export interface RouteMetrics {
-  from: TransferLocation;
-  to: TransferLocation;
-  distanceKm: number;
-  /** True when either end is an airport — drives the airport fee and meet & greet. */
-  touchesAirport: boolean;
-}
-
-export function getRouteMetrics(query: TransferQuery): RouteMetrics | null {
-  const from = getTransferLocation(query.from);
-  const to = getTransferLocation(query.to);
-  if (!from || !to || from.id === to.id) return null;
-
-  return {
-    from,
-    to,
-    distanceKm: Math.round(haversineKm(from, to) * ROAD_FACTOR),
-    touchesAirport: from.type === "airport" || to.type === "airport",
-  };
-}
-
-/** Fare and journey time for one offer over one route. Per vehicle, or per seat for shared. */
-export function quoteFor(offer: TransferOffer, route: RouteMetrics): TransferQuote {
-  const distanceFare = route.distanceKm * offer.pricing.perKm;
-  const airportFee = route.touchesAirport ? offer.pricing.airportFee : 0;
-  const price = Math.round(Math.max(offer.pricing.minimumFare, distanceFare) + airportFee);
-
-  const driving = (route.distanceKm / AVERAGE_SPEED_KMH) * 60 * offer.paceFactor;
-  const durationMinutes = Math.round((driving + FIXED_OVERHEAD_MINUTES) / 5) * 5;
-
-  return { offer, price, durationMinutes, distanceKm: route.distanceKm };
-}
-
-/**
- * Every offer that can physically carry the party, priced for the route.
- *
- * Capacity is a hard constraint rather than a filter: showing a three-seat
- * saloon to a party of six is not a choice, it is a mistake the traveller only
- * discovers at the kerb.
- */
-export function quotesForQuery(query: TransferQuery): TransferQuote[] {
-  const route = getRouteMetrics(query);
-  if (!route) return [];
-
-  const passengers = Math.max(1, query.adults + query.children);
-  const bags = query.luggage;
-
-  return transferOffers
-    .filter((offer) => offer.maxPassengers >= passengers && offer.maxLuggage >= bags)
-    .map((offer) => quoteFor(offer, route));
-}
-
-/** Shared transfers are sold by the seat; private ones by the vehicle. */
-export function isPerPerson(offer: TransferOffer): boolean {
-  return offer.kind === "shared";
-}
-
-/** What the traveller actually pays, across both legs of a return. */
-export function totalFor(quote: TransferQuote, query: TransferQuery): number {
-  const passengers = Math.max(1, query.adults + query.children);
-  const perJourney = isPerPerson(quote.offer) ? quote.price * passengers : quote.price;
-  return query.type === "return" ? perJourney * 2 : perJourney;
-}
 
 /* ==========================================================================
    Formatting

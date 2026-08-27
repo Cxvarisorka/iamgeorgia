@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import type { VehicleClass } from "@/types";
+import type { TransferVehicleBody } from "@/types/transfer";
 
 /**
  * Vehicle artwork.
@@ -16,7 +16,12 @@ import type { VehicleClass } from "@/types";
  */
 
 interface VehicleIllustrationProps {
-  vehicleClass: VehicleClass;
+  /**
+   * The body, not the commercial class. An Economy and a Comfort are both
+   * saloons and share one drawing; what separates them is the price, which the
+   * card already shows.
+   */
+  vehicleClass: TransferVehicleBody;
   className?: string;
 }
 
@@ -27,7 +32,7 @@ interface VehicleIllustrationProps {
  * they read the label, so the rooflines are pulled well apart — 26, 15, 11, 8
  * and 6 on the shared y-axis.
  */
-const bodies: Record<VehicleClass, string> = {
+const bodies: Record<TransferVehicleBody, string> = {
   // Low three-box saloon: long bonnet, low glasshouse, separate boot.
   sedan:
     "M12 56 L14 44 Q16 40 24 39 L46 37 Q54 27 70 26 L96 26 Q110 27 118 36 L140 40 Q146 42 146 48 L146 56 Z",
@@ -43,7 +48,7 @@ const bodies: Record<VehicleClass, string> = {
 };
 
 /** Glazing, so each class reads at a glance rather than as an abstract blob. */
-const glazing: Record<VehicleClass, string[]> = {
+const glazing: Record<TransferVehicleBody, string[]> = {
   sedan: ["M50 36 L64 28 L80 28 L80 36 Z", "M84 28 L98 28 L112 36 L84 36 Z"],
   suv: ["M48 24 L58 17 L80 16 L80 25 Z", "M85 16 L102 16 L116 25 L85 25 Z"],
   minivan: ["M44 19 L54 13 L78 12 L78 22 Z", "M83 12 L104 12 L120 22 L83 22 Z"],
@@ -59,7 +64,7 @@ const glazing: Record<VehicleClass, string[]> = {
  * Wheel centres and radius per class. All five rest on the same ground line at
  * y = 67, so a taller body reads as a taller vehicle rather than a bigger one.
  */
-const wheels: Record<VehicleClass, { cx: number; cy: number; r: number }[]> = {
+const wheels: Record<TransferVehicleBody, { cx: number; cy: number; r: number }[]> = {
   sedan: [
     { cx: 42, cy: 55, r: 11 },
     { cx: 116, cy: 55, r: 11 },
