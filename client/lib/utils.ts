@@ -17,7 +17,10 @@ export function cn(...classes: (string | false | null | undefined)[]): string {
 export function formatPrice(
   amount: number,
   intlLocale = "en-US",
-  currency = "USD",
+  // GEL: the platform settles in lari and the live catalogue prices in it.
+  // The remaining fixture data (tours, transfers) shows lari too rather than
+  // pretending two currencies coexist on one site.
+  currency = "GEL",
 ): string {
   return new Intl.NumberFormat(intlLocale, {
     style: "currency",

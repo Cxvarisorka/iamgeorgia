@@ -13,7 +13,8 @@ import { MediaGallery } from "@/components/ui/MediaGallery";
 import { Rating } from "@/components/ui/Rating";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { ShareSave } from "@/components/ui/ShareSave";
-import { getTourBySlug, localisedTours, tours } from "@/data/tours";
+import { getTourBySlug, isB2C, localisedTours, tours } from "@/data/tours";
+import { getSession } from "@/lib/auth/session";
 import { getI18n } from "@/lib/i18n/server";
 import { relatedBySlug } from "@/lib/utils";
 import type { TourCategory } from "@/types";
@@ -24,9 +25,13 @@ import type { TourCategory } from "@/types";
  */
 const NATURE_CATEGORIES = new Set<TourCategory>(["nature", "adventure"]);
 
-export function generateStaticParams() {
-  return tours.map((tour) => ({ slug: tour.slug }));
-}
+/*
+ * Deliberately not statically generated. These pages are channel-gated — a
+ * trade-only tour must 404 for an anonymous visitor — and a prerendered shell
+ * would bake the tour's content into the HTML before the gate ever ran,
+ * leaking exactly what the 404 exists to withhold. Request-time rendering is
+ * the price of a gate that actually holds.
+ */
 
 export async function generateMetadata(
   props: PageProps<"/[locale]/tours/[slug]">,
@@ -53,6 +58,10 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
   ]);
   const tour = getTourBySlug(slug, locale);
   if (!tour) notFound();
+
+  // A trade-only tour does not exist on the public channel. 404, not a
+  // sign-in prompt: saying more would confirm what the catalogue holds.
+  if (!isB2C(tour.slug) && !(await getSession())) notFound();
 
   const related = relatedBySlug(
     localisedTours(locale).filter(

@@ -2,13 +2,10 @@ import type { Metadata } from "next";
 
 import { CTASection } from "@/components/home/CTASection";
 import { CultureStory } from "@/components/home/CultureStory";
-import { FeaturedExperiences } from "@/components/home/FeaturedExperiences";
 import { FeaturedHotels } from "@/components/home/FeaturedHotels";
 import { Hero } from "@/components/home/Hero";
-import { PopularDestinations } from "@/components/home/PopularDestinations";
 import { SignatureTours } from "@/components/home/SignatureTours";
 import { Statement } from "@/components/home/Statement";
-import { TravelInspiration } from "@/components/home/TravelInspiration";
 import { WhyIamGeorgia } from "@/components/home/WhyIamGeorgia";
 import { site } from "@/constants/site";
 import { getI18n } from "@/lib/i18n/server";
@@ -26,22 +23,20 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * Section order is deliberate: immersive → quiet → editorial → cards → immersive
- * → cards → quiet → editorial → immersive. No two neighbouring sections share a
- * layout, which is what keeps a long homepage from feeling like a template.
+ * Section order is deliberate: immersive → quiet → cards → immersive → cards →
+ * quiet → immersive. No two neighbouring sections share a layout, which is what
+ * keeps a long homepage from feeling like a template. The page sells only what
+ * the platform sells — hotels, tours and transfers.
  */
 export default function HomePage() {
   return (
     <>
       <Hero />
       <Statement />
-      <PopularDestinations />
       <SignatureTours />
       <CultureStory />
-      <FeaturedExperiences />
       <FeaturedHotels />
       <WhyIamGeorgia />
-      <TravelInspiration />
       <CTASection />
     </>
   );

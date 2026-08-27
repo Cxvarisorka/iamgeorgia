@@ -6,6 +6,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ArrowUpRight, X } from "lucide-react";
 import { useEffect } from "react";
 
+import { AccountNavRow } from "./AccountNav";
 import { Logo } from "./Logo";
 import { Button } from "@/components/ui/Button";
 import { useI18n, useLocalePath } from "@/lib/i18n/provider";
@@ -119,6 +120,13 @@ export function MobileNavigation({ open, onClose }: MobileNavigationProps) {
               <Button href={path("/contact")} variant="light" size="lg" fullWidth onClick={onClose}>
                 {t.actions.planYourTrip}
               </Button>
+
+              {/* Set apart from the editorial sections above: this is the way
+                  out of the marketing site and into the back office, not
+                  another thing to browse. */}
+              <div className="mt-6">
+                <AccountNavRow onNavigate={onClose} />
+              </div>
               <p className="type-caption mt-8 text-on-dark/50">{site.contact.address}</p>
               <a
                 href={`mailto:${site.contact.email}`}

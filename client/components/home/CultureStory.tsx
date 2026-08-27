@@ -42,8 +42,8 @@ export async function CultureStory() {
             </blockquote>
 
             <div className="mt-10">
-              <Button href={path("/experiences")} variant="outlineLight">
-                {t.actions.exploreExperiences}
+              <Button href={path("/tours")} variant="outlineLight">
+                {t.actions.browseTours}
               </Button>
             </div>
           </Reveal>

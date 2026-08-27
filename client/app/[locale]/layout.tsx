@@ -28,17 +28,25 @@ const inter = Inter({
  * glyphs — without these the ka and he pages would render in a fallback face
  * chosen by the OS, which is exactly the "translated but not designed" look we
  * are trying to avoid. Both are wired into the font stack in globals.css.
+ *
+ * `preload: false`: this layout serves all four locales, and a preload link
+ * forces the download on every visitor — a Latin-locale reader would pull
+ * Georgian and Hebrew faces they never render. Without it the @font-face
+ * unicode-range means only pages that actually set text in these scripts fetch
+ * the files, at the cost of a brief `display: swap` fallback on ka/he pages.
  */
 const notoGeorgian = Noto_Sans_Georgian({
   variable: "--font-georgian",
   subsets: ["georgian"],
   display: "swap",
+  preload: false,
 });
 
 const notoHebrew = Noto_Sans_Hebrew({
   variable: "--font-hebrew",
   subsets: ["hebrew"],
   display: "swap",
+  preload: false,
 });
 
 export function generateStaticParams() {

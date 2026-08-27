@@ -772,3 +772,23 @@ export function featuredTours(locale?: Locale): Tour[] {
   const matches = tours.filter((tour) => tour.featured);
   return locale ? localiseAll(matches, locale, tourContent) : matches;
 }
+
+
+/**
+ * The sales channel, until this catalogue gets a real backend.
+ *
+ * Everything is B2B by default — a signed-in partner sees the full list — and
+ * only the entries named here are shown to anonymous visitors. Hotels already
+ * carry this flag in the database (`b2c_enabled`); when tours move to the
+ * API, this set becomes a column the panel toggles, exactly as hotels did.
+ */
+export const b2cSlugs = new Set<string>([
+  "tbilisi-in-depth",
+  "kakheti-wine-route",
+  "gergeti-glacier-trek",
+  "davit-gareja-desert",
+  "vardzia-cave-city",
+  "imereti-canyons-and-caves",
+]);
+
+export const isB2C = (slug: string) => b2cSlugs.has(slug);

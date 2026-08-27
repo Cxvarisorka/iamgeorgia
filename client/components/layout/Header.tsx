@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { AccountNav } from "./AccountNav";
 import { LanguageMenu } from "./LanguageMenu";
 import { Logo } from "./Logo";
 import { MobileNavigation } from "./MobileNavigation";
@@ -29,10 +30,7 @@ import { cn } from "@/lib/utils";
 function hasImmersiveHero(pathname: string): boolean {
   const path = stripLocale(pathname);
   if (path === "/" || path === "/about") return true;
-  if (["/tours", "/destinations", "/experiences", "/hotels", "/transfers"].includes(path)) {
-    return true;
-  }
-  return /^\/(destinations|experiences)\/[^/]+$/.test(path);
+  return ["/tours", "/hotels", "/transfers"].includes(path);
 }
 
 export function Header() {
@@ -118,6 +116,16 @@ export function Header() {
           </nav>
 
           <div className="flex shrink-0 items-center gap-2 lg:gap-3">
+            {/* From `sm` up, including the tight `lg` band where the trip button
+                steps aside — the staff surfaces are reached often enough by the
+                people who use them that hiding the link behind a burger on a
+                desktop would be the wrong trade. Below `sm` the mobile menu
+                carries the same row. */}
+            <AccountNav
+              tone={overImagery ? "light" : "dark"}
+              className="hidden sm:inline-flex"
+            />
+
             <LanguageMenu tone={overImagery ? "light" : "dark"} />
 
             {/* Visible from `sm` (where the nav is still behind the burger) and

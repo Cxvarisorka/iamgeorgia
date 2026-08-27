@@ -7,7 +7,8 @@ import { Container } from "@/components/ui/Container";
 import { PageHero } from "@/components/ui/PageHero";
 import { getI18n } from "@/lib/i18n/server";
 import { SectionHeading } from "@/components/ui/SectionHeading";
-import { featuredTours, localisedTours } from "@/data/tours";
+import { featuredTours, isB2C, localisedTours } from "@/data/tours";
+import { getSession } from "@/lib/auth/session";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -16,11 +17,14 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function ToursPage() {
   const { t, locale } = await getI18n();
-  const tours = localisedTours(locale);
+  // The channel: partners and staff see the whole programme, anonymous
+  // visitors only what has been switched on for B2C.
+  const trade = Boolean(await getSession());
+  const tours = localisedTours(locale).filter((tour) => trade || isB2C(tour.slug));
   // Regions come off the translated records, so the filter reads in the same
   // language as the cards it filters.
   const regions = [...new Set(tours.map((tour) => tour.location))].sort();
-  const [spotlight] = featuredTours(locale);
+  const [spotlight] = featuredTours(locale).filter((tour) => trade || isB2C(tour.slug));
 
   return (
     <>
@@ -42,7 +46,7 @@ export default async function ToursPage() {
             />
           </Reveal>
           <Reveal className="mt-12">
-            <TourCard tour={spotlight} variant="feature" priority />
+            <TourCard tour={spotlight} variant="feature" />
           </Reveal>
         </Container>
       </section>

@@ -56,8 +56,8 @@ export async function Hero() {
             <Button href={path("/tours")} size="lg" variant="light">
               {t.actions.exploreTours}
             </Button>
-            <Button href={path("/destinations")} size="lg" variant="outlineLight">
-              {t.actions.browseDestinations}
+            <Button href={path("/hotels")} size="lg" variant="outlineLight">
+              {t.actions.browseHotels}
             </Button>
           </div>
         </div>

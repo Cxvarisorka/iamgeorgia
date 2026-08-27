@@ -178,8 +178,8 @@ export function TourExplorer({ tours, regions }: TourExplorerProps) {
 
         {results.length > 0 ? (
           <div className="grid gap-x-8 gap-y-14 sm:grid-cols-2 lg:grid-cols-3">
-            {results.map((tour, index) => (
-              <TourCard key={tour.id} tour={tour} priority={index < 3} />
+            {results.map((tour) => (
+              <TourCard key={tour.id} tour={tour} />
             ))}
           </div>
         ) : (

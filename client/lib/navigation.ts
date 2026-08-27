@@ -12,13 +12,7 @@ import type { LucideIcon } from "lucide-react";
 import { stripLocale } from "@/lib/i18n/config";
 import type { UiDictionary } from "@/lib/i18n/ui/en";
 
-export type NavKey =
-  | "tours"
-  | "destinations"
-  | "hotels"
-  | "transfers"
-  | "experiences"
-  | "about";
+export type NavKey = "tours" | "hotels" | "transfers";
 
 export interface NavItem {
   key: NavKey;
@@ -34,12 +28,12 @@ export interface NavItem {
 }
 
 export const primaryNavigation: NavItem[] = [
-  { key: "tours", href: "/tours" },
-  { key: "destinations", href: "/destinations" },
+  // The platform sells exactly three things: stays, journeys and transfers.
+  // Nothing else earns a place here — a buyer comes to book, not to browse a
+  // magazine. About and Contact stay reachable from the footer.
   { key: "hotels", href: "/hotels" },
+  { key: "tours", href: "/tours" },
   { key: "transfers", href: "/transfers", icon: CarFront },
-  { key: "experiences", href: "/experiences" },
-  { key: "about", href: "/about" },
 ];
 
 export function navLabel(t: UiDictionary, key: NavKey): string {
@@ -61,11 +55,9 @@ export function footerNavigation(t: UiDictionary): FooterGroup[] {
     {
       title: t.nav.groups.explore,
       items: [
-        { label: t.nav.tours, href: "/tours" },
-        { label: t.nav.destinations, href: "/destinations" },
         { label: t.nav.hotels, href: "/hotels" },
+        { label: t.nav.tours, href: "/tours" },
         { label: t.nav.transfers, href: "/transfers" },
-        { label: t.nav.experiences, href: "/experiences" },
       ],
     },
     {
@@ -74,6 +66,13 @@ export function footerNavigation(t: UiDictionary): FooterGroup[] {
         { label: t.nav.about, href: "/about" },
         { label: t.nav.contact, href: "/contact" },
         { label: t.nav.planTrip, href: "/contact" },
+        // Guests book without an account, so the only way back to a booking is
+        // a link that is always on screen.
+        { label: t.booking.nav.manage, href: "/booking/manage" },
+        // `/portal` sorts out where a visitor actually belongs — admin panel,
+        // partner dashboard or sign-in — so the footer needs one entry rather
+        // than one per audience.
+        { label: t.nav.account.portal, href: "/portal" },
       ],
     },
   ];
