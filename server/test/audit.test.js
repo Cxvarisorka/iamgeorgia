@@ -1,0 +1,175 @@
+import { describe, it, after } from 'node:test';
+import assert from 'node:assert/strict';
+
+import request from 'supertest';
+
+import { createApp } from '../app.js';
+import { prisma, disconnect } from '../db/index.js';
+import { AUDIT_ENTITY } from '../lib/audit.js';
+import {
+    createTracker,
+    makeAdmin,
+    makePartner,
+    makePartnerUser,
+    signIn,
+    databaseAvailable
+} from './support/factories.js';
+
+const app = createApp();
+const dbAvailable = await databaseAvailable();
+
+describe('audit trail', { skip: dbAvailable ? false : 'Postgres is not reachable' }, () => {
+    const tracker = createTracker();
+
+    after(async () => {
+        await tracker.cleanup();
+        await disconnect();
+    });
+
+    const scenario = async (status = 'PENDING_APPROVAL') => {
+        const admin = await makeAdmin(tracker);
+        const partner = await makePartner(tracker, { status });
+
+        await makePartnerUser(tracker, partner);
+
+        return { admin, partner, cookie: (await signIn(app, admin.email)).cookie };
+    };
+
+    it('records every review action with its actor and reason', async () => {
+        const { admin, partner, cookie } = await scenario();
+
+        await request(app).post(`/api/admin/partners/${partner.id}/approve`).set('Cookie', cookie).send({});
+        await request(app)
+            .post(`/api/admin/partners/${partner.id}/suspend`)
+            .set('Cookie', cookie)
+            .send({ reason: 'Payment dispute' });
+        await request(app).post(`/api/admin/partners/${partner.id}/reactivate`).set('Cookie', cookie).send({});
+
+        const entries = await prisma.auditLog.findMany({
+            where: { entityId: partner.id },
+            orderBy: { createdAt: 'asc' }
+        });
+
+        assert.deepEqual(
+            entries.map((entry) => entry.action),
+            ['PARTNER_APPROVED', 'PARTNER_SUSPENDED', 'PARTNER_REACTIVATED']
+        );
+
+        assert.ok(entries.every((entry) => entry.actorUserId === admin.id));
+        assert.ok(entries.every((entry) => entry.actorEmail === admin.email));
+        assert.ok(entries.every((entry) => entry.entityType === AUDIT_ENTITY.partner));
+        assert.equal(entries[1].metadata.reason, 'Payment dispute');
+    });
+
+    it('records an edit as the fields that actually moved', async () => {
+        const { partner, cookie } = await scenario();
+
+        await request(app)
+            .patch(`/api/admin/partners/${partner.id}`)
+            .set('Cookie', cookie)
+            .send({ city: 'Batumi', name: partner.name });
+
+        const entry = await prisma.auditLog.findFirst({
+            where: { entityId: partner.id, action: 'PARTNER_UPDATED' }
+        });
+
+        assert.deepEqual(Object.keys(entry.metadata.changes), ['city']);
+        assert.equal(entry.metadata.changes.city.from, 'Tbilisi');
+        assert.equal(entry.metadata.changes.city.to, 'Batumi');
+    });
+
+    it('writes nothing for an edit that changes nothing', async () => {
+        const { partner, cookie } = await scenario();
+
+        await request(app).patch(`/api/admin/partners/${partner.id}`).set('Cookie', cookie).send({ city: 'Tbilisi' });
+
+        assert.equal(
+            await prisma.auditLog.count({ where: { entityId: partner.id, action: 'PARTNER_UPDATED' } }),
+            0
+        );
+    });
+
+    it('rolls the audit row back with the action it describes', async () => {
+        const { partner, cookie } = await scenario('REJECTED');
+
+        // Refused by the transition table, so neither the status nor the record
+        // of it changing may survive.
+        const res = await request(app).post(`/api/admin/partners/${partner.id}/approve`).set('Cookie', cookie).send({});
+
+        assert.equal(res.status, 409);
+        assert.equal(await prisma.auditLog.count({ where: { entityId: partner.id } }), 0);
+    });
+
+    /**
+     * The reason AuditLog has no foreign key to its subject. A trail that
+     * vanished along with the partner it describes would be useless for the one
+     * question it exists to answer.
+     */
+    it('outlives the partner it describes', async () => {
+        const { partner, cookie } = await scenario();
+
+        await request(app).post(`/api/admin/partners/${partner.id}/approve`).set('Cookie', cookie).send({});
+        await prisma.partner.delete({ where: { id: partner.id } });
+
+        const entries = await prisma.auditLog.findMany({ where: { entityId: partner.id } });
+
+        assert.equal(entries.length, 1);
+        assert.equal(entries[0].action, 'PARTNER_APPROVED');
+
+        await prisma.auditLog.deleteMany({ where: { entityId: partner.id } });
+    });
+
+    /** SetNull on the actor, with the email kept as a snapshot beside it. */
+    it('still names the admin after their account is deleted', async () => {
+        const { admin, partner, cookie } = await scenario();
+
+        await request(app).post(`/api/admin/partners/${partner.id}/approve`).set('Cookie', cookie).send({});
+        await prisma.user.delete({ where: { id: admin.id } });
+
+        const entry = await prisma.auditLog.findFirst({ where: { entityId: partner.id } });
+
+        assert.equal(entry.actorUserId, null);
+        assert.equal(entry.actorEmail, admin.email);
+    });
+
+    it('serves the trail to an admin, newest first', async () => {
+        const { partner, cookie } = await scenario();
+
+        await request(app).post(`/api/admin/partners/${partner.id}/approve`).set('Cookie', cookie).send({});
+        await request(app)
+            .post(`/api/admin/partners/${partner.id}/suspend`)
+            .set('Cookie', cookie)
+            .send({ reason: 'Payment dispute' });
+
+        const res = await request(app).get(`/api/admin/partners/${partner.id}/audit`).set('Cookie', cookie);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.data[0].action, 'PARTNER_SUSPENDED');
+        assert.equal(res.body.data[1].action, 'PARTNER_APPROVED');
+        assert.ok(res.body.data[0].actor.email.endsWith('@example.test'));
+    });
+
+    it('does not serve the trail to a partner', async () => {
+        const { partner } = await scenario();
+        const owner = await makePartnerUser(tracker, partner, { isPrimaryContact: false });
+        const { cookie } = await signIn(app, owner.email);
+
+        assert.equal((await request(app).get(`/api/admin/partners/${partner.id}/audit`).set('Cookie', cookie)).status, 403);
+    });
+
+    it('attributes a self-service registration to the applicant, not to nobody', async () => {
+        const { partner, cookie } = await scenario();
+        const owner = await makePartnerUser(tracker, partner, { isPrimaryContact: false });
+        const ownerCookie = (await signIn(app, owner.email)).cookie;
+
+        await request(app).post(`/api/admin/partners/${partner.id}/approve`).set('Cookie', cookie).send({});
+        await request(app).patch('/api/partner/profile').set('Cookie', ownerCookie).send({ city: 'Kutaisi' });
+
+        const entry = await prisma.auditLog.findFirst({
+            where: { entityId: partner.id, action: 'PARTNER_UPDATED' }
+        });
+
+        assert.equal(entry.actorEmail, owner.email);
+        assert.equal(entry.metadata.self, true);
+    });
+});

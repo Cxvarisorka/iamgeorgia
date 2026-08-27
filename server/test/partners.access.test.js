@@ -1,0 +1,218 @@
+import { describe, it, after } from 'node:test';
+import assert from 'node:assert/strict';
+
+import request from 'supertest';
+
+import { createApp } from '../app.js';
+import { prisma, disconnect } from '../db/index.js';
+import {
+    createTracker,
+    makeAdmin,
+    makePartner,
+    makePartnerUser,
+    signIn,
+    databaseAvailable
+} from './support/factories.js';
+
+const app = createApp();
+const dbAvailable = await databaseAvailable();
+
+describe('platform access by status', { skip: dbAvailable ? false : 'Postgres is not reachable' }, () => {
+    const tracker = createTracker();
+
+    after(async () => {
+        await tracker.cleanup();
+        await disconnect();
+    });
+
+    const partnerIn = async (status) => {
+        const partner = await makePartner(tracker, { status });
+        const owner = await makePartnerUser(tracker, partner);
+        const { status: loginStatus, cookie } = await signIn(app, owner.email);
+
+        return { partner, owner, loginStatus, cookie };
+    };
+
+    /**
+     * The brief's exact requirement: a partner awaiting review may sign in far
+     * enough to be told so, and no further.
+     */
+    it('lets a pending partner sign in and read its own application only', async () => {
+        const { partner, loginStatus, cookie } = await partnerIn('PENDING_APPROVAL');
+
+        assert.equal(loginStatus, 200);
+
+        const me = await request(app).get('/api/partner/me').set('Cookie', cookie);
+
+        assert.equal(me.status, 200);
+        assert.equal(me.body.status, 'PENDING_APPROVAL');
+        assert.equal(me.body.reference, partner.reference);
+
+        const dashboard = await request(app).get('/api/partner/dashboard').set('Cookie', cookie);
+
+        assert.equal(dashboard.status, 403);
+        assert.equal(dashboard.body.error.details.partnerStatus, 'PENDING_APPROVAL');
+    });
+
+    it('gives a rejected partner no platform access', async () => {
+        const { cookie } = await partnerIn('REJECTED');
+
+        const dashboard = await request(app).get('/api/partner/dashboard').set('Cookie', cookie);
+
+        assert.equal(dashboard.status, 403);
+        assert.equal(dashboard.body.error.details.partnerStatus, 'REJECTED');
+    });
+
+    it('gives a suspended partner no platform access', async () => {
+        const { cookie } = await partnerIn('SUSPENDED');
+
+        assert.equal((await request(app).get('/api/partner/dashboard').set('Cookie', cookie)).status, 403);
+    });
+
+    it('gives a partner still registering no platform access', async () => {
+        const { cookie } = await partnerIn('REGISTRATION_IN_PROGRESS');
+
+        assert.equal((await request(app).get('/api/partner/dashboard').set('Cookie', cookie)).status, 403);
+    });
+
+    it('lets an approved partner through', async () => {
+        const { cookie } = await partnerIn('APPROVED');
+
+        const dashboard = await request(app).get('/api/partner/dashboard').set('Cookie', cookie);
+
+        assert.equal(dashboard.status, 200);
+        assert.equal(dashboard.body.partner.status, 'APPROVED');
+
+        // The portal renders four tiles straight off these, so a missing key
+        // would put "undefined" on the partner's first screen.
+        assert.deepEqual(dashboard.body.stats, {
+            listings: 0,
+            bookings: 0,
+            upcoming: 0,
+            cancelled: 0
+        });
+    });
+
+    it('opens the door the moment an admin approves, with no new sign-in', async () => {
+        const admin = await makeAdmin(tracker);
+        const adminCookie = (await signIn(app, admin.email)).cookie;
+        const { partner, cookie } = await partnerIn('PENDING_APPROVAL');
+
+        assert.equal((await request(app).get('/api/partner/dashboard').set('Cookie', cookie)).status, 403);
+
+        await request(app).post(`/api/admin/partners/${partner.id}/approve`).set('Cookie', adminCookie).send({});
+
+        assert.equal((await request(app).get('/api/partner/dashboard').set('Cookie', cookie)).status, 200);
+    });
+});
+
+describe('privilege boundaries', { skip: dbAvailable ? false : 'Postgres is not reachable' }, () => {
+    const tracker = createTracker();
+
+    after(async () => {
+        await tracker.cleanup();
+        await disconnect();
+    });
+
+    const approvedOwner = async () => {
+        const partner = await makePartner(tracker, { status: 'APPROVED' });
+        const owner = await makePartnerUser(tracker, partner);
+
+        return { partner, owner, cookie: (await signIn(app, owner.email)).cookie };
+    };
+
+    /**
+     * The escalation that matters. The update schema is an allow-list, so these
+     * fields are not rejected with a message — they never reach the update at
+     * all, which is why the assertion is against the stored row.
+     */
+    it('ignores a partner trying to change its own status, id or commission', async () => {
+        const { partner, cookie } = await approvedOwner();
+
+        const res = await request(app)
+            .patch('/api/partner/profile')
+            .set('Cookie', cookie)
+            .send({
+                city: 'Batumi',
+                status: 'APPROVED',
+                reference: 'PTR-000000',
+                commissionRateBps: 0,
+                approvedByUserId: null,
+                notes: 'I am wonderful'
+            });
+
+        assert.equal(res.status, 200);
+
+        const stored = await prisma.partner.findUnique({ where: { id: partner.id } });
+
+        assert.equal(stored.city, 'Batumi', 'the legitimate field did change');
+        assert.equal(stored.reference, partner.reference);
+        assert.equal(stored.commissionRateBps, partner.commissionRateBps);
+        assert.equal(stored.notes, partner.notes);
+    });
+
+    it('does not let a pending partner edit its way into the platform', async () => {
+        const partner = await makePartner(tracker, { status: 'PENDING_APPROVAL' });
+        const owner = await makePartnerUser(tracker, partner);
+        const { cookie } = await signIn(app, owner.email);
+
+        const res = await request(app).patch('/api/partner/profile').set('Cookie', cookie).send({ city: 'Batumi' });
+
+        assert.equal(res.status, 403);
+        assert.equal((await prisma.partner.findUnique({ where: { id: partner.id } })).status, 'PENDING_APPROVAL');
+    });
+
+    it('does not let an agent edit the company profile', async () => {
+        const partner = await makePartner(tracker, { status: 'APPROVED' });
+        const agent = await makePartnerUser(tracker, partner, { role: 'PARTNER_AGENT', isPrimaryContact: false });
+        const { cookie } = await signIn(app, agent.email);
+
+        const res = await request(app).patch('/api/partner/profile').set('Cookie', cookie).send({ city: 'Batumi' });
+
+        assert.equal(res.status, 403);
+    });
+
+    it('keeps one partner out of another partner via the admin API', async () => {
+        const { cookie } = await approvedOwner();
+        const other = await makePartner(tracker, { status: 'APPROVED' });
+
+        for (const [method, path] of [
+            ['get', `/api/admin/partners/${other.id}`],
+            ['get', `/api/admin/partners/${other.id}/financial`],
+            ['get', `/api/admin/partners/${other.id}/audit`],
+            ['get', '/api/admin/partners']
+        ]) {
+            const res = await request(app)[method](path).set('Cookie', cookie);
+
+            assert.equal(res.status, 403, `${method.toUpperCase()} ${path}`);
+        }
+    });
+
+    it('refuses an admin action from a partner even with a valid session', async () => {
+        const { cookie } = await approvedOwner();
+        const target = await makePartner(tracker, { status: 'PENDING_APPROVAL' });
+
+        for (const path of ['approve', 'reject', 'suspend', 'reactivate']) {
+            const res = await request(app)
+                .post(`/api/admin/partners/${target.id}/${path}`)
+                .set('Cookie', cookie)
+                .send({ reason: 'because' });
+
+            assert.equal(res.status, 403, path);
+        }
+
+        assert.equal((await prisma.partner.findUnique({ where: { id: target.id } })).status, 'PENDING_APPROVAL');
+    });
+
+    it('does not let a partner escalate its own role', async () => {
+        const { owner, cookie } = await approvedOwner();
+
+        // There is no endpoint for this at all, which is the point: the only
+        // route that touches a partner's own record is the profile PATCH, and
+        // role is not in its allow-list.
+        const res = await request(app).patch('/api/partner/profile').set('Cookie', cookie).send({ role: 'ADMIN' });
+
+        assert.equal(res.status, 200);
+        assert.equal((await prisma.user.findUnique({ where: { id: owner.id } })).role, 'PARTNER_OWNER');
+    });
+});
