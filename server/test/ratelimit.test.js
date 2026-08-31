@@ -7,12 +7,15 @@ import assert from 'node:assert/strict';
 // dynamic — a static one would be hoisted above this assignment.
 process.env.AUTH_LOGIN_LIMIT = '3';
 process.env.AUTH_TOKEN_LOOKUP_LIMIT = '4';
+process.env.AUTH_PASSWORD_CHANGE_LIMIT = '3';
 
 const request = (await import('supertest')).default;
 const { createApp } = await import('../app.js');
 const { disconnect } = await import('../db/index.js');
 const { createToken } = await import('../lib/tokens.js');
-const { createTracker, makeAdmin, signIn, testEmail, databaseAvailable } = await import('./support/factories.js');
+const { TEST_PASSWORD, createTracker, makeAdmin, signIn, testEmail, databaseAvailable } = await import(
+    './support/factories.js'
+);
 
 const app = createApp();
 const dbAvailable = await databaseAvailable();
@@ -84,6 +87,46 @@ describe('rate limiting', { skip: dbAvailable ? false : 'Postgres is not reachab
         const blocked = await request(app).get(`/api/invitations/${createToken()}`);
 
         assert.equal(blocked.status, 429);
+    });
+
+    /**
+     * There is no email in the body of a password change, so running it through
+     * the login limiter reduced the key to the bare IP — which put every user
+     * behind one office address into a single bucket, and let any one of them
+     * exhaust it for the rest.
+     */
+    it('counts password-change attempts per user, not per address', async () => {
+        const victim = await makeAdmin(tracker);
+        const bystander = await makeAdmin(tracker);
+
+        const attempt = async (admin) => {
+            const { cookie } = await signIn(app, admin.email);
+
+            return request(app)
+                .post('/api/auth/password/change')
+                .set('Cookie', cookie)
+                .send({ currentPassword: 'not-the-right-one', newPassword: 'nine-copper-lanterns-burn' });
+        };
+
+        for (let i = 0; i < 3; i += 1) {
+            assert.equal((await attempt(victim)).status, 401, `attempt ${i + 1}`);
+        }
+
+        assert.equal((await attempt(victim)).status, 429);
+        // Same IP, different account: untouched.
+        assert.equal((await attempt(bystander)).status, 401);
+    });
+
+    it('does not count a successful password change against the limit', async () => {
+        const admin = await makeAdmin(tracker);
+        const { cookie } = await signIn(app, admin.email);
+
+        const res = await request(app)
+            .post('/api/auth/password/change')
+            .set('Cookie', cookie)
+            .send({ currentPassword: TEST_PASSWORD, newPassword: 'nine-copper-lanterns-burn' });
+
+        assert.equal(res.status, 204);
     });
 
     it('answers a limit breach in the same error shape as everything else', async () => {

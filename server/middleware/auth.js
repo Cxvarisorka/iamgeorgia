@@ -43,6 +43,13 @@ export const ownsHotel = (viewer, hotel) =>
  */
 export const canViewNetRates = (viewer, hotel) => isAdmin(viewer) || ownsHotel(viewer, hotel);
 
+/**
+ * The instant a session stops being renewable, no matter how recently it was
+ * used. `touch` slides `expiresAt` forward; this is the wall it slides into.
+ */
+const absoluteDeadline = (session) =>
+    session.createdAt.getTime() + config.auth.sessionAbsoluteTtlMs;
+
 const resolveSession = async (token) => {
     if (!token) {
         return null;
@@ -54,6 +61,13 @@ const resolveSession = async (token) => {
     });
 
     if (!session || session.revokedAt || session.expiresAt <= new Date()) {
+        return null;
+    }
+
+    // A sliding window with no ceiling renews indefinitely. Checked here rather
+    // than left to `expiresAt` alone, because the whole point is that the row's
+    // own expiry has been moved forward past this line.
+    if (absoluteDeadline(session) <= Date.now()) {
         return null;
     }
 
@@ -71,6 +85,10 @@ const resolveSession = async (token) => {
  * Slides the expiry forward once a session is past its halfway point, so an
  * active user is not signed out mid-task, without writing to the row on every
  * single request.
+ *
+ * Never past the absolute deadline: the last renewal before a session's ninety
+ * days are up shortens it to whatever is left rather than granting another
+ * thirty, so the deadline is what actually ends it.
  */
 const touch = async (session) => {
     const remaining = session.expiresAt.getTime() - Date.now();
@@ -79,10 +97,43 @@ const touch = async (session) => {
         return;
     }
 
+    const expiresAt = Math.min(Date.now() + config.auth.sessionTtlMs, absoluteDeadline(session));
+
+    // Already at the ceiling — nothing to extend, and no write worth making.
+    if (expiresAt <= session.expiresAt.getTime()) {
+        return;
+    }
+
     await prisma.session.update({
         where: { id: session.id },
-        data: { expiresAt: new Date(Date.now() + config.auth.sessionTtlMs) }
+        data: { expiresAt: new Date(expiresAt) }
     });
+};
+
+/**
+ * Keeps an authenticated response out of every cache between here and the
+ * browser.
+ *
+ * Express sets no cache headers on `res.json`, which leaves a shared proxy free
+ * to apply its own heuristics to a 200 that happens to describe who is signed
+ * in. Cheap insurance, applied wherever a session was resolved rather than
+ * globally, so the public catalogue stays cacheable.
+ */
+const noStore = (res) => {
+    res.set('Cache-Control', 'no-store');
+    // `res.vary` appends; `res.set('Vary', …)` would overwrite whatever CORS
+    // had already put there.
+    res.vary('Cookie');
+};
+
+/**
+ * The same thing as a middleware, for routes that answer with an identity
+ * without going through `authenticate` — sign-in being the obvious one, which
+ * returns both the session cookie and the user it belongs to.
+ */
+export const noStoreResponses = (req, res, next) => {
+    noStore(res);
+    next();
 };
 
 export const authenticate = async (req, res, next) => {
@@ -94,6 +145,7 @@ export const authenticate = async (req, res, next) => {
 
     req.user = session.user;
     req.session = session;
+    noStore(res);
     await touch(session);
 
     next();
@@ -106,6 +158,7 @@ export const optionalAuthenticate = async (req, res, next) => {
     if (session) {
         req.user = session.user;
         req.session = session;
+        noStore(res);
     }
 
     next();

@@ -65,10 +65,14 @@ describe('authentication', { skip: dbAvailable ? false : 'Postgres is not reacha
         const header = cookie.join(';');
 
         assert.match(header, /HttpOnly/i);
-        assert.match(header, /SameSite=Lax/i);
+        // Strict, not Lax: nothing authenticated here is reached by a top-level
+        // navigation, which is the only thing Lax permits that Strict does not.
+        assert.match(header, /SameSite=Strict/i);
         assert.match(header, /Path=\//i);
-        // Not Secure in test, because the suite is not running over TLS.
-        assert.equal(/Secure/i.test(header), config.isProduction);
+        // Not Secure in test, because the suite is not running over TLS. Keyed
+        // on `isDeployed` rather than `isProduction`, so a staging host — which
+        // is just as interceptable as production — still gets the flag.
+        assert.equal(/Secure/i.test(header), config.isDeployed);
 
         assert.ok(!JSON.stringify(body).includes('token'));
         assert.equal(body.user.passwordHash, undefined);
@@ -195,6 +199,69 @@ describe('session lifetime', { skip: dbAvailable ? false : 'Postgres is not reac
         await prisma.user.update({ where: { id: admin.id }, data: { isActive: false } });
 
         assert.equal((await request(app).get('/api/auth/me').set('Cookie', cookie)).status, 401);
+    });
+
+    /**
+     * The sliding window renews `expiresAt` forever. This is the wall it stops
+     * at — note that the row is deliberately still unexpired by its own column,
+     * so nothing but the absolute deadline can be doing the rejecting.
+     */
+    it('rejects a session past its absolute deadline, however recently it was used', async () => {
+        const admin = await makeAdmin(tracker);
+        const cookie = await sessionFor(admin.id, {
+            createdAt: new Date(Date.now() - config.auth.sessionAbsoluteTtlMs - 1000),
+            expiresAt: new Date(Date.now() + config.auth.sessionTtlMs)
+        });
+
+        assert.equal((await request(app).get('/api/auth/me').set('Cookie', cookie)).status, 401);
+    });
+
+    /** The last renewal before the deadline shortens, rather than overshooting. */
+    it('never slides an expiry past the absolute deadline', async () => {
+        const admin = await makeAdmin(tracker);
+        const createdAt = new Date(Date.now() - config.auth.sessionAbsoluteTtlMs + 60 * 60 * 1000);
+        const cookie = await sessionFor(admin.id, {
+            createdAt,
+            // Inside the half-life, so `touch` will try to extend it.
+            expiresAt: new Date(Date.now() + 60_000)
+        });
+
+        assert.equal((await request(app).get('/api/auth/me').set('Cookie', cookie)).status, 200);
+
+        const [session] = await prisma.session.findMany({
+            where: { userId: admin.id },
+            orderBy: { createdAt: 'desc' },
+            take: 1
+        });
+        const deadline = createdAt.getTime() + config.auth.sessionAbsoluteTtlMs;
+
+        assert.ok(
+            session.expiresAt.getTime() <= deadline,
+            `expiry ${session.expiresAt.toISOString()} overshot the deadline`
+        );
+    });
+
+    /**
+     * Express sets no cache headers on res.json, which leaves a shared proxy
+     * free to apply its own heuristics to a response describing who is signed in.
+     */
+    it('keeps an authenticated response out of caches', async () => {
+        const admin = await makeAdmin(tracker);
+        const { cookie } = await signIn(app, admin.email);
+
+        const res = await request(app).get('/api/auth/me').set('Cookie', cookie);
+
+        assert.equal(res.status, 200);
+        assert.match(res.headers['cache-control'], /no-store/);
+    });
+
+    /** Sign-in answers with the identity too, and never reaches `authenticate`. */
+    it('keeps the sign-in response out of caches', async () => {
+        const admin = await makeAdmin(tracker);
+        const res = await request(app).post('/api/auth/login').send({ email: admin.email, password: TEST_PASSWORD });
+
+        assert.equal(res.status, 200);
+        assert.match(res.headers['cache-control'], /no-store/);
     });
 });
 

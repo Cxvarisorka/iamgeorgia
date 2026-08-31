@@ -140,6 +140,11 @@ partnerRoutes.patch(
 
 partnerRoutes.get(
     '/financial',
+    // Gated on status as well as role, matching the PUT below. Bank details are
+    // not one of the things a suspended or rejected partner still gets to read
+    // — and a guard that is applied to the write but not the read is how the
+    // next one gets forgotten.
+    requireApprovedPartner,
     requireRole('PARTNER_OWNER', 'PARTNER_FINANCE'),
     async (req, res) => {
         const financial = await prisma.partnerFinancialDetail.findUnique({

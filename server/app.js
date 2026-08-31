@@ -12,6 +12,7 @@ import { mediaRoutes } from './routes/media.routes.js';
 import { isLocalDriver } from './services/media/storage.service.js';
 import { notFoundHandler, errorHandler } from './middleware/errors.js';
 import { globalLimiter } from './middleware/rateLimit.js';
+import { verifyRequestOrigin } from './middleware/csrf.js';
 
 /**
  * Builds the Express app without starting a listener, so tests can drive it
@@ -47,6 +48,12 @@ export const createApp = () => {
     );
 
     app.use(globalLimiter);
+
+    // Before body parsing, because a request from the wrong origin is not one
+    // whose payload is worth decoding — and before the routes, so that no
+    // handler has to remember this exists. Reads only headers the browser
+    // controls; see middleware/csrf.js for why absent headers pass.
+    app.use(verifyRequestOrigin);
 
     // Body parsing last: no point decoding a payload for a request that was
     // already rejected by the limiter.

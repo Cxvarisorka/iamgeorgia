@@ -3,8 +3,13 @@ import { Router } from 'express';
 import { config } from '../config.js';
 import { prisma } from '../db/index.js';
 import { validate } from '../middleware/validate.js';
-import { authenticate, optionalAuthenticate } from '../middleware/auth.js';
-import { authLimiter, tokenLookupLimiter } from '../middleware/rateLimit.js';
+import { authenticate, optionalAuthenticate, noStoreResponses } from '../middleware/auth.js';
+import {
+    authLimiter,
+    forgotPasswordLimiter,
+    passwordChangeLimiter,
+    tokenLookupLimiter
+} from '../middleware/rateLimit.js';
 import {
     loginSchema,
     tokenParamSchema,
@@ -29,6 +34,12 @@ import {
 } from '../services/auth.service.js';
 
 export const authRoutes = Router();
+
+// Nothing under /auth is cacheable by anyone. Sign-in answers with the identity
+// as well as the cookie, and the activation and reset lookups describe a named
+// account — none of which belongs in a shared cache between here and the
+// browser. Applied to the router so a new endpoint cannot forget it.
+authRoutes.use(noStoreResponses);
 
 /** The one place the client learns who it is signed in as. */
 const identity = async (user) => ({
@@ -102,7 +113,11 @@ authRoutes.post(
 
 authRoutes.post(
     '/password/forgot',
+    // Two limits, because they bound different things: `tokenLookupLimiter`
+    // caps how fast one client may ask, `forgotPasswordLimiter` caps how often
+    // one mailbox may be sent a link no matter who asks for it.
     tokenLookupLimiter,
+    forgotPasswordLimiter,
     validate({ body: forgotPasswordSchema }),
     async (req, res) => {
         const user = await prisma.user.findUnique({ where: { email: req.valid.body.email } });
@@ -138,7 +153,9 @@ authRoutes.post(
 authRoutes.post(
     '/password/change',
     authenticate,
-    authLimiter,
+    // After `authenticate`, because it counts against the signed-in user rather
+    // than the address they are calling from.
+    passwordChangeLimiter,
     validate({ body: changePasswordSchema }),
     async (req, res) => {
         const token = await changePassword(req.user, req.valid.body, req);

@@ -13,10 +13,17 @@ const LOGIN_FAILED = 'Incorrect email address or password';
 
 const cookieOptions = () => ({
     httpOnly: true,
-    sameSite: 'lax',
-    // localhost:3000 and localhost:5000 are the same site — ports do not enter
-    // into it — so `lax` works in development without falling back to `none`.
-    secure: config.isProduction,
+    // `strict` rather than `lax`, and it costs nothing here. The session cookie
+    // belongs to the API's own host and is only ever attached to XHR from the
+    // client app — there is no flow in which a top-level navigation to the API
+    // needs to be authenticated, which is the only thing `lax` permits that
+    // `strict` does not. If the client could not already reach the API as the
+    // same site, `lax` would be blocking these requests today.
+    sameSite: 'strict',
+    // `isDeployed`, not `isProduction`: staging is reachable from the internet
+    // and its session cookies are just as interceptable, so anything that is
+    // not a developer's machine or the test suite gets `Secure`.
+    secure: config.isDeployed,
     path: '/',
     maxAge: config.auth.sessionTtlMs
 });

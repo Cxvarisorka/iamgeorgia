@@ -21,6 +21,16 @@ const required = ['DATABASE_URL'];
 const requiredInProduction = [
     'AUTH_TOKEN_PEPPER',
     'APP_URL',
+    // The one origin allowlist in the system. Unset, it falls back to
+    // localhost:3000 — which fails closed rather than open, but a deploy whose
+    // CORS layer is pointed at a developer's laptop is a broken deploy, and it
+    // should say so at boot rather than at the first sign-in.
+    'CLIENT_ORIGIN',
+    // No safe default exists. `false` behind a load balancer collapses every
+    // client into one IP and the global limiter throttles the whole site;
+    // `true` in front of one lets a client spoof its own address through
+    // X-Forwarded-For. Only the operator knows which, so they must say.
+    'TRUST_PROXY',
     'SMTP_HOST',
     'SMTP_USER',
     'SMTP_PASS',
@@ -97,6 +107,11 @@ const clientOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:3000';
 export const config = {
     nodeEnv,
     isProduction,
+    // True anywhere reachable from outside — staging and preview included.
+    // Cookie flags key off this rather than `isProduction`, because a session
+    // cookie without `Secure` on a staging host is just as interceptable as
+    // one in production.
+    isDeployed,
     isTest: nodeEnv === 'test',
     port: numberEnv('PORT', 5000),
     clientOrigin,
@@ -117,12 +132,25 @@ export const config = {
     // that exercises fifty fixtures is not an attack.
     globalRateLimit: numberEnv('RATE_LIMIT_GLOBAL', (nodeEnv === 'test' ? 100_000 : 100)),
 
+    // Where the rate limiters keep their counters. Unset, they count in this
+    // process's memory, which is correct for one instance and wrong for two:
+    // a pair behind a load balancer each allow the full limit, and a restart
+    // forgets every counter. Set this once there is more than one instance.
+    redisUrl: process.env.REDIS_URL || null,
+
     auth: {
         cookieName: process.env.AUTH_COOKIE_NAME || 'iag_session',
 
         // Long-lived because the cookie is revocable server-side: a suspension
         // kills the session row, so a generous TTL costs nothing in safety.
         sessionTtlMs: numberEnv('SESSION_TTL_MS', 30 * 24 * 60 * 60 * 1000),
+
+        // The ceiling `sessionTtlMs` slides up to but never past, measured from
+        // when the session was created. Without it the sliding window renews
+        // forever and a session that is used once a fortnight never expires —
+        // which for a panel that approves partners and reads bank details is
+        // not a session, it is a permanent credential.
+        sessionAbsoluteTtlMs: numberEnv('SESSION_ABSOLUTE_TTL_MS', 90 * 24 * 60 * 60 * 1000),
         invitationTtlMs: numberEnv('INVITATION_TTL_MS', 7 * 24 * 60 * 60 * 1000),
         activationTtlMs: numberEnv('ACTIVATION_TTL_MS', 48 * 60 * 60 * 1000),
         passwordResetTtlMs: numberEnv('PASSWORD_RESET_TTL_MS', 60 * 60 * 1000),
@@ -136,7 +164,18 @@ export const config = {
         // counter, and lowered again by the suite that exercises the 429 path.
         loginLimit: numberEnv('AUTH_LOGIN_LIMIT', (nodeEnv === 'test' ? 10_000 : 10)),
         registrationLimit: numberEnv('AUTH_REGISTRATION_LIMIT', (nodeEnv === 'test' ? 10_000 : 5)),
-        tokenLookupLimit: numberEnv('AUTH_TOKEN_LOOKUP_LIMIT', (nodeEnv === 'test' ? 10_000 : 30))
+        tokenLookupLimit: numberEnv('AUTH_TOKEN_LOOKUP_LIMIT', (nodeEnv === 'test' ? 10_000 : 30)),
+
+        // Wrong current-password attempts per 15 minutes, per signed-in user.
+        // Separate from `loginLimit` because the key is different: there is no
+        // email in the body of a password change, so sharing the login limiter
+        // would have counted every user behind one address together.
+        passwordChangeLimit: numberEnv('AUTH_PASSWORD_CHANGE_LIMIT', (nodeEnv === 'test' ? 10_000 : 5)),
+
+        // Reset links per 15 minutes for one address, counted regardless of
+        // where the request came from. The per-IP limiter alone lets a rotating
+        // client mail a victim a link every thirty seconds.
+        forgotPasswordLimit: numberEnv('AUTH_FORGOT_PASSWORD_LIMIT', (nodeEnv === 'test' ? 10_000 : 5))
     },
 
     mail: {

@@ -69,6 +69,34 @@ describe('platform access by status', { skip: dbAvailable ? false : 'Postgres is
         assert.equal((await request(app).get('/api/partner/dashboard').set('Cookie', cookie)).status, 403);
     });
 
+    /**
+     * Every route behind the gate, not just the ones that write. A guard applied
+     * to a PUT but not to the GET beside it reads as a decision when it is
+     * really an oversight, and bank details are the last place to have one.
+     */
+    it('gates the reads behind the platform gate as well as the writes', async () => {
+        for (const status of ['PENDING_APPROVAL', 'REJECTED', 'SUSPENDED']) {
+            const { cookie } = await partnerIn(status);
+
+            for (const path of ['/api/partner/financial', '/api/partner/bookings']) {
+                const res = await request(app).get(path).set('Cookie', cookie);
+
+                assert.equal(res.status, 403, `${status} ${path}`);
+                assert.equal(res.body.error.details.partnerStatus, status, `${status} ${path}`);
+            }
+        }
+    });
+
+    /** The same two routes still answer normally once the partner is approved. */
+    it('opens those reads to an approved partner', async () => {
+        const { cookie } = await partnerIn('APPROVED');
+
+        // 404 rather than 200: this fixture has no bank details on file. What
+        // matters is that it is no longer the gate answering.
+        assert.equal((await request(app).get('/api/partner/financial').set('Cookie', cookie)).status, 404);
+        assert.equal((await request(app).get('/api/partner/bookings').set('Cookie', cookie)).status, 200);
+    });
+
     it('gives a partner still registering no platform access', async () => {
         const { cookie } = await partnerIn('REGISTRATION_IN_PROGRESS');
 

@@ -2,6 +2,7 @@ import { createApp } from './app.js';
 import { config } from './config.js';
 import { logger } from './lib/logger.js';
 import { connect, disconnect } from './db/index.js';
+import { disconnectRateLimitStore } from './middleware/rateLimit.js';
 import { auditSweep, sweepExpiredHolds } from './services/hotel/availability.service.js';
 
 const start = async () => {
@@ -68,6 +69,7 @@ const start = async () => {
             await closed;
             clearTimeout(closeRemaining);
             await disconnect();
+            await disconnectRateLimitStore();
             logger.info('Shutdown complete');
             process.exit(exitCode);
         } catch (err) {

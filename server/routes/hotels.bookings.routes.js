@@ -1,6 +1,11 @@
 import { Router } from 'express';
 
-import { authenticate, optionalAuthenticate, requireAdmin } from '../middleware/auth.js';
+import {
+    authenticate,
+    optionalAuthenticate,
+    requireAdmin,
+    requireApprovedPartner
+} from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import {
     amendBookingSchema,
@@ -144,7 +149,11 @@ bookingRoutes.post(
  */
 export const partnerBookingRoutes = Router();
 
-partnerBookingRoutes.use(authenticate);
+// Status as well as identity: a suspended partner keeps its records, but the
+// portal behind this gate is not readable while the suspension stands.
+// `requireApprovedPartner` lets admins straight through, so the admin-scoped
+// listing below still works.
+partnerBookingRoutes.use(authenticate, requireApprovedPartner);
 
 partnerBookingRoutes.get('/', validate({ query: bookingQuerySchema }), async (req, res) => {
     const { bookings, ...page } = await listBookings(req.valid.query, req.user);
