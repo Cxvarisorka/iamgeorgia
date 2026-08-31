@@ -7,6 +7,7 @@ import type {
   Destination,
   DestinationNode,
   DestinationSummary,
+  DestinationType,
   Hotel,
   HotelMealPlan,
   HotelStatus,
@@ -87,10 +88,26 @@ export const listTaxFees = (hotelId: string) =>
 export const listAmenities = (query: Record<string, QueryValue> = {}) =>
   serverFetch<{ data: CatalogueAmenity[] }>(`/api/admin/amenities${toQueryString(query)}`);
 
-export const listDestinations = (query: Record<string, QueryValue> = {}) =>
+export interface DestinationQuery {
+  search?: string;
+  type?: DestinationType;
+  parentId?: string;
+  countryCode?: string;
+  featured?: boolean;
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * A page of destinations, ordered by `path` — which is tree order, so a parent
+ * always sorts immediately above its children and a flat list still reads as a
+ * hierarchy. Each row carries the hotels and children hanging off it.
+ */
+export const listDestinations = (query: DestinationQuery = {}) =>
   serverFetch<Paginated<DestinationSummary>>(`/api/admin/destinations${toQueryString(query)}`);
 
-export const getDestinationTree = (query: Record<string, QueryValue> = {}) =>
+/** The shape of the tree rather than a page of it — what a parent picker needs. */
+export const getDestinationTree = (query: Omit<DestinationQuery, "page" | "pageSize"> = {}) =>
   serverFetch<{ data: DestinationNode[] }>(`/api/admin/destinations/tree${toQueryString(query)}`);
 
 export const getDestination = (id: string) =>
@@ -294,12 +311,62 @@ export const deleteTaxFee = (hotelId: string, taxFeeId: string) =>
 
 // --- destinations and amenities --------------------------------------------
 
-export const createDestination = (body: Record<string, unknown>) =>
+/**
+ * What the create endpoint accepts, spelled as the server's schema spells it.
+ *
+ * Three things the schema enforces that the types cannot:
+ *
+ *   * It is **strict** — an unknown key is a 400, not a field quietly dropped.
+ *   * `latitude` and `longitude` are a pair or neither.
+ *   * `parentId: null` means "make this a root" and is different from omitting
+ *     it, which is why it is nullable rather than optional.
+ *
+ * `path` is absent on purpose: it is derived from the parent chain and rewritten
+ * for every descendant when a destination moves. Sending one would let the panel
+ * break prefix search for a whole country.
+ */
+export interface DestinationInput {
+  slug: string;
+  name: string;
+  type: DestinationType;
+  parentId?: string | null;
+  /** Inherited from the parent when omitted, so only a root really needs it. */
+  countryCode?: string;
+  timezone?: string;
+  latitude?: number;
+  longitude?: number;
+  tagline?: string | null;
+  summary?: string | null;
+  description?: string[];
+  heroImage?: string | null;
+  coverImage?: string | null;
+  gallery?: { src: string; alt: string }[];
+  idealFor?: string[];
+  attractions?: { name: string; description: string }[];
+  travelInfo?: Record<string, string> | null;
+  featured?: boolean;
+}
+
+export const createDestination = (body: DestinationInput) =>
   apiFetch<Destination>("/api/admin/destinations", { method: "POST", body });
 
-export const updateDestination = (id: string, body: Record<string, unknown>) =>
+/**
+ * A partial update: an omitted key leaves the stored value alone, so a form
+ * that edits half the record cannot blank the other half. Clearing an editorial
+ * field therefore means sending an explicit `null`, not an empty string — the
+ * server's text fields reject `""`.
+ */
+export const updateDestination = (id: string, body: Partial<DestinationInput>) =>
   apiFetch<Destination>(`/api/admin/destinations/${id}`, { method: "PATCH", body });
 
+/**
+ * A real delete, unlike the transfer catalogue's retire-in-place.
+ *
+ * Nothing about a destination is historical — bookings reference hotels, not
+ * the geography above them — so the row can go. The server refuses with a 409
+ * naming what is still attached when hotels, children, tours or experiences
+ * hold it, which is the message the panel shows.
+ */
 export const deleteDestination = (id: string) =>
   apiFetch<void>(`/api/admin/destinations/${id}`, { method: "DELETE" });
 

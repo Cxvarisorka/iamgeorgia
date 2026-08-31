@@ -18,6 +18,7 @@ Everything changed on the front end, why it changed, and what is still outstandi
 6. [Outstanding work](#6-outstanding-work)
 7. [File reference](#7-file-reference)
 8. [Error handling](#8-error-handling)
+9. [Admin navigation](#9-admin-navigation)
 
 ---
 
@@ -507,6 +508,49 @@ The new boundaries use Next 16.3's `retry` prop rather than `reset`: the failing
 ### What is guarded, and what is not
 
 Primary content is left to the boundary — a hotel list, a bookings register or an admin table that cannot load *is* the failure, and a page pretending otherwise is worse. Decoration is guarded: the panel's sidebar counts render as zeros, the hotel page drops its "more properties" rail, and the partner dashboard says its recent-bookings list is unavailable while still showing the figures above it. `useViewer` no longer treats a failed `/api/auth/me` probe as "signed out" — only a 401/403 does; anything else leaves the answer unknown and is retried on the next mount.
+
+---
+
+## 9. Admin navigation
+
+The sidebar had gone flat and lopsided. Inventory listed seven destinations, four of which were transfers — routes, fleet, pick-up points, extras — so the vertical that happened to own the most screens visually outweighed hotels, destinations and tours put together. It was also the reason `/admin/transfers/bookings` had no entry at all: there was nowhere left to put it.
+
+### Three levels, each earning its place
+
+`lib/admin/navigation.ts` now describes **groups** (Operations, Inventory, Network), **sections** (a vertical with several screens) and **items** (the screens). `AdminNavEntry` is a union of item and section, narrowed by `isAdminNavSection`, so a group can hold either and the sidebar renders whichever it finds.
+
+A vertical stays flat until it has more than one catalogue screen. Hotels, destinations and tours each have exactly one way in, and a disclosure wrapping a single link is a control that hides one thing. Only Transfers is a section today.
+
+| Group | Contents |
+| --- | --- |
+| Operations | Overview · Hotel bookings · Transfer bookings |
+| Inventory | Destinations · Hotels · **Transfers** (Routes, Fleet, Pick-up points, Extras) · Tours |
+| Network | Partners · Applications |
+
+### The active-state trap
+
+The old file carried a comment explaining why Transfers could not be a parent: `isAdminPathActive` matches on a path prefix, so an entry at `/admin/transfers` stayed lit while a child screen was open and two rows looked selected. That constraint is gone, not worked around — `isAdminSectionActive` asks whether **any child** is active rather than testing the shared prefix.
+
+That distinction is now load-bearing. Transfer bookings sits at `/admin/transfers/bookings`, under the same prefix, but it is an Operations screen and belongs to no catalogue section. A prefix test would light up Inventory → Transfers every time an operator opened a transfer booking. The child test does not.
+
+The section header is a `button`, not a link — `/admin/transfers` only redirects, and a disclosure that is also a link is a control whose click does two different things depending on where it lands. The redirect stays as a bookmark catcher.
+
+### Two registers, both named
+
+Adding Transfer bookings meant "Bookings" stopped being unambiguous, so it is now **Hotel bookings**. A `TRF-` reference is not a `BKG-` one — the two registers share no identifier space and were never going to merge.
+
+### Behaviour
+
+- **Expanded by default.** The panel is worked by keyboard all day; hiding four screens behind a click to save four lines is a bad trade. The collapse is for an operator who never touches transfers.
+- **A collapsed section opens itself** when the route moves inside it, so the sidebar can never hide the screen you are looking at. Done by adjusting state during render, not in an effect — it has to be true on the first paint after the navigation, not one frame later.
+- **Collapse survives navigation.** `AdminShell` is a persistent client layout, so `AdminSidebar` is not remounted between panel screens. No storage, no hydration mismatch.
+- **Badges roll up.** A collapsed section shows the sum of its children's queue counts, or collapsing would be a way to lose work. Nothing under Transfers is badged yet; the mechanism is there so the first one that is cannot go unnoticed.
+
+### RTL and a11y
+
+The disclosure chevron uses `rotate-180` rather than a left/right glyph — a rotation, not a direction, so it must not flip in Hebrew. The child run is indented with `ms-[1.3125rem]` against a `border-s` rail aligned to the parent's icon; both move to the right in Hebrew with everything else.
+
+Each group's `<ul>` is now `aria-labelledby` its heading, the section button carries `aria-expanded` and `aria-controls`, and `aria-current="page"` stays on the leaf link — never on the section, which is not a destination.
 
 ---
 

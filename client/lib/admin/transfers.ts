@@ -182,36 +182,14 @@ export const extraBasisOptions = (Object.keys(extraBasisLabels) as TransferExtra
 );
 
 /**
- * The time zones a Georgian pick-up point can plausibly sit in.
+ * Both now live in `lib/admin/geography.ts`.
  *
- * A short list rather than the full IANA database: every point in the
- * catalogue is in Asia/Tbilisi, and the neighbours are here so a cross-border
- * transfer has somewhere to go. The field accepts anything the server's
- * `timezoneField` accepts — this is the shortcut, not the limit.
+ * The destination screens ask for the same slug rule and the same short
+ * time-zone list, and a second copy is how two forms end up normalising a
+ * slug differently. Re-exported from here so every transfer component that
+ * already imports them keeps working.
  */
-export const timezoneOptions = [
-  "Asia/Tbilisi",
-  "Asia/Yerevan",
-  "Asia/Baku",
-  "Europe/Istanbul",
-  "Europe/Moscow",
-];
-
-/**
- * A name to a URL segment.
- *
- * Strips diacritics before the character filter so "Sadgeri" survives and
- * "Sadgéri" does not become "sadg-ri". Georgian and Cyrillic names normalise
- * to nothing, which is correct: a slug is an ASCII URL segment, and a point
- * named only in Georgian needs one typed by hand.
- */
-export const slugify = (value: string) =>
-  value
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+export { slugify, timezoneOptions } from "./geography";
 
 /** Minutes to the `2h 45m` the panel writes journey times in. */
 export const formatDuration = (minutes: number) =>

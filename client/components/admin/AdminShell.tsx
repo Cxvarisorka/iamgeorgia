@@ -9,10 +9,11 @@ import { signOut } from "@/lib/api/partners";
 import { forgetViewer } from "@/lib/auth/useViewer";
 import { useLocalePath } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
+import type { AdminBadges } from "@/lib/admin/navigation";
 import type { SessionUser } from "@/types/auth";
 
 interface AdminShellProps {
-  badges: { pendingBookings: number; pendingPartners: number };
+  badges: AdminBadges;
   user: SessionUser;
   children: React.ReactNode;
 }

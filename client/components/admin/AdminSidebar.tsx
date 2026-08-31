@@ -2,20 +2,237 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowUpRight, X } from "lucide-react";
+import { ArrowUpRight, ChevronDown, X } from "lucide-react";
+import { useId, useState } from "react";
 
 import { Logo } from "@/components/layout/Logo";
 import { stripLocale } from "@/lib/i18n/config";
 import { useLocalePath } from "@/lib/i18n/provider";
-import { adminNavigation, isAdminPathActive } from "@/lib/admin/navigation";
+import {
+  adminNavigation,
+  adminSectionBadgeCount,
+  isAdminNavSection,
+  isAdminPathActive,
+  isAdminSectionActive,
+  type AdminBadges,
+  type AdminNavEntry,
+  type AdminNavItem,
+  type AdminNavSection,
+} from "@/lib/admin/navigation";
 import { cn } from "@/lib/utils";
 
 interface AdminSidebarProps {
   /** Counts for the queue pills, resolved by the shell. */
-  badges: { pendingBookings: number; pendingPartners: number };
+  badges: AdminBadges;
   /** Mobile drawer state. On `lg` the sidebar is always shown. */
   open: boolean;
   onClose: () => void;
+}
+
+/** A queue count. Never the only signal — the number is read out too. */
+function NavBadge({ count }: { count: number }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5",
+        "bg-brand text-[0.6875rem] font-semibold text-white tabular-nums",
+      )}
+    >
+      {count}
+      <span className="sr-only"> awaiting review</span>
+    </span>
+  );
+}
+
+/**
+ * One destination. `nested` only changes the weight — a sub-item is quieter
+ * and slightly smaller than a top-level one, but it is the same control.
+ */
+function NavLink({
+  item,
+  active,
+  count,
+  nested,
+  onNavigate,
+}: {
+  item: AdminNavItem;
+  active: boolean;
+  count: number;
+  nested?: boolean;
+  onNavigate: () => void;
+}) {
+  const path = useLocalePath();
+
+  return (
+    <Link
+      href={path(item.href)}
+      onClick={onNavigate}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex items-center rounded-sm transition-colors",
+        nested
+          ? "gap-2.5 px-2.5 py-2 text-[0.8125rem]"
+          : "gap-3 px-3 py-2.5 text-sm font-medium",
+        active
+          ? "bg-on-dark/12 text-on-dark"
+          : "text-on-dark/65 hover:bg-on-dark/6 hover:text-on-dark",
+      )}
+    >
+      <item.icon
+        size={nested ? 15 : 17}
+        className={cn("shrink-0", active ? "text-brand" : "text-on-dark/45")}
+        aria-hidden
+      />
+      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      {count > 0 && <NavBadge count={count} />}
+    </Link>
+  );
+}
+
+/**
+ * A vertical that owns several screens, rendered as a disclosure.
+ *
+ * Expanded by default: this panel is worked by keyboard all day, and hiding
+ * four screens behind a click to save four lines would be a bad trade. The
+ * collapse is there for an operator who never touches transfers, and it
+ * survives navigation because the shell holding this sidebar is not remounted
+ * between panel screens.
+ */
+function NavSection({
+  section,
+  canonical,
+  badges,
+  onNavigate,
+}: {
+  section: AdminNavSection;
+  canonical: string;
+  badges: AdminBadges;
+  onNavigate: () => void;
+}) {
+  const panelId = useId();
+  const active = isAdminSectionActive(canonical, section);
+
+  const [collapsed, setCollapsed] = useState(false);
+  const [wasActive, setWasActive] = useState(active);
+
+  // Walking into a collapsed section opens it, so the sidebar can never be in
+  // the state of hiding the screen the operator is looking at. Adjusted during
+  // render rather than in an effect: it has to be true on the first paint
+  // after the navigation, not one frame later.
+  if (active !== wasActive) {
+    setWasActive(active);
+    if (active) setCollapsed(false);
+  }
+
+  // What folding the section away is hiding. A queue that needs attention has
+  // to announce itself from a collapsed row, or the collapse becomes a way to
+  // lose work.
+  const hiddenCount = collapsed ? adminSectionBadgeCount(section, badges) : 0;
+
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => setCollapsed((value) => !value)}
+        aria-expanded={!collapsed}
+        aria-controls={panelId}
+        className={cn(
+          "flex w-full items-center gap-3 rounded-sm px-3 py-2.5 text-sm font-medium transition-colors",
+          active ? "text-on-dark" : "text-on-dark/65 hover:bg-on-dark/6 hover:text-on-dark",
+        )}
+      >
+        <section.icon
+          size={17}
+          className={cn("shrink-0", active ? "text-brand" : "text-on-dark/45")}
+          aria-hidden
+        />
+        <span className="min-w-0 flex-1 truncate text-start">{section.label}</span>
+        {hiddenCount > 0 && <NavBadge count={hiddenCount} />}
+        {/* Rotation, not a direction — this one must not flip in Hebrew. */}
+        <ChevronDown
+          size={14}
+          className={cn(
+            "shrink-0 text-on-dark/40 transition-transform duration-200",
+            !collapsed && "rotate-180",
+          )}
+          aria-hidden
+        />
+      </button>
+
+      {/*
+        Indented against a rail aligned with the parent's icon, so the run
+        reads as belonging to it. Logical inset — in Hebrew the rail and the
+        indent move to the right along with everything else.
+      */}
+      <ul
+        id={panelId}
+        hidden={collapsed}
+        className="mt-0.5 ms-[1.3125rem] space-y-0.5 border-s border-on-dark/12 ps-2"
+      >
+        {section.items.map((item) => (
+          <li key={item.href}>
+            <NavLink
+              item={item}
+              nested
+              active={isAdminPathActive(canonical, item.href)}
+              count={item.badgeKey ? badges[item.badgeKey] : 0}
+              onNavigate={onNavigate}
+            />
+          </li>
+        ))}
+      </ul>
+    </li>
+  );
+}
+
+/** One titled group, its heading naming the list beneath it. */
+function NavGroup({
+  title,
+  entries,
+  canonical,
+  badges,
+  onNavigate,
+}: {
+  title: string;
+  entries: AdminNavEntry[];
+  canonical: string;
+  badges: AdminBadges;
+  onNavigate: () => void;
+}) {
+  const headingId = useId();
+
+  return (
+    <div className="mb-6 last:mb-0">
+      <h2
+        id={headingId}
+        className="px-3 pb-2 text-[0.6875rem] font-semibold tracking-[0.16em] text-on-dark/40 uppercase"
+      >
+        {title}
+      </h2>
+      <ul aria-labelledby={headingId} className="space-y-0.5">
+        {entries.map((entry) =>
+          isAdminNavSection(entry) ? (
+            <NavSection
+              key={entry.label}
+              section={entry}
+              canonical={canonical}
+              badges={badges}
+              onNavigate={onNavigate}
+            />
+          ) : (
+            <li key={entry.href}>
+              <NavLink
+                item={entry}
+                active={isAdminPathActive(canonical, entry.href)}
+                count={entry.badgeKey ? badges[entry.badgeKey] : 0}
+                onNavigate={onNavigate}
+              />
+            </li>
+          ),
+        )}
+      </ul>
+    </div>
+  );
 }
 
 /**
@@ -23,9 +240,9 @@ interface AdminSidebarProps {
  *
  * Charcoal rather than white: it borrows the footer and mobile-menu treatment
  * from the public site, which anchors the layout and leaves the working area
- * as the only bright surface on screen. Counts sit on the two destinations
- * that can hold a queue, so an operator knows where the work is before
- * clicking anything.
+ * as the only bright surface on screen. Counts sit on the destinations that
+ * can hold a queue, so an operator knows where the work is before clicking
+ * anything.
  */
 export function AdminSidebar({ badges, open, onClose }: AdminSidebarProps) {
   const pathname = usePathname();
@@ -79,52 +296,14 @@ export function AdminSidebar({ badges, open, onClose }: AdminSidebarProps) {
 
         <nav aria-label="Admin sections" className="flex-1 overflow-y-auto px-3 py-5">
           {adminNavigation.map((group) => (
-            <div key={group.title} className="mb-6 last:mb-0">
-              <h2 className="px-3 pb-2 text-[0.6875rem] font-semibold tracking-[0.16em] text-on-dark/40 uppercase">
-                {group.title}
-              </h2>
-              <ul className="space-y-0.5">
-                {group.items.map((item) => {
-                  const active = isAdminPathActive(canonical, item.href);
-                  const count = item.badgeKey ? badges[item.badgeKey] : 0;
-
-                  return (
-                    <li key={item.href}>
-                      <Link
-                        href={path(item.href)}
-                        onClick={onClose}
-                        aria-current={active ? "page" : undefined}
-                        className={cn(
-                          "flex items-center gap-3 rounded-sm px-3 py-2.5 text-sm font-medium transition-colors",
-                          active
-                            ? "bg-on-dark/12 text-on-dark"
-                            : "text-on-dark/65 hover:bg-on-dark/6 hover:text-on-dark",
-                        )}
-                      >
-                        <item.icon
-                          size={17}
-                          className={cn("shrink-0", active ? "text-brand" : "text-on-dark/45")}
-                          aria-hidden
-                        />
-                        <span className="min-w-0 flex-1 truncate">{item.label}</span>
-
-                        {count > 0 && (
-                          <span
-                            className={cn(
-                              "inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5",
-                              "bg-brand text-[0.6875rem] font-semibold text-white tabular-nums",
-                            )}
-                          >
-                            {count}
-                            <span className="sr-only"> awaiting review</span>
-                          </span>
-                        )}
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
+            <NavGroup
+              key={group.title}
+              title={group.title}
+              entries={group.entries}
+              canonical={canonical}
+              badges={badges}
+              onNavigate={onClose}
+            />
           ))}
         </nav>
 
