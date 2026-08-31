@@ -148,6 +148,9 @@ media to a scratch directory so no test needs credentials or a network.
 
 | Document | What it covers |
 | --- | --- |
+| [docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md) | Running the whole platform locally, step by step, with troubleshooting |
+| [docs/API_TESTING_GUIDE.md](docs/API_TESTING_GUIDE.md) | Every endpoint with its exact expected result — written for testers |
+| [docs/postman/](docs/postman/) | Importable Postman collection, ~80 requests, each asserting its documented result |
 | [server/README.md](server/README.md) | Backend stack, layout, data model and every design decision behind it |
 | [server/API.md](server/API.md) | Every endpoint under `/api` — what to call, what comes back, who may see what |
 | [client/FRONTEND.md](client/FRONTEND.md) | Colour system, accessibility audit, i18n, and the front-end work log |

@@ -1,0 +1,3128 @@
+{
+  "info": {
+    "_postman_id": "8f3c1d90-6b2e-4a71-9c55-1e0d7a4b2f10",
+    "name": "I am Georgia — API",
+    "description": "Complete tester collection for the I am Georgia booking platform API.\n\n## Before you run anything\n\n1. The API must be running on `{{baseUrl}}` — see `docs/LOCAL_SETUP.md`.\n2. The catalogue must be seeded, or search returns nothing:\n   - `node scripts/seed-reference.js`\n   - `node scripts/seed-catalogue.js`\n   - `node scripts/seed-transfers.js`\n3. Set `adminEmail` and `adminPassword` in the environment to the account you created with `node scripts/create-admin.js`.\n4. Optionally set `partnerEmail` / `partnerPassword` for the partner-portal folder.\n\n## How this collection works\n\n- **Authentication is a cookie**, not a bearer token. Postman's cookie jar stores `iag_session` automatically after a login request — there is nothing to configure and no `Authorization` header anywhere.\n- **Dates are generated fresh on every request** by the collection pre-request script, so the collection never goes stale.\n- **Tokens chain automatically.** Search stores an offer token, the hold stores a hold token, the booking stores a reference. Run folders top to bottom.\n- **Every request asserts its expected result.** Green means the API behaved as documented in `docs/API_TESTING_GUIDE.md`.\n\n## Running the whole thing\n\nUse Collection Runner, folders in order, with **1 iteration** and a small delay (100 ms) so the rate limiters are not tripped. Folder `07` deliberately provokes errors — that is what it is for.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Dates are generated on every request so the collection never goes stale.",
+          "// Stay dates are calendar strings (YYYY-MM-DD); check-out is exclusive.",
+          "const DAY = 24 * 60 * 60 * 1000;",
+          "const iso = (ms) => new Date(ms).toISOString().slice(0, 10);",
+          "const now = Date.now();",
+          "",
+          "pm.collectionVariables.set('today', iso(now));",
+          "pm.collectionVariables.set('yesterday', iso(now - DAY));",
+          "",
+          "// A three-night stay four months out: comfortably inside the 540-day",
+          "// booking horizon and inside the seeded 400 days of rates.",
+          "pm.collectionVariables.set('checkIn', iso(now + 120 * DAY));",
+          "pm.collectionVariables.set('checkOut', iso(now + 123 * DAY));",
+          "",
+          "// Deliberately invalid: check-out before check-in.",
+          "pm.collectionVariables.set('badCheckOut', iso(now + 117 * DAY));",
+          "",
+          "// Transfers.",
+          "pm.collectionVariables.set('transferDate', iso(now + 90 * DAY));",
+          "pm.collectionVariables.set('transferReturnDate', iso(now + 94 * DAY));",
+          "pm.collectionVariables.set('beyondHorizonDate', iso(now + 900 * DAY));"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Applies to every request in the collection.",
+          "",
+          "pm.test('Responds in under 3 seconds', () => {",
+          "    pm.expect(pm.response.responseTime).to.be.below(3000);",
+          "});",
+          "",
+          "pm.test('Never leaks the server technology', () => {",
+          "    pm.expect(pm.response.headers.has('X-Powered-By')).to.equal(false);",
+          "});",
+          "",
+          "// Every error in this API uses one envelope: { error: { message, details? } }.",
+          "// A bare string or a plain-text body is a bug.",
+          "if (pm.response.code >= 400) {",
+          "    pm.test('Error uses the { error: { message } } envelope', () => {",
+          "        const body = pm.response.json();",
+          "        pm.expect(body).to.have.property('error');",
+          "        pm.expect(body.error).to.have.property('message').that.is.a('string');",
+          "    });",
+          "}",
+          "",
+          "pm.test('Never a 500', () => {",
+          "    pm.expect(pm.response.code, 'a 500 is always a bug — capture the server log').to.be.below(500);",
+          "});"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000", "type": "string" },
+    { "key": "adminEmail", "value": "", "type": "string" },
+    { "key": "adminPassword", "value": "", "type": "string" },
+    { "key": "partnerEmail", "value": "", "type": "string" },
+    { "key": "partnerPassword", "value": "", "type": "string" },
+    { "key": "guestEmail", "value": "nino.tester@example.com", "type": "string" },
+    { "key": "destinationSlug", "value": "gudauri", "type": "string" },
+    { "key": "hotelSlug", "value": "gudauri-alpine-hotel", "type": "string" },
+    { "key": "transferFrom", "value": "tbilisi-airport", "type": "string" },
+    { "key": "transferTo", "value": "gudauri", "type": "string" },
+    { "key": "locale", "value": "en", "type": "string" },
+    { "key": "today", "value": "", "type": "string" },
+    { "key": "yesterday", "value": "", "type": "string" },
+    { "key": "checkIn", "value": "", "type": "string" },
+    { "key": "checkOut", "value": "", "type": "string" },
+    { "key": "badCheckOut", "value": "", "type": "string" },
+    { "key": "transferDate", "value": "", "type": "string" },
+    { "key": "transferReturnDate", "value": "", "type": "string" },
+    { "key": "beyondHorizonDate", "value": "", "type": "string" },
+    { "key": "offerToken", "value": "", "type": "string" },
+    { "key": "holdToken", "value": "", "type": "string" },
+    { "key": "bookingReference", "value": "", "type": "string" },
+    { "key": "bookingIdempotencyKey", "value": "", "type": "string" },
+    { "key": "quoteToken", "value": "", "type": "string" },
+    { "key": "transferReference", "value": "", "type": "string" },
+    { "key": "transferIdempotencyKey", "value": "", "type": "string" },
+    { "key": "partnerId", "value": "", "type": "string" },
+    { "key": "hotelId", "value": "", "type": "string" },
+    { "key": "hugePayload", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "00 · Health",
+      "description": "Two checks with different jobs. `/health` says the process is alive and deliberately does not touch the database. `/health/db` says the API can actually serve requests. Both are exempt from the global rate limit.",
+      "item": [
+        {
+          "name": "Liveness — GET /health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] },
+            "description": "**Expected: 200**\n\n```json\n{ \"status\": \"ok\", \"uptime\": 128.44 }\n```\n\nDoes not query the database, so it stays green even while Postgres is restarting."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test('Reports ok with an uptime', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.status).to.equal('ok');",
+                  "    pm.expect(body.uptime).to.be.a('number').and.to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Readiness — GET /health/db",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/health/db", "host": ["{{baseUrl}}"], "path": ["health", "db"] },
+            "description": "**Expected: 200**\n\n```json\n{ \"status\": \"ok\", \"now\": \"2026-08-30T09:12:44.180Z\" }\n```\n\n**Expected: 503** when Postgres is unreachable:\n\n```json\n{ \"status\": \"error\", \"message\": \"Database unavailable\" }\n```\n\nNote it reports the failure as a *response* rather than throwing, so it never reaches the generic error handler. If this is 503, nothing else in this collection will work — start the database first."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 — the database is reachable', () => {",
+                  "    pm.expect(pm.response.code, 'a 503 here means Postgres is down: run npm run db:up').to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Returns the database time', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.status).to.equal('ok');",
+                  "    pm.expect(body.now).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 · Auth",
+      "description": "Session handling. Signing in sets an `httpOnly` cookie named `iag_session`; there is no bearer token anywhere in this API.\n\nEvery response under `/api/auth` must carry `Cache-Control: no-store` — an authenticated response sitting in a shared cache is a real security bug, so it is asserted here.\n\n**Order matters:** the failure cases run before the successful login, because the login limiter uses `skipSuccessfulRequests` and only counts failures.",
+      "item": [
+        {
+          "name": "Login — wrong password (401)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{adminEmail}}\",\n    \"password\": \"definitely-not-the-password\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] },
+            "description": "**Expected: 401** — *\"Incorrect email address or password\"*\n\nNo session cookie is set. The message must be identical to the unknown-email case below: different wording would let someone enumerate which addresses have accounts."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 401', () => pm.response.to.have.status(401));",
+                  "",
+                  "pm.test('No session cookie was issued', () => {",
+                  "    pm.expect(pm.response.headers.has('Set-Cookie')).to.equal(false);",
+                  "});",
+                  "",
+                  "// Stored so the next request can prove the two messages are identical.",
+                  "pm.collectionVariables.set('wrongPasswordMessage', pm.response.json().error.message);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login — unknown email (401, same message)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"nobody-has-this-address@example.com\",\n    \"password\": \"definitely-not-the-password\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] },
+            "description": "**Expected: 401**, with the *exact same message* as a wrong password.\n\nAn address that has no account must be indistinguishable from one that does. A different status, a different message or a noticeably different response time here is an account-enumeration bug."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 401', () => pm.response.to.have.status(401));",
+                  "",
+                  "pm.test('Message is identical to a wrong password — no account enumeration', () => {",
+                  "    pm.expect(pm.response.json().error.message)",
+                  "        .to.equal(pm.collectionVariables.get('wrongPasswordMessage'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login — missing password (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"email\": \"{{adminEmail}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] },
+            "description": "**Expected: 400** with a zod issue array in `details`:\n\n```json\n{ \"error\": { \"message\": \"Invalid request body\",\n  \"details\": [{ \"code\": \"invalid_type\", \"path\": [\"password\"], \"message\": \"Required\" }] } }\n```\n\nValidation failure, not an authentication failure — the difference matters, because a 401 here would imply the request was well-formed."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));",
+                  "",
+                  "pm.test('details is a zod issue array naming the field', () => {",
+                  "    const details = pm.response.json().error.details;",
+                  "    pm.expect(details).to.be.an('array').that.is.not.empty;",
+                  "    pm.expect(details[0]).to.have.property('path');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login — admin (200)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{adminEmail}}\",\n    \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] },
+            "description": "**Expected: 200**, plus `Set-Cookie: iag_session=…; HttpOnly`\n\n```json\n{\n  \"user\": { \"id\": \"clx…\", \"email\": \"you@example.com\",\n             \"firstName\": \"Your\", \"lastName\": \"Name\",\n             \"role\": \"SUPER_ADMIN\", \"isActive\": true },\n  \"partner\": null\n}\n```\n\n`partner` is `null` for staff and the full partner record for a partner user.\n\n**The `HttpOnly` flag is asserted.** Without it, page JavaScript could read the session — report immediately."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => {",
+                  "    pm.expect(pm.response.code, 'check adminEmail / adminPassword in the environment').to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Returns the identity', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body).to.have.property('user');",
+                  "    pm.expect(body).to.have.property('partner');",
+                  "    pm.expect(body.user.email).to.be.a('string');",
+                  "    pm.expect(body.user.isActive).to.equal(true);",
+                  "});",
+                  "",
+                  "pm.test('Caller is an administrator', () => {",
+                  "    pm.expect(['SUPER_ADMIN', 'ADMIN']).to.include(pm.response.json().user.role);",
+                  "});",
+                  "",
+                  "pm.test('Session cookie is HttpOnly', () => {",
+                  "    const raw = pm.response.headers.get('Set-Cookie') || '';",
+                  "    pm.expect(raw.toLowerCase(), 'a session readable by JavaScript is a security bug').to.include('httponly');",
+                  "});",
+                  "",
+                  "pm.test('Response is not cacheable', () => {",
+                  "    pm.expect((pm.response.headers.get('Cache-Control') || '')).to.include('no-store');",
+                  "});",
+                  "",
+                  "pm.test('Password never appears in the response', () => {",
+                  "    pm.expect(pm.response.text().toLowerCase()).to.not.include('passwordhash');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Who am I — GET /api/auth/me (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "auth", "me"] },
+            "description": "**Expected: 200** — the same `{ user, partner }` shape as login.\n\nWithout a cookie: **401**.\n\nUse this as your \"am I still signed in?\" probe throughout a run."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test('Same identity shape as login', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body).to.have.property('user');",
+                  "    pm.expect(body).to.have.property('partner');",
+                  "});",
+                  "",
+                  "pm.test('Vary includes Cookie', () => {",
+                  "    pm.expect((pm.response.headers.get('Vary') || '')).to.include('Cookie');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Forgot password (204, always)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"email\": \"nobody-has-this-address@example.com\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/password/forgot",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "password", "forgot"]
+            },
+            "description": "**Expected: 204 with no body — always.**\n\nWhether or not the address has an account, whether or not that account is active. Any other behaviour would turn this endpoint into an account-enumeration oracle. It even does the same work either way, so the timing does not give it away.\n\n**To verify a real address actually produced a link:** look in the server terminal. `MAIL_TRANSPORT=log` prints the whole email, link included.\n\nSixth request for one address inside 15 minutes → **429**."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 204 even for an unknown address', () => pm.response.to.have.status(204));",
+                  "",
+                  "pm.test('Body is empty — nothing is revealed', () => {",
+                  "    pm.expect(pm.response.text()).to.equal('');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout (204)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/auth/logout", "host": ["{{baseUrl}}"], "path": ["api", "auth", "logout"] },
+            "description": "**Expected: 204**, plus a `Set-Cookie` that clears the session.\n\nCalling it **without** a session is also 204 — logging out of nothing has succeeded by any definition the caller cares about. That is not a bug."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Who am I, signed out (401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "auth", "me"] },
+            "description": "**Expected: 401** — *\"Authentication required\"*\n\nProves the logout above actually revoked the session server-side, rather than only clearing the cookie in the browser."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 401 — the session really was revoked', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 · Public catalogue",
+      "description": "No authentication. This is the data the marketing pages render — it answers \"what exists\", never \"what can I book on these dates\". That is folder 03.\n\n**Only `ACTIVE` hotels are ever returned**, whatever the query string says. There is no combination of parameters that reaches a `DRAFT`.",
+      "item": [
+        {
+          "name": "Destinations — whole tree",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/destinations?locale={{locale}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "destinations"],
+              "query": [{ "key": "locale", "value": "{{locale}}" }]
+            },
+            "description": "**Expected: 200**, the whole tree, nested:\n\n```json\n{ \"data\": [{ \"slug\": \"georgia\", \"name\": \"Georgia\", \"type\": \"COUNTRY\",\n              \"path\": \"/georgia\",\n              \"children\": [{ \"slug\": \"tbilisi\", \"name\": \"Tbilisi\", \"type\": \"CITY\" }] }] }\n```\n\nThis is the only place the tree is exposed whole — a search box needs all of it to offer suggestions.\n\nTry `?locale=ka`: Georgian names, **falling back to English field by field** where a translation is missing. Never a blank string."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test('Wrapped in { data: [...] }', () => {",
+                  "    pm.expect(pm.response.json().data).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Seeded — run scripts/seed-catalogue.js if this fails', () => {",
+                  "    pm.expect(pm.response.json().data.length).to.be.above(0);",
+                  "});",
+                  "",
+                  "pm.test('Nodes are nested and carry a materialised path', () => {",
+                  "    const root = pm.response.json().data[0];",
+                  "    pm.expect(root).to.have.property('slug');",
+                  "    pm.expect(root).to.have.property('path');",
+                  "    pm.expect(root).to.have.property('children');",
+                  "});",
+                  "",
+                  "pm.test('No name is blank — translation falls back to English', () => {",
+                  "    const walk = (nodes) => nodes.forEach((n) => {",
+                  "        pm.expect(n.name, `${n.slug} has an empty name`).to.be.a('string').and.not.equal('');",
+                  "        if (Array.isArray(n.children)) walk(n.children);",
+                  "    });",
+                  "    walk(pm.response.json().data);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Destination by slug",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/destinations/{{destinationSlug}}?locale={{locale}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "destinations", "{{destinationSlug}}"],
+              "query": [{ "key": "locale", "value": "{{locale}}" }]
+            },
+            "description": "**Expected: 200**, the detail with `parent` and `children`.\n\nLookup is by slug rather than id — a destination URL is public and quotable — but an id is accepted too, so a stale link keeps working.\n\nUnknown slug → **404**."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test('Detail carries parent and children', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.slug).to.equal(pm.collectionVariables.get('destinationSlug'));",
+                  "    pm.expect(body).to.have.property('parent');",
+                  "    pm.expect(body).to.have.property('children');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Destination — unknown slug (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/destinations/no-such-place-anywhere",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "destinations", "no-such-place-anywhere"]
+            },
+            "description": "**Expected: 404** in the standard error envelope. Not an empty 200, not a 500."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('Status is 404', () => pm.response.to.have.status(404));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hotels — browse",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?locale={{locale}}&page=1&pageSize=24",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels"],
+              "query": [
+                { "key": "locale", "value": "{{locale}}" },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "24" },
+                { "key": "destinationSlug", "value": "{{destinationSlug}}", "disabled": true },
+                { "key": "propertyType", "value": "Hotel", "disabled": true },
+                { "key": "minStars", "value": "4", "disabled": true },
+                { "key": "amenity", "value": "wifi", "disabled": true },
+                { "key": "search", "value": "alpine", "disabled": true }
+              ]
+            },
+            "description": "Browsing, **not** searching — no dates, so no availability is checked.\n\n**Expected: 200**\n\n```json\n{ \"data\": [{ \"slug\": \"gudauri-alpine-hotel\", \"name\": \"Gudauri Alpine Hotel\",\n             \"propertyType\": \"Hotel\", \"starRating\": 4,\n             \"destination\": { \"slug\": \"gudauri\" },\n             \"priceFrom\": { \"amountCents\": 21000, \"currency\": \"GEL\" } }],\n  \"total\": 9, \"page\": 1, \"pageSize\": 24, \"totalPages\": 1 }\n```\n\n**Three things worth checking here:**\n\n1. Only `ACTIVE` hotels come back — the status filter is not expressible in the query.\n2. `priceFrom` is **indicative**, rounded to whole currency units, and viewer-relative: an anonymous caller gets the platform default markup, a signed-in partner gets theirs. Different numbers for different callers is correct.\n3. Catalogue cards never carry `status`, `supplierId` or inventory data — even for a partner. That belongs to the extranet, not the shop window.\n\nOptional filters are pre-loaded and disabled; tick them on to explore."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('Standard pagination envelope', () => {",
+                  "    ['data', 'total', 'page', 'pageSize', 'totalPages'].forEach((key) => {",
+                  "        pm.expect(body).to.have.property(key);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('Seeded — run scripts/seed-catalogue.js if this fails', () => {",
+                  "    pm.expect(body.data.length).to.be.above(0);",
+                  "});",
+                  "",
+                  "pm.test('Cards never leak status, supplier or net rates', () => {",
+                  "    body.data.forEach((hotel) => {",
+                  "        pm.expect(hotel, `${hotel.slug} leaks status`).to.not.have.property('status');",
+                  "        pm.expect(hotel, `${hotel.slug} leaks supplierId`).to.not.have.property('supplierId');",
+                  "        pm.expect(hotel, `${hotel.slug} leaks netCents`).to.not.have.property('netCents');",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('Money is integer minor units with a currency', () => {",
+                  "    body.data.filter((h) => h.priceFrom).forEach((h) => {",
+                  "        pm.expect(h.priceFrom.amountCents % 1, `${h.slug} has a fractional amount`).to.equal(0);",
+                  "        pm.expect(h.priceFrom.currency).to.be.a('string');",
+                  "    });",
+                  "});",
+                  "",
+                  "if (body.data.length > 0) {",
+                  "    pm.collectionVariables.set('hotelSlug', body.data[0].slug);",
+                  "    pm.collectionVariables.set('hotelId', body.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hotel detail by slug",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels/{{hotelSlug}}?locale={{locale}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels", "{{hotelSlug}}"],
+              "query": [{ "key": "locale", "value": "{{locale}}" }]
+            },
+            "description": "**Expected: 200** — the full property: `roomTypes[]` (each with its own indicative `priceFrom`), `amenities[]`, `images[]`, `childPolicy`, address and coordinates.\n\nThe hotel-level `priceFrom` always equals the cheapest room's, so the header and the room list can never disagree about \"from\".\n\nUnknown or non-`ACTIVE` slug → **404**."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('Carries rooms, amenities and images', () => {",
+                  "    pm.expect(body.roomTypes).to.be.an('array');",
+                  "    pm.expect(body.amenities).to.be.an('array');",
+                  "    pm.expect(body.images).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('No net rate is visible to an anonymous caller', () => {",
+                  "    const text = pm.response.text();",
+                  "    pm.expect(text, 'netCents leaked to an anonymous caller').to.not.include('netCents');",
+                  "    pm.expect(text, 'markupBps leaked to an anonymous caller').to.not.include('markupBps');",
+                  "    pm.expect(text, 'marginCents leaked to an anonymous caller').to.not.include('marginCents');",
+                  "});",
+                  "",
+                  "pm.test('Hotel priceFrom matches the cheapest room', () => {",
+                  "    const room = body.roomTypes.filter((r) => r.priceFrom).map((r) => r.priceFrom.amountCents);",
+                  "    if (room.length > 0 && body.priceFrom) {",
+                  "        pm.expect(body.priceFrom.amountCents).to.equal(Math.min(...room));",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Amenity vocabulary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/amenities?locale={{locale}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "amenities"],
+              "query": [
+                { "key": "locale", "value": "{{locale}}" },
+                { "key": "category", "value": "General", "disabled": true },
+                { "key": "scope", "value": "HOTEL", "disabled": true }
+              ]
+            },
+            "description": "**Expected: 200** — `{ \"data\": [{ \"id\", \"slug\", \"name\", \"category\", \"icon\" }] }`\n\nDeactivated amenities are never returned. `includeInactive` is stripped from public queries before the service sees it, so it cannot be forced from the URL — try adding `?includeInactive=true` and confirm nothing changes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns a data array', () => pm.expect(pm.response.json().data).to.be.an('array'));",
+                  "",
+                  "pm.test('Every amenity is active', () => {",
+                  "    pm.response.json().data.forEach((a) => {",
+                  "        if ('isActive' in a) pm.expect(a.isActive, `${a.slug} is inactive but visible`).to.equal(true);",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 · Hotel search & booking",
+      "description": "The core money path. Run these **in order** — each step consumes a token produced by the one before.\n\n```\nGET /api/search  ──▶ offer token\n                       │\n                       ├──▶ POST /api/bookings/holds  ──▶ hold token\n                       │                                     │\n                       └──▶ POST /api/bookings ◀──────────────┘\n                                   │\n                                   ├──▶ GET   /:reference\n                                   ├──▶ PATCH /:reference\n                                   └──▶ POST  /:reference/cancel\n```\n\n**No endpoint here accepts an amount.** Request bodies carry identifiers, dates and people; every figure is recomputed server-side. The schemas are `.strict()`, so a stray `totalCents` is a 400, not a silently ignored field. That is the single most important thing to try to break.",
+      "item": [
+        {
+          "name": "Sign out first — run this folder anonymously",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/auth/logout", "host": ["{{baseUrl}}"], "path": ["api", "auth", "logout"] },
+            "description": "**Expected: 204**\n\nThis folder tests the *guest* path, where proof of ownership is the `?email=` query rather than a session. Leaving an admin session in the cookie jar would change the answers — an admin does not need to quote an email, and sees staff-only fields.\n\nAlways 204, whether or not there was a session to end."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('Status is 204', () => pm.response.to.have.status(204));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search — check-out before check-in (400)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/search?checkIn={{checkIn}}&checkOut={{badCheckOut}}&adults=2",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "search"],
+              "query": [
+                { "key": "checkIn", "value": "{{checkIn}}" },
+                { "key": "checkOut", "value": "{{badCheckOut}}" },
+                { "key": "adults", "value": "2" }
+              ]
+            },
+            "description": "**Expected: 400** — *\"Check-out must be after check-in\"*, with the issue reported on the `checkOut` path.\n\nAlso worth trying by hand:\n- `checkIn=01/06/2027` → 400, *\"Use a calendar date, for example 2026-12-20\"*\n- omit `checkIn` entirely → 400\n- `adults=0` or `adults=99` → 400 (range is 1–30)\n- `pageSize=500` → 400 (max 50 — asking for more is refused, not silently clamped)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));",
+                  "",
+                  "pm.test('The issue is reported on checkOut', () => {",
+                  "    const details = pm.response.json().error.details || [];",
+                  "    const paths = details.map((d) => (d.path || []).join('.'));",
+                  "    pm.expect(paths.join(',')).to.include('checkOut');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search — dated availability (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/search?checkIn={{checkIn}}&checkOut={{checkOut}}&adults=2&rooms=1&locale={{locale}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "search"],
+              "query": [
+                { "key": "checkIn", "value": "{{checkIn}}" },
+                { "key": "checkOut", "value": "{{checkOut}}" },
+                { "key": "adults", "value": "2" },
+                { "key": "rooms", "value": "1" },
+                { "key": "locale", "value": "{{locale}}" },
+                { "key": "destinationSlug", "value": "{{destinationSlug}}", "disabled": true },
+                { "key": "childAges", "value": "9", "disabled": true },
+                { "key": "mealPlan", "value": "BB", "disabled": true },
+                { "key": "refundableOnly", "value": "true", "disabled": true },
+                { "key": "minStars", "value": "4", "disabled": true }
+              ]
+            },
+            "description": "The real search: \"what can I actually book, on these dates, for these people\". Every result is a real offer with a real total.\n\n**Expected: 200**\n\n```json\n{ \"data\": [{\n    \"slug\": \"gudauri-alpine-hotel\", \"starRating\": 4,\n    \"startingFrom\": { \"totalCents\": 52500, \"perNightCents\": 17500, \"currency\": \"GEL\" },\n    \"mealPlans\": [\"BB\"], \"refundable\": true, \"offerCount\": 3,\n    \"cheapestOffer\": {\n      \"token\": \"eyJ…signed…\",\n      \"terms\": { \"mealPlan\": {…}, \"cancellation\": {…}, \"payment\": {…} },\n      \"quote\": { \"currency\": \"GEL\", \"nights\": [{ \"date\": \"…\", \"sellCents\": 17500 }],\n                 \"totals\": { \"nights\": 3, \"roomCents\": 52500, \"totalCents\": 52500 } },\n      \"availableUnits\": 5\n    } }],\n  \"total\": 1, \"page\": 1, \"pageSize\": 24, \"totalPages\": 1 }\n```\n\n**Nothing available is a `200` with `data: []`** — an empty result is an answer, not an error.\n\n**Staff-only fields** (`netCents`, `markupBps`, `marginCents`) must be *absent* from this anonymous response. That is asserted below and is a severity-1 bug if it fails.\n\nRepeated parameters make arrays: `?amenity=wifi&amenity=parking&childAges=4&childAges=9`. Child **ages**, not a count — a hotel cannot price a child without knowing how old it is.\n\nThis endpoint has its own rate limit of 30/minute: it is the most expensive read in the system."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('Standard pagination envelope', () => {",
+                  "    pm.expect(body.data).to.be.an('array');",
+                  "    pm.expect(body).to.have.property('totalPages');",
+                  "});",
+                  "",
+                  "pm.test('SECURITY: no net rate, markup or margin visible anonymously', () => {",
+                  "    const text = pm.response.text();",
+                  "    pm.expect(text, 'netCents leaked — this exposes the platform margin').to.not.include('netCents');",
+                  "    pm.expect(text, 'markupBps leaked').to.not.include('markupBps');",
+                  "    pm.expect(text, 'marginCents leaked').to.not.include('marginCents');",
+                  "});",
+                  "",
+                  "pm.test('Results are available — seed the catalogue if this fails', () => {",
+                  "    pm.expect(body.data.length,",
+                  "        'no availability: run node scripts/seed-catalogue.js, or widen the dates').to.be.above(0);",
+                  "});",
+                  "",
+                  "if (body.data.length > 0) {",
+                  "    const card = body.data[0];",
+                  "    const offer = card.cheapestOffer;",
+                  "",
+                  "    pm.test('Card carries a startingFrom total', () => {",
+                  "        pm.expect(card.startingFrom.totalCents).to.be.a('number');",
+                  "        pm.expect(card.startingFrom.currency).to.be.a('string');",
+                  "    });",
+                  "",
+                  "    pm.test('Offer carries a signed token and a full quote', () => {",
+                  "        pm.expect(offer.token).to.be.a('string').and.have.length.above(20);",
+                  "        pm.expect(offer.quote.totals.totalCents).to.be.a('number');",
+                  "        pm.expect(offer.quote.nights).to.be.an('array').that.is.not.empty;",
+                  "    });",
+                  "",
+                  "    pm.test('Nightly rates sum to the room total', () => {",
+                  "        const sum = offer.quote.nights.reduce((t, n) => t + n.sellCents, 0);",
+                  "        pm.expect(sum).to.equal(offer.quote.totals.roomCents);",
+                  "    });",
+                  "",
+                  "    pm.test('Every amount is an integer — no floating-point money', () => {",
+                  "        offer.quote.nights.forEach((n) => pm.expect(n.sellCents % 1).to.equal(0));",
+                  "        pm.expect(offer.quote.totals.totalCents % 1).to.equal(0);",
+                  "    });",
+                  "",
+                  "    pm.collectionVariables.set('offerToken', offer.token);",
+                  "    pm.collectionVariables.set('hotelSlug', card.slug);",
+                  "    pm.collectionVariables.set('quotedTotalCents', offer.quote.totals.totalCents);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Availability for one hotel",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/search/hotels/{{hotelSlug}}?checkIn={{checkIn}}&checkOut={{checkOut}}&adults=2&locale={{locale}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "search", "hotels", "{{hotelSlug}}"],
+              "query": [
+                { "key": "checkIn", "value": "{{checkIn}}" },
+                { "key": "checkOut", "value": "{{checkOut}}" },
+                { "key": "adults", "value": "2" },
+                { "key": "locale", "value": "{{locale}}" }
+              ]
+            },
+            "description": "**Expected: 200** — `{ \"hotelId\", \"nights\", \"roomTypes\": [...] }`, availability for one property grouped by room type, each room carrying its own offers.\n\nThis is what a hotel page renders once the visitor has picked dates."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test('Grouped by room type, with a night count', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body).to.have.property('hotelId');",
+                  "    pm.expect(body.nights).to.be.a('number');",
+                  "    pm.expect(body.roomTypes).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('SECURITY: no net rates anonymously', () => {",
+                  "    pm.expect(pm.response.text()).to.not.include('netCents');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Re-quote the offer (200)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"token\": \"{{offerToken}}\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/search/offers/quote",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "search", "offers", "quote"]
+            },
+            "description": "The client sends the token it was given; the server prices it again from live data. This is what checkout calls before showing a payment form.\n\n**Expected: 200** — the offer again, re-priced.\n\n| Scenario | Expected |\n| --- | --- |\n| Price moved | **409** — `details: { \"reason\": \"PRICE_CHANGED\", \"quotedCents\": 52500, \"currentCents\": 55000 }` — both figures, so the UI can say \"this went from X to Y\" rather than failing blankly |\n| Sold out | **409** — `details: { \"reason\": \"UNAVAILABLE\" }` |\n| Token older than 30 minutes | **410** |\n| Token altered by one character | **400** |\n| Any extra field in the body | **400** — the schema is `.strict()`, so nothing about money can ride along |"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 (409 = price moved, 410 = token expired)', () => {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Price is unchanged since search', () => {",
+                  "    const quoted = Number(pm.collectionVariables.get('quotedTotalCents'));",
+                  "    pm.expect(pm.response.json().quote.totals.totalCents).to.equal(quoted);",
+                  "});",
+                  "",
+                  "pm.test('SECURITY: no net rates anonymously', () => {",
+                  "    pm.expect(pm.response.text()).to.not.include('netCents');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Re-quote — tampered token (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"token\": \"{{offerToken}}TAMPERED\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/search/offers/quote",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "search", "offers", "quote"]
+            },
+            "description": "**Expected: 400** — the signature check fails.\n\nOffer tokens are signed with `HOTEL_OFFER_TOKEN_SECRET` precisely so a client cannot edit a price on its way into checkout. If an edited token is ever *accepted*, stop testing and report it: that is the whole integrity model of the pricing path."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 400 or 410 — never 200', () => {",
+                  "    pm.expect([400, 410],",
+                  "        'an edited offer token was accepted — critical integrity bug').to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Re-quote — extra field in body (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"token\": \"{{offerToken}}\",\n    \"totalCents\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/search/offers/quote",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "search", "offers", "quote"]
+            },
+            "description": "**Expected: 400** — *\"Invalid request body\"*.\n\nThe schema is `.strict()`: unknown keys are rejected rather than ignored. A body that *could* name a price is a body that could set one, so the field simply does not exist — and sending it anyway is refused loudly."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 400 — strict schema rejects unknown keys', () => {",
+                  "    pm.expect(pm.response.code,",
+                  "        'an unknown money field was accepted rather than rejected').to.equal(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create a hold (201)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"token\": \"{{offerToken}}\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings/holds",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "bookings", "holds"]
+            },
+            "description": "Secures the rooms while the guest fills in their details.\n\n**Expected: 201**\n\n```json\n{ \"token\": \"hold-token-…\", \"expiresAt\": \"…\",\n  \"checkIn\": \"2027-06-01\", \"checkOut\": \"2027-06-04\",\n  \"rooms\": 1, \"currency\": \"GEL\", \"totalCents\": 52500,\n  \"hotel\": { \"id\": \"…\", \"name\": \"…\", \"slug\": \"…\" },\n  \"roomTypeName\": \"Deluxe Double\", \"ratePlanName\": \"Breakfast, flexible\" }\n```\n\nHolds last 15 minutes (`HOTEL_HOLD_TTL_MS`); expired ones are swept back into availability every 30 seconds.\n\n| Scenario | Expected |\n| --- | --- |\n| Last room went while you were deciding | 409 |\n| Expired offer token | 410 |\n\n> **The oversell test.** Find a room with `availableUnits: 1` and fire two holds simultaneously. Exactly one must get 201 and the other 409. Availability is enforced by a conditional `UPDATE` whose `WHERE` clause *is* the check, so there is no window in which both can win. **Two 201s is a severity-1 bug.**"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', () => {",
+                  "    pm.expect(pm.response.code, '409 = sold out, 410 = the offer token expired').to.equal(201);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('Returns a hold token with an expiry', () => {",
+                  "    pm.expect(body.token).to.be.a('string').and.have.length.above(10);",
+                  "    pm.expect(body.expiresAt).to.be.a('string');",
+                  "});",
+                  "",
+                  "pm.test('Hold expires within about 15 minutes', () => {",
+                  "    const minutes = (new Date(body.expiresAt).getTime() - Date.now()) / 60000;",
+                  "    pm.expect(minutes).to.be.above(0).and.below(20);",
+                  "});",
+                  "",
+                  "pm.test('Total matches the quoted offer', () => {",
+                  "    pm.expect(body.totalCents).to.equal(Number(pm.collectionVariables.get('quotedTotalCents')));",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('holdToken', body.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm the booking (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{bookingIdempotencyKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"holdToken\": \"{{holdToken}}\",\n    \"leadGuest\": {\n        \"firstName\": \"Nino\",\n        \"lastName\": \"Beridze\",\n        \"email\": \"{{guestEmail}}\",\n        \"phone\": \"+995555123456\"\n    },\n    \"guests\": [\n        { \"type\": \"ADULT\", \"firstName\": \"Nino\", \"lastName\": \"Beridze\" },\n        { \"type\": \"ADULT\", \"firstName\": \"Giorgi\", \"lastName\": \"Beridze\" }\n    ],\n    \"specialRequests\": \"High floor if possible\",\n    \"source\": \"web\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/bookings", "host": ["{{baseUrl}}"], "path": ["api", "bookings"] },
+            "description": "The confirmation. Send **either** `holdToken` (from checkout) **or** `offerToken` (server-to-server, no checkout page) — never both, never neither.\n\n**Always send an `Idempotency-Key` header.** The pre-request script generates a fresh one; the next request replays it.\n\n**Expected: 201**\n\n```json\n{ \"reference\": \"BKG-000001\", \"status\": \"CONFIRMED\",\n  \"hotel\": {…}, \"hotelSnapshot\": {…},\n  \"checkIn\": \"…\", \"checkOut\": \"…\", \"nights\": 3, \"rooms\": 1,\n  \"leadGuestName\": \"Nino Beridze\",\n  \"currency\": \"GEL\", \"totalCents\": 52500, \"payableAtPropertyCents\": 0,\n  \"bookingRooms\": [{ \"roomTypeName\": \"Deluxe Double\",\n                     \"cancellation\": { \"freeUntil\": \"…\", \"windows\": [...] },\n                     \"nights\": [{ \"date\": \"…\", \"sellCents\": 17500 }],\n                     \"guests\": [{ \"type\": \"ADULT\", \"isLead\": true }] }] }\n```\n\n**Staff-only:** `netTotalCents`, `markupBps`, `marginCents`, `partner`, per-night `netCents`.\n\n| Scenario | Expected |\n| --- | --- |\n| Both `holdToken` and `offerToken` | 400 |\n| Neither | 400 |\n| Any amount field | 400 (`.strict()`) |\n| Malformed `leadGuest.email` | 400 |\n| Hold expired | 409/410 |\n\n**Also verify the snapshot:** rename the room type in admin afterwards and re-read this booking. It must still show the **old** name. A property that renames a room in March cannot change what a guest who booked in January was sold."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A fresh key for this attempt. The next request replays this exact",
+                  "// value, which is what proves the endpoint is idempotent.",
+                  "const key = 'pm-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);",
+                  "pm.collectionVariables.set('bookingIdempotencyKey', key);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201 — a new booking', () => pm.response.to.have.status(201));",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('Reference looks like BKG-000000', () => {",
+                  "    pm.expect(body.reference).to.match(/^BKG-\\d+$/);",
+                  "});",
+                  "",
+                  "pm.test('Status is CONFIRMED or PENDING', () => {",
+                  "    pm.expect(['CONFIRMED', 'PENDING']).to.include(body.status);",
+                  "});",
+                  "",
+                  "pm.test('Total equals what was quoted — the server priced it, not us', () => {",
+                  "    pm.expect(body.totalCents).to.equal(Number(pm.collectionVariables.get('quotedTotalCents')));",
+                  "});",
+                  "",
+                  "pm.test('Carries a frozen hotel snapshot', () => {",
+                  "    pm.expect(body.hotelSnapshot, 'names must come from the snapshot, not the live hotel').to.be.an('object');",
+                  "});",
+                  "",
+                  "pm.test('Rooms carry a cancellation schedule and nightly breakdown', () => {",
+                  "    pm.expect(body.bookingRooms).to.be.an('array').that.is.not.empty;",
+                  "    pm.expect(body.bookingRooms[0].cancellation).to.have.property('windows');",
+                  "    pm.expect(body.bookingRooms[0].nights).to.be.an('array').that.is.not.empty;",
+                  "});",
+                  "",
+                  "pm.test('SECURITY: no net total, markup or margin for a guest', () => {",
+                  "    const text = pm.response.text();",
+                  "    pm.expect(text, 'netTotalCents leaked to a guest').to.not.include('netTotalCents');",
+                  "    pm.expect(text, 'markupBps leaked to a guest').to.not.include('markupBps');",
+                  "    pm.expect(text, 'marginCents leaked to a guest').to.not.include('marginCents');",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('bookingReference', body.reference);",
+                  "pm.collectionVariables.set('bookingTotalCents', body.totalCents);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm again, same key (200 — replay)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{bookingIdempotencyKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"holdToken\": \"{{holdToken}}\",\n    \"leadGuest\": {\n        \"firstName\": \"Nino\",\n        \"lastName\": \"Beridze\",\n        \"email\": \"{{guestEmail}}\",\n        \"phone\": \"+995555123456\"\n    },\n    \"guests\": [\n        { \"type\": \"ADULT\", \"firstName\": \"Nino\", \"lastName\": \"Beridze\" },\n        { \"type\": \"ADULT\", \"firstName\": \"Giorgi\", \"lastName\": \"Beridze\" }\n    ],\n    \"specialRequests\": \"High floor if possible\",\n    \"source\": \"web\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/bookings", "host": ["{{baseUrl}}"], "path": ["api", "bookings"] },
+            "description": "**The single most important test in this collection.**\n\nThe identical request with the identical `Idempotency-Key`.\n\n**Expected: 200** — *not* 201 — carrying the **same** booking with the **same reference**.\n\nA retry after a dropped connection must not book the guest twice. If this returns 201, or returns a different reference, we have double-booked a guest and double-charged them. Report immediately.\n\nRun it five more times by hand: you should end with exactly one reference, one 201 and five 200s."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 — a replay, not a new booking', () => {",
+                  "    pm.expect(pm.response.code,",
+                  "        'a 201 here means the retry created a SECOND booking — critical bug').to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Same reference as the original', () => {",
+                  "    pm.expect(pm.response.json().reference)",
+                  "        .to.equal(pm.collectionVariables.get('bookingReference'));",
+                  "});",
+                  "",
+                  "pm.test('Same total — nothing was re-priced on replay', () => {",
+                  "    pm.expect(pm.response.json().totalCents)",
+                  "        .to.equal(Number(pm.collectionVariables.get('bookingTotalCents')));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm with an amount in the body (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"offerToken\": \"{{offerToken}}\",\n    \"totalCents\": 1,\n    \"leadGuest\": {\n        \"firstName\": \"Mallory\",\n        \"lastName\": \"Tester\",\n        \"email\": \"mallory@example.com\"\n    }\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/bookings", "host": ["{{baseUrl}}"], "path": ["api", "bookings"] },
+            "description": "An attempt to buy a stay for one tetri.\n\n**Expected: 400** — *\"Invalid request body\"*. There is no field for an amount anywhere in the confirmation schema, and the schema is `.strict()`, so the unknown key is rejected rather than ignored.\n\n**If this returns 201, check the booking's `totalCents` immediately.** A 201 with the correct server-computed total is a lesser bug (the schema should have refused). A 201 that honours `1` is a critical one."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 400 — an amount cannot be sent', () => {",
+                  "    pm.expect(pm.response.code,",
+                  "        'the request body was allowed to name a price').to.equal(400);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    pm.test('CRITICAL: the client-supplied price was NOT honoured', () => {",
+                  "        pm.expect(pm.response.json().totalCents).to.not.equal(1);",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm with both tokens (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"holdToken\": \"{{holdToken}}\",\n    \"offerToken\": \"{{offerToken}}\",\n    \"leadGuest\": {\n        \"firstName\": \"Nino\",\n        \"lastName\": \"Beridze\",\n        \"email\": \"{{guestEmail}}\"\n    }\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/bookings", "host": ["{{baseUrl}}"], "path": ["api", "bookings"] },
+            "description": "**Expected: 400** — *\"Provide either a holdToken or an offerToken, not both\"*, reported on the `holdToken` path.\n\nSending neither is also a 400. Exactly one is required: a hold is a claim on inventory, an offer is not, and the server must not have to guess which one you meant."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read the booking as the guest (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings/{{bookingReference}}?email={{guestEmail}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "bookings", "{{bookingReference}}"],
+              "query": [{ "key": "email", "value": "{{guestEmail}}" }]
+            },
+            "description": "An anonymous guest must quote the lead guest's email as proof the booking is theirs. A signed-in admin or the owning partner needs no query — the session already proves it.\n\n**Expected: 200**, the full booking detail."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test('It is the booking we made', () => {",
+                  "    pm.expect(pm.response.json().reference)",
+                  "        .to.equal(pm.collectionVariables.get('bookingReference'));",
+                  "});",
+                  "",
+                  "pm.test('SECURITY: no staff-only money fields', () => {",
+                  "    const text = pm.response.text();",
+                  "    pm.expect(text).to.not.include('netTotalCents');",
+                  "    pm.expect(text).to.not.include('marginCents');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read the booking, wrong email (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings/{{bookingReference}}?email=someone-else@example.com",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "bookings", "{{bookingReference}}"],
+              "query": [{ "key": "email", "value": "someone-else@example.com" }]
+            },
+            "description": "**Expected: 404** — never the booking, and never a message like \"wrong email\", which would confirm that the reference exists.\n\nOmitting `email` entirely is the same: 404 (or 401). A booking reference is guessable enough that the email has to be a real second factor.\n\n**The response body must not contain the guest's name or email.**"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 404 or 401 — never 200', () => {",
+                  "    pm.expect([401, 404],",
+                  "        'a booking was readable with the wrong email').to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "pm.test('Leaks nothing about the real guest', () => {",
+                  "    const text = pm.response.text().toLowerCase();",
+                  "    pm.expect(text).to.not.include(String(pm.collectionVariables.get('guestEmail')).toLowerCase());",
+                  "    pm.expect(text).to.not.include('beridze');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancellation quote (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings/{{bookingReference}}/cancellation-quote?email={{guestEmail}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "bookings", "{{bookingReference}}", "cancellation-quote"],
+              "query": [{ "key": "email", "value": "{{guestEmail}}" }]
+            },
+            "description": "What cancelling would cost right now.\n\n**Expected: 200**\n\n```json\n{ \"chargeCents\": 0, \"refundCents\": 52500, \"currency\": \"GEL\", \"refundable\": true }\n```\n\nRead off the **schedule frozen at confirmation**. The hotel's current policy is never consulted, so terms tightened later cannot change what an earlier guest is owed.\n\n**Worth testing by hand:** tighten the cancellation policy in the admin panel, re-read this quote, and confirm the numbers have not moved.\n\n`chargeCents + refundCents` must equal the booking total."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const q = pm.response.json();",
+                  "",
+                  "pm.test('Quote is complete and consistent', () => {",
+                  "    pm.expect(q.chargeCents).to.be.a('number');",
+                  "    pm.expect(q.refundCents).to.be.a('number');",
+                  "    pm.expect(q.currency).to.be.a('string');",
+                  "    pm.expect(q.refundable).to.equal(q.refundCents > 0);",
+                  "});",
+                  "",
+                  "pm.test('Charge plus refund equals the booking total', () => {",
+                  "    const total = Number(pm.collectionVariables.get('bookingTotalCents'));",
+                  "    pm.expect(q.chargeCents + q.refundCents).to.equal(total);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Amend the paperwork (200)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"leadGuest\": {\n        \"phone\": \"+995555999888\"\n    },\n    \"specialRequests\": \"Late arrival, around 23:00\",\n    \"email\": \"{{guestEmail}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings/{{bookingReference}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "bookings", "{{bookingReference}}"]
+            },
+            "description": "**Paperwork only:** the lead guest's name, email and phone, and the special requests. Nothing that was priced.\n\n> The top-level `email` is **not** a new address. It is the proof an anonymous guest offers that the booking is theirs, exactly as on cancel. The address being *changed* is `leadGuest.email`.\n\n**Expected: 200**, the full booking detail with the changes applied and **the total unchanged**.\n\n| Scenario | Expected |\n| --- | --- |\n| `checkIn`, `checkOut`, `rooms`, `roomTypeId`, `totalCents` | 400 — not in the schema, on purpose |\n| Booking already `CANCELLED`/`COMPLETED` | 409, carrying the status |\n| Wrong or missing `email`, anonymously | 404 |\n\nDates, rooms, board and party are deliberately unreachable: changing them means releasing inventory and re-quoting, which is a cancellation and a fresh booking."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test('Special requests were applied', () => {",
+                  "    pm.expect(pm.response.text()).to.include('Late arrival');",
+                  "});",
+                  "",
+                  "pm.test('The price did not move — an amendment cannot re-price', () => {",
+                  "    pm.expect(pm.response.json().totalCents)",
+                  "        .to.equal(Number(pm.collectionVariables.get('bookingTotalCents')));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Amend the dates (400 — not amendable)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"checkIn\": \"{{checkIn}}\",\n    \"checkOut\": \"{{checkOut}}\",\n    \"rooms\": 4,\n    \"totalCents\": 1,\n    \"email\": \"{{guestEmail}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings/{{bookingReference}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "bookings", "{{bookingReference}}"]
+            },
+            "description": "**Expected: 400.**\n\nNone of `checkIn`, `checkOut`, `rooms` or `totalCents` exists in the amendment schema, and it is `.strict()`.\n\nThis is a design decision, not an oversight: changing any of them changes what was sold and what it costs, which requires releasing the inventory and re-quoting. That is a cancellation followed by a new booking, not an edit."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 400 — priced fields are not amendable', () => {",
+                  "    pm.expect(pm.response.code,",
+                  "        'a priced field was accepted by the amendment endpoint').to.equal(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel the booking (200)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"reason\": \"Testing the cancellation path\",\n    \"email\": \"{{guestEmail}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings/{{bookingReference}}/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "bookings", "{{bookingReference}}", "cancel"]
+            },
+            "description": "Both fields are optional (`email` only for anonymous guests); an empty body `{}` is valid.\n\n**Expected: 200**\n\n```json\n{ \"reference\": \"BKG-000001\", \"status\": \"CANCELLED\",\n  \"cancellation\": { \"chargeCents\": 0, \"refundCents\": 52500,\n                    \"currency\": \"GEL\", \"refundable\": true } }\n```\n\n**Then verify by hand:** re-run the search for the same dates and confirm `availableUnits` has gone back up."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test('Status is now CANCELLED', () => {",
+                  "    pm.expect(pm.response.json().status).to.equal('CANCELLED');",
+                  "});",
+                  "",
+                  "pm.test('Carries the cancellation figures', () => {",
+                  "    const c = pm.response.json().cancellation;",
+                  "    pm.expect(c.chargeCents).to.be.a('number');",
+                  "    pm.expect(c.refundCents).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel again (409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"email\": \"{{guestEmail}}\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings/{{bookingReference}}/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "bookings", "{{bookingReference}}", "cancel"]
+            },
+            "description": "**Expected: 409**, carrying the current status in the message or `details`.\n\nA second cancellation must not produce a second refund. If this returns 200, check whether a duplicate refund was recorded — that is a money bug."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 409 — an already-cancelled booking cannot be cancelled again', () => {",
+                  "    pm.expect(pm.response.code,",
+                  "        'a second cancellation succeeded — check for a duplicate refund').to.equal(409);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Release a hold (204, always)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings/holds/{{holdToken}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "bookings", "holds", "{{holdToken}}"]
+            },
+            "description": "Abandoning checkout gives the rooms back **immediately** rather than waiting for the 30-second sweeper — the difference between a room coming back now and in half a minute.\n\n**Expected: 204 — always**, including for a token that never existed, has already expired, or has already been converted into a booking (as it has here). Releasing nothing has succeeded. That is not a bug.\n\nTo see the real effect: create a hold, note `availableUnits` in a fresh search, release the hold, and search again."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 204 even for a spent token', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 · Transfers",
+      "description": "Point-to-point ground transport. The shape mirrors hotels — a signed quote carried into an idempotent booking — with one structural difference: **there is no inventory and there are no holds.** A private transfer is dispatched from an elastic fleet, so nothing has to be claimed. What can stop a sale is a road closing, which is a blackout.\n\n**Pricing is two-tier.** A curated route price is used when one exists; otherwise the fare is `max(minimumFare, distanceKm × perKm) + airportFee` from the vehicle class. So every pair of points is bookable, and the commercially important ones are priced by hand. The response says which was used — but only to staff, in `quote.legs[].source`.",
+      "item": [
+        {
+          "name": "Points — the location picker",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transfers/points?locale={{locale}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transfers", "points"],
+              "query": [
+                { "key": "locale", "value": "{{locale}}" },
+                { "key": "search", "value": "tbilisi", "disabled": true },
+                { "key": "kind", "value": "AIRPORT", "disabled": true },
+                { "key": "popular", "value": "true", "disabled": true }
+              ]
+            },
+            "description": "**Expected: 200** — `{ \"data\": [{ \"slug\", \"name\", \"kind\", \"code\", \"region\", \"timezone\" }] }`\n\n`?search=` matches base names, regions, IATA codes **and every translation**, so a Russian speaker typing Cyrillic finds the same airport.\n\nOnly `ACTIVE` points are returned. A retired point (see `DELETE /admin/transfers/points/:id`) disappears from here but still resolves inside existing bookings."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test('Seeded — run scripts/seed-transfers.js if this fails', () => {",
+                  "    pm.expect(pm.response.json().data.length).to.be.above(0);",
+                  "});",
+                  "",
+                  "pm.test('Points carry a kind and a timezone', () => {",
+                  "    const p = pm.response.json().data[0];",
+                  "    pm.expect(p).to.have.property('slug');",
+                  "    pm.expect(p).to.have.property('kind');",
+                  "    pm.expect(p).to.have.property('timezone');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Routes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transfers/routes?page=1&pageSize=20&locale={{locale}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transfers", "routes"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "20" },
+                { "key": "locale", "value": "{{locale}}" },
+                { "key": "tier", "value": "TIER_1", "disabled": true },
+                { "key": "category", "value": "AIRPORT", "disabled": true },
+                { "key": "fromSlug", "value": "{{transferFrom}}", "disabled": true }
+              ]
+            },
+            "description": "**Expected: 200**, paginated, `ACTIVE` routes only.\n\nEach route carries its `tier`, `category`, `distanceKm` and a `startingFromCents`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Paginated', () => pm.expect(pm.response.json()).to.have.property('totalPages'));",
+                  "",
+                  "pm.test('SECURITY: no net fares anonymously', () => {",
+                  "    pm.expect(pm.response.text()).to.not.include('netCents');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Vehicles — the fleet",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transfers/vehicles?locale={{locale}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transfers", "vehicles"],
+              "query": [
+                { "key": "locale", "value": "{{locale}}" },
+                { "key": "vehicleClass", "value": "COMFORT", "disabled": true },
+                { "key": "kind", "value": "PRIVATE", "disabled": true }
+              ]
+            },
+            "description": "**Expected: 200** — the fleet.\n\n**Visibility is viewer-dependent, exactly like hotels.** A vehicle class is B2B by default: an anonymous visitor sees only `b2cEnabled` classes, a signed-in partner sees the whole active fleet.\n\n**Worth testing:** note the count here, sign in as a partner, and call it again. The partner's list should be a superset."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test('Returns vehicles with a class and a capacity', () => {",
+                  "    const data = pm.response.json().data;",
+                  "    pm.expect(data).to.be.an('array');",
+                  "    if (data.length) {",
+                  "        pm.expect(data[0]).to.have.property('vehicleClass');",
+                  "        pm.expect(data[0]).to.have.property('maxPassengers');",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('SECURITY: fallback pricing is staff-only', () => {",
+                  "    pm.expect(pm.response.text()).to.not.include('fallbackPricing');",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('anonymousVehicleCount', pm.response.json().data.length);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Extras",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transfers/extras",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transfers", "extras"]
+            },
+            "description": "**Expected: 200** — child seats, ski carriage, extra stops.\n\nEach extra has a `code` (used in the quote query as `?extra=childSeat`) and a `basis` of `FIXED`, `PER_PASSENGER`, `PER_HOUR` or `PERCENT`.\n\nThe catalogue decides what an extra costs; the request only decides how many."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns a data array', () => pm.expect(pm.response.json().data).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Quote a journey (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transfers/quotes?from={{transferFrom}}&to={{transferTo}}&date={{transferDate}}&time=09:00&tripType=ONE_WAY&adults=2&children=0&luggage=2&locale={{locale}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transfers", "quotes"],
+              "query": [
+                { "key": "from", "value": "{{transferFrom}}" },
+                { "key": "to", "value": "{{transferTo}}" },
+                { "key": "date", "value": "{{transferDate}}" },
+                { "key": "time", "value": "09:00" },
+                { "key": "tripType", "value": "ONE_WAY" },
+                { "key": "adults", "value": "2" },
+                { "key": "children", "value": "0" },
+                { "key": "luggage", "value": "2" },
+                { "key": "locale", "value": "{{locale}}" },
+                { "key": "extra", "value": "childSeat", "disabled": true },
+                { "key": "returnDate", "value": "{{transferReturnDate}}", "disabled": true },
+                { "key": "returnTime", "value": "14:00", "disabled": true }
+              ]
+            },
+            "description": "Every vehicle that can carry the party, priced for the journey, each with its own signed token.\n\n`from` and `to` accept point **slugs or ids**. `time` is a 24-hour wall clock **local to the pick-up point**.\n\n**Expected: 200** — see `docs/API_TESTING_GUIDE.md` §6 for the full response shape.\n\n**Two results that look like failures but are not:**\n\n| Situation | Response |\n| --- | --- |\n| Road closed for those dates (a blackout) | **200** with `\"closed\": true` and `\"offers\": []` |\n| Party too large for any vehicle | **200** with no offers — capacity is a hard constraint, not a filter |\n\n**Real errors:**\n\n| Scenario | Expected |\n| --- | --- |\n| A point we do not serve | 404 |\n| `from` equals `to` | 409 `SAME_POINT` |\n| Pick-up under 3 hours away | 422 `TOO_SOON` |\n| Beyond ~540 days | 422 `BEYOND_HORIZON` |\n| Return before outbound | 422 `RETURN_BEFORE_OUTBOUND` |\n| Over 50 passengers | 422 `PARTY_TOO_LARGE` |\n| `tripType=RETURN` with no return date/time | 400 |\n| `time=9:00` or `25:00` | 400 |\n\n**Night surcharge:** pick-ups between 22:00 and 06:00 local carry a 20% surcharge by default. Quote this journey at `09:00` and again at `23:00` and compare `nightSurchargeCents`.\n\nTick on `returnDate`/`returnTime` and set `tripType=RETURN` to get two legs."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('Names both ends of the journey', () => {",
+                  "    pm.expect(body.from).to.have.property('slug');",
+                  "    pm.expect(body.to).to.have.property('slug');",
+                  "    pm.expect(body).to.have.property('closed');",
+                  "});",
+                  "",
+                  "pm.test('SECURITY: net fares, margins and the price source are staff-only', () => {",
+                  "    const text = pm.response.text();",
+                  "    pm.expect(text, 'netCents leaked anonymously').to.not.include('netCents');",
+                  "    pm.expect(text, 'markupBps leaked anonymously').to.not.include('markupBps');",
+                  "    pm.expect(text, 'the pricing source leaked anonymously').to.not.include('\"source\"');",
+                  "});",
+                  "",
+                  "if (body.closed === true) {",
+                  "    pm.test('Road is closed — offers must be empty (a real answer, not an error)', () => {",
+                  "        pm.expect(body.offers).to.be.an('array').that.is.empty;",
+                  "    });",
+                  "} else {",
+                  "    pm.test('Offers were returned — seed transfers if this fails', () => {",
+                  "        pm.expect(body.offers.length,",
+                  "            'no offers: run node scripts/seed-transfers.js, or the party may exceed every vehicle').to.be.above(0);",
+                  "    });",
+                  "",
+                  "    if (body.offers.length > 0) {",
+                  "        const offer = body.offers[0];",
+                  "",
+                  "        pm.test('Offer carries a signed token, a vehicle and legs', () => {",
+                  "            pm.expect(offer.token).to.be.a('string').and.have.length.above(20);",
+                  "            pm.expect(offer.vehicle.maxPassengers).to.be.a('number');",
+                  "            pm.expect(offer.quote.legs).to.be.an('array').that.is.not.empty;",
+                  "        });",
+                  "",
+                  "        pm.test('Vehicle can actually carry the party', () => {",
+                  "            pm.expect(offer.vehicle.maxPassengers).to.be.at.least(2);",
+                  "        });",
+                  "",
+                  "        pm.test('Leg fares sum to the total', () => {",
+                  "            const sum = offer.quote.legs.reduce((t, l) => t + l.sellCents, 0);",
+                  "            pm.expect(sum).to.equal(offer.quote.totals.sellCents);",
+                  "        });",
+                  "",
+                  "        pm.collectionVariables.set('quoteToken', offer.token);",
+                  "        pm.collectionVariables.set('quotedFareCents', offer.quote.totals.totalCents);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Quote — same point both ends (409)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transfers/quotes?from={{transferFrom}}&to={{transferFrom}}&date={{transferDate}}&time=09:00",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transfers", "quotes"],
+              "query": [
+                { "key": "from", "value": "{{transferFrom}}" },
+                { "key": "to", "value": "{{transferFrom}}" },
+                { "key": "date", "value": "{{transferDate}}" },
+                { "key": "time", "value": "09:00" }
+              ]
+            },
+            "description": "**Expected: 409** with `details: { \"reason\": \"SAME_POINT\" }`.\n\nA journey from a place to itself is not a journey. Note it is a **409 conflict**, not a 400 — the request is well-formed, it just describes something that cannot exist."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 409', () => pm.response.to.have.status(409));",
+                  "",
+                  "pm.test('Reason is SAME_POINT', () => {",
+                  "    pm.expect(JSON.stringify(pm.response.json().error.details || {})).to.include('SAME_POINT');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Quote — pick-up in the past (422 TOO_SOON)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transfers/quotes?from={{transferFrom}}&to={{transferTo}}&date={{yesterday}}&time=09:00",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transfers", "quotes"],
+              "query": [
+                { "key": "from", "value": "{{transferFrom}}" },
+                { "key": "to", "value": "{{transferTo}}" },
+                { "key": "date", "value": "{{yesterday}}" },
+                { "key": "time", "value": "09:00" }
+              ]
+            },
+            "description": "**Expected: 422** with `details: { \"reason\": \"TOO_SOON\" }`.\n\nThe minimum notice is 180 minutes (`TRANSFER_MINIMUM_NOTICE_MINUTES`) — a driver has to be dispatched. Yesterday is used here rather than \"in one hour\" so the result is the same regardless of the tester's own timezone.\n\nTo test the real boundary, quote a pick-up two hours from now *in Georgian local time* (UTC+4) and expect the same 422."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 422', () => pm.response.to.have.status(422));",
+                  "",
+                  "pm.test('Reason is TOO_SOON', () => {",
+                  "    pm.expect(JSON.stringify(pm.response.json().error.details || {})).to.include('TOO_SOON');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Quote — beyond the horizon (422)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transfers/quotes?from={{transferFrom}}&to={{transferTo}}&date={{beyondHorizonDate}}&time=09:00",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transfers", "quotes"],
+              "query": [
+                { "key": "from", "value": "{{transferFrom}}" },
+                { "key": "to", "value": "{{transferTo}}" },
+                { "key": "date", "value": "{{beyondHorizonDate}}" },
+                { "key": "time", "value": "09:00" }
+              ]
+            },
+            "description": "A pick-up roughly 900 days away.\n\n**Expected: 422** with `details: { \"reason\": \"BEYOND_HORIZON\" }`. The limit is `TRANSFER_BOOKING_HORIZON_DAYS`, 540 by default — nobody can honour a fare that far out."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 422 or 400', () => {",
+                  "    pm.expect([400, 422]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "pm.test('Reason is BEYOND_HORIZON', () => {",
+                  "    pm.expect(JSON.stringify(pm.response.json().error)).to.include('BEYOND_HORIZON');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Quote — unknown point (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transfers/quotes?from=no-such-point-at-all&to={{transferTo}}&date={{transferDate}}&time=09:00",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transfers", "quotes"],
+              "query": [
+                { "key": "from", "value": "no-such-point-at-all" },
+                { "key": "to", "value": "{{transferTo}}" },
+                { "key": "date", "value": "{{transferDate}}" },
+                { "key": "time", "value": "09:00" }
+              ]
+            },
+            "description": "**Expected: 404** — a place we do not serve.\n\nContrast with a *served* pair that has no curated price: that is still a 200, because the distance engine prices it. Every pair of served points is bookable."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('Status is 404', () => pm.response.to.have.status(404));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Revalidate the quote (200, never 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"token\": \"{{quoteToken}}\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/transfers/quotes/revalidate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transfers", "quotes", "revalidate"]
+            },
+            "description": "**Expected: 200**, the offer re-priced.\n\n**This one is deliberately not strict**, unlike the hotel re-quote. It is the preview call a results page makes when a token has been sitting in a tab, so it *shows* the new fare rather than refusing. A changed price here is a 200, not a 409.\n\nBooking calls the same pricing function in strict mode and gets a 409 instead — that difference is intentional, so do not file it as an inconsistency.\n\nExpired token → 410. Tampered token → 400."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 — a moved fare is shown, not refused', () => {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Returns a priced offer with its own token', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body).to.have.property('token');",
+                  "    pm.expect(body.quote.totals.totalCents).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm the transfer (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{transferIdempotencyKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"quoteToken\": \"{{quoteToken}}\",\n    \"leadPassenger\": {\n        \"firstName\": \"Nino\",\n        \"lastName\": \"Beridze\",\n        \"email\": \"{{guestEmail}}\",\n        \"phone\": \"+995555123456\"\n    },\n    \"flightNumber\": \"TK378\",\n    \"pickupAddress\": \"Terminal 1, arrivals hall\",\n    \"dropoffAddress\": \"Gudauri, main square\",\n    \"specialRequests\": \"Two large ski bags\",\n    \"source\": \"web\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/transfers/bookings",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transfers", "bookings"]
+            },
+            "description": "The token names the journey, the vehicle and the party. Everything else in the body is the paperwork a driver needs: who to look for, what flight they are on, and which door to knock at.\n\n**Expected: 201** — a `TRF-000000` reference, a frozen `route` and `vehicle` snapshot, the `legs`, the `extras` and a `cancellation` schedule.\n\n| Scenario | Expected |\n| --- | --- |\n| Same `Idempotency-Key` replayed | 200, same booking — **not** a second car dispatched |\n| Any amount field | 400 (`.strict()`) |\n| Missing `leadPassenger.email` | 400 |\n| Expired `quoteToken` | 410 |\n| Fare moved since quoting | 409 |\n\nA voucher email is sent **after** the transaction commits, and only on a genuine 201 — never on a replay. Check the server terminal for it: the SMTP conversation is deliberately outside the transaction, so a mail server being down cannot roll back a confirmed booking."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const key = 'pm-trf-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);",
+                  "pm.collectionVariables.set('transferIdempotencyKey', key);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', () => {",
+                  "    pm.expect(pm.response.code, '410 = expired token, 409 = the fare moved').to.equal(201);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('Reference looks like TRF-000000', () => {",
+                  "    pm.expect(body.reference).to.match(/^TRF-\\d+$/);",
+                  "});",
+                  "",
+                  "pm.test('Fare equals the quote — the server priced it', () => {",
+                  "    pm.expect(body.totalCents).to.equal(Number(pm.collectionVariables.get('quotedFareCents')));",
+                  "});",
+                  "",
+                  "pm.test('Route and vehicle are frozen snapshots', () => {",
+                  "    pm.expect(body.route).to.be.an('object');",
+                  "    pm.expect(body.vehicle).to.be.an('object');",
+                  "});",
+                  "",
+                  "pm.test('Carries legs and a cancellation schedule', () => {",
+                  "    pm.expect(body.legs).to.be.an('array').that.is.not.empty;",
+                  "    pm.expect(body.cancellation).to.have.property('windows');",
+                  "});",
+                  "",
+                  "pm.test('SECURITY: no net fare or margin for a traveller', () => {",
+                  "    const text = pm.response.text();",
+                  "    pm.expect(text).to.not.include('netTotalCents');",
+                  "    pm.expect(text).to.not.include('marginCents');",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('transferReference', body.reference);",
+                  "pm.collectionVariables.set('transferTotalCents', body.totalCents);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm again, same key (200 — replay)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{transferIdempotencyKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"quoteToken\": \"{{quoteToken}}\",\n    \"leadPassenger\": {\n        \"firstName\": \"Nino\",\n        \"lastName\": \"Beridze\",\n        \"email\": \"{{guestEmail}}\",\n        \"phone\": \"+995555123456\"\n    },\n    \"flightNumber\": \"TK378\",\n    \"pickupAddress\": \"Terminal 1, arrivals hall\",\n    \"dropoffAddress\": \"Gudauri, main square\",\n    \"specialRequests\": \"Two large ski bags\",\n    \"source\": \"web\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/transfers/bookings",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transfers", "bookings"]
+            },
+            "description": "**Expected: 200** with the **same** `TRF-` reference.\n\nA retry must not dispatch a second car. A 201 here, or a different reference, is a critical bug — and unlike a hotel booking, this one puts a physical vehicle on a road."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 — a replay, not a second car', () => {",
+                  "    pm.expect(pm.response.code,",
+                  "        'a 201 here means a second vehicle was dispatched').to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Same reference as the original', () => {",
+                  "    pm.expect(pm.response.json().reference)",
+                  "        .to.equal(pm.collectionVariables.get('transferReference'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read the transfer booking (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transfers/bookings/{{transferReference}}?email={{guestEmail}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transfers", "bookings", "{{transferReference}}"],
+              "query": [{ "key": "email", "value": "{{guestEmail}}" }]
+            },
+            "description": "**Expected: 200**, the full booking.\n\nA traveller must quote `?email=`; a signed-in admin or the owning partner need not. A wrong email is **404**, never \"wrong email\".\n\nNames come from the **snapshot**, not the live route — rename the point in admin afterwards and this response must not change."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test('It is the booking we made', () => {",
+                  "    pm.expect(pm.response.json().reference)",
+                  "        .to.equal(pm.collectionVariables.get('transferReference'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Transfer cancellation quote (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transfers/bookings/{{transferReference}}/cancellation-quote?email={{guestEmail}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transfers", "bookings", "{{transferReference}}", "cancellation-quote"],
+              "query": [{ "key": "email", "value": "{{guestEmail}}" }]
+            },
+            "description": "**Expected: 200** — `{ chargeCents, refundCents, currency, refundable }`.\n\nRead only off the **schedule frozen at confirmation**. The vehicle's current policy is never consulted, so terms tightened later cannot change what an earlier traveller is owed."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test('Charge plus refund equals the fare', () => {",
+                  "    const q = pm.response.json();",
+                  "    pm.expect(q.chargeCents + q.refundCents)",
+                  "        .to.equal(Number(pm.collectionVariables.get('transferTotalCents')));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Amend the transfer paperwork (200)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"flightNumber\": \"TK379\",\n    \"pickupAddress\": \"Terminal 2, arrivals hall, meeting point B\",\n    \"email\": \"{{guestEmail}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/transfers/bookings/{{transferReference}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transfers", "bookings", "{{transferReference}}"]
+            },
+            "description": "Reachable: the lead passenger, their phone, the flight number and the two addresses.\n\nNot reachable: the journey, the vehicle, the date and the party — changing any of those changes the fare, and a fare that changes without being re-quoted is a dispute waiting to happen.\n\n**Expected: 200**, with the fare unchanged. Sending `date` or `adults` → 400. Wrong status → 409."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test('Flight number was updated', () => {",
+                  "    pm.expect(pm.response.json().flightNumber).to.equal('TK379');",
+                  "});",
+                  "",
+                  "pm.test('Fare did not move', () => {",
+                  "    pm.expect(pm.response.json().totalCents)",
+                  "        .to.equal(Number(pm.collectionVariables.get('transferTotalCents')));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel the transfer (200)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"reason\": \"Testing the cancellation path\",\n    \"email\": \"{{guestEmail}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/transfers/bookings/{{transferReference}}/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transfers", "bookings", "{{transferReference}}", "cancel"]
+            },
+            "description": "**Expected: 200** — the booking summary with `status: \"CANCELLED\"` plus the `cancellation` figures.\n\nCancelling twice → 409."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Status is now CANCELLED', () => {",
+                  "    pm.expect(pm.response.json().status).to.equal('CANCELLED');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 · Partner portal",
+      "description": "Requires `partnerEmail` / `partnerPassword` in the environment. Create one by inviting a partner from the admin panel (or `POST /api/admin/partners` with `mode: \"approve\"`), then activating the account from the link printed in the server log.\n\n**The approval gate is the thing to test here.** A `PENDING_APPROVAL` partner can sign in and read `/api/partner/me` — that is what renders the \"application under review\" page — and nothing else. Everything behind `requireApprovedPartner` answers 403 with the status in `details`, so the client can route to the right explanation while the decision stays on the server.\n\nIf you have no partner account yet, skip this folder.",
+      "item": [
+        {
+          "name": "Login — partner",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{partnerEmail}}\",\n    \"password\": \"{{partnerPassword}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] },
+            "description": "**Expected: 200** with `user.role` one of `PARTNER_OWNER`, `PARTNER_ADMIN`, `PARTNER_AGENT`, `PARTNER_FINANCE`, and a **non-null** `partner` object carrying the company's `status`.\n\nSkip this folder if `partnerEmail` is not set."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get('partnerEmail')) {",
+                  "    pm.test.skip('No partner account configured — set partnerEmail / partnerPassword', () => {});",
+                  "} else {",
+                  "    pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "    pm.test('Caller is a partner user with a company attached', () => {",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body.user.role).to.match(/^PARTNER_/);",
+                  "        pm.expect(body.partner, 'a partner user must carry its company').to.not.equal(null);",
+                  "    });",
+                  "",
+                  "    if (pm.response.code === 200 && pm.response.json().partner) {",
+                  "        pm.collectionVariables.set('partnerId', pm.response.json().partner.id);",
+                  "        pm.collectionVariables.set('partnerStatus', pm.response.json().partner.status);",
+                  "        pm.collectionVariables.set('partnerRole', pm.response.json().user.role);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "My company — GET /api/partner/me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/partner/me", "host": ["{{baseUrl}}"], "path": ["api", "partner", "me"] },
+            "description": "**Expected: 200 in every partner status** — `PENDING_APPROVAL`, `APPROVED`, `REJECTED` and `SUSPENDED` alike. This is the one endpoint an unapproved partner can reach, and it is what the portal renders its \"under review\", \"declined\" and \"suspended\" pages from.\n\nAn admin calling it gets **403** — an admin account is not attached to a partner company."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 — readable in every partner status', () => {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Carries the company status', () => {",
+                  "    pm.expect(pm.response.json()).to.have.property('status');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Dashboard — GET /api/partner/dashboard",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/partner/dashboard",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "partner", "dashboard"]
+            },
+            "description": "The landing screen **behind** the approval gate.\n\n**Expected (approved): 200**\n\n```json\n{ \"partner\": {…}, \"stats\": { \"listings\": 3, \"bookings\": 41, \"upcoming\": 7, \"cancelled\": 2 } }\n```\n\n`upcoming` counts `CONFIRMED` bookings whose check-in is today or later — what the partner can still act on.\n\n**Expected (not approved): 403** with `details: { \"partnerStatus\": \"PENDING_APPROVAL\" }`. That contrast against `/partner/me` above is the approval gate, and it is worth testing deliberately."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const status = pm.collectionVariables.get('partnerStatus');",
+                  "",
+                  "if (status === 'APPROVED') {",
+                  "    pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "    pm.test('Stats are counts, not lists', () => {",
+                  "        const s = pm.response.json().stats;",
+                  "        ['listings', 'bookings', 'upcoming', 'cancelled'].forEach((k) => {",
+                  "            pm.expect(s[k], k).to.be.a('number');",
+                  "        });",
+                  "    });",
+                  "} else {",
+                  "    pm.test('Status is 403 — the approval gate holds', () => {",
+                  "        pm.expect(pm.response.code).to.equal(403);",
+                  "    });",
+                  "",
+                  "    pm.test('The refusal names the partner status', () => {",
+                  "        pm.expect(JSON.stringify(pm.response.json().error.details || {})).to.include('partnerStatus');",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "My bookings — GET /api/partner/bookings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/partner/bookings?page=1&pageSize=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "partner", "bookings"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "25" },
+                { "key": "status", "value": "CONFIRMED", "disabled": true },
+                { "key": "from", "value": "{{today}}", "disabled": true },
+                { "key": "search", "value": "BKG-", "disabled": true },
+                { "key": "partnerId", "value": "someone-elses-id", "disabled": true }
+              ]
+            },
+            "description": "**Expected: 200**, a paginated list of **this partner's** bookings only.\n\nScoping happens **in the query**, not as a filter afterwards, so there is no path by which one partner reads another's.\n\n**Tick on the disabled `partnerId` parameter** and confirm it changes nothing — an attempt to scope to someone else must be ignored, never honoured.\n\nA partner *does* see `netTotalCents` on its own bookings: the net rate is *its* rate, what it contracted with us. Hiding a supplier's own cost from it would be absurd. It must never be visible to a guest."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const status = pm.collectionVariables.get('partnerStatus');",
+                  "",
+                  "if (status === 'APPROVED') {",
+                  "    pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Paginated', () => pm.expect(pm.response.json()).to.have.property('totalPages'));",
+                  "",
+                  "    pm.test('Every booking belongs to this partner', () => {",
+                  "        const mine = pm.collectionVariables.get('partnerId');",
+                  "        pm.response.json().data.forEach((b) => {",
+                  "            if (b.partner && b.partner.id) {",
+                  "                pm.expect(b.partner.id, `booking ${b.reference} belongs to another partner`).to.equal(mine);",
+                  "            }",
+                  "        });",
+                  "    });",
+                  "} else {",
+                  "    pm.test('Status is 403 for an unapproved partner', () => {",
+                  "        pm.expect(pm.response.code).to.equal(403);",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "My hotels — GET /api/partner/hotels",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/partner/hotels",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "partner", "hotels"]
+            },
+            "description": "The supplier extranet, scoped to the caller's own properties. Readable by **any** partner role.\n\n**Expected: 200** for an approved partner, 403 otherwise.\n\n**The two isolation tests that matter — do these by hand:**\n\n1. Request another supplier's `hotelId` at `/api/partner/hotels/:hotelId`. Expect **404, not 403** — telling you it exists but is not yours would confirm it exists.\n2. As a `PARTNER_AGENT`, attempt `PUT .../room-types/:id/inventory` or `PUT .../rate-plans/:id/rates`. Expect **403** — those two writes are `PARTNER_OWNER`/`PARTNER_ADMIN` only."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const status = pm.collectionVariables.get('partnerStatus');",
+                  "",
+                  "if (status === 'APPROVED') {",
+                  "    pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Returns a data array', () => pm.expect(pm.response.json().data).to.be.an('array'));",
+                  "} else {",
+                  "    pm.test('Status is 403 for an unapproved partner', () => pm.expect(pm.response.code).to.equal(403));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Another supplier's hotel (404, not 403)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/partner/hotels/{{hotelId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "partner", "hotels", "{{hotelId}}"]
+            },
+            "description": "`{{hotelId}}` was captured from the **public** catalogue, so unless this partner happens to own it, this is a cross-tenant request.\n\n**Expected: 404** — not 403. A 403 would confirm the record exists, which is itself information. The `supplierId` comparison is the whole check, and it is what stops one approved supplier reaching another's property by changing an id in a URL.\n\n**A 200 here means cross-tenant data access — stop and report it.**"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Not 200 — no cross-tenant access', () => {",
+                  "    pm.expect(pm.response.code,",
+                  "        'a partner read a hotel it may not own — verify ownership before filing').to.not.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('404 rather than 403 — existence is not confirmed', () => {",
+                  "    pm.expect([403, 404]).to.include(pm.response.code);",
+                  "    pm.expect(pm.response.code, 'a 403 confirms the record exists').to.equal(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Edit my own name (200, any status)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"position\": \"Reservations Manager\",\n    \"phone\": \"+995555123456\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/partner/account",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "partner", "account"]
+            },
+            "description": "**Expected: 200**, the updated user.\n\nAllowed in **every** partner status and to **every** partner role — correcting the spelling of your own name is not a privileged act, and someone whose application is still under review should be able to fix a typo in it.\n\nAn empty body `{}` returns the unchanged user with 200."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 — allowed in every status', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test('Returns the user, not the company', () => {",
+                  "    pm.expect(pm.response.json()).to.have.property('email');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Self-approve attempt (400/403)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"status\": \"APPROVED\",\n    \"commissionRateBps\": 0,\n    \"reference\": \"P-000001\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/partner/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "partner", "profile"]
+            },
+            "description": "A partner trying to approve itself, rename its Partner ID and award itself a zero commission.\n\n**Expected: 400** (the fields are not in the allow-list schema) or **403** (role/status gate), depending on which guard is reached first. **Never 200 with the changes applied.**\n\nThe self-update schema is an allow-list rather than a blocklist, so `status`, `reference`, `commissionRateBps` and the reviewer stamps are not merely ignored — they never reach the update at all.\n\n**Verify afterwards:** re-read `/api/partner/me` and confirm `status` and `commissionRateBps` are unchanged."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Refused — a partner cannot approve itself', () => {",
+                  "    pm.expect([400, 403],",
+                  "        'privilege escalation: a partner changed its own status or commission').to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bank details — GET /api/partner/financial",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/partner/financial",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "partner", "financial"]
+            },
+            "description": "Restricted to `PARTNER_OWNER` and `PARTNER_FINANCE`, **and** to approved partners — gated identically on read and write.\n\n| Caller | Expected |\n| --- | --- |\n| `PARTNER_OWNER` / `PARTNER_FINANCE`, approved, details on file | 200 — `{ iban, swift, bankName, accountHolder, updatedAt }` |\n| Same, but no details yet | 404 — *\"No bank details on file\"* |\n| `PARTNER_ADMIN` / `PARTNER_AGENT` | **403** — same company, no business seeing the bank details |\n| Unapproved or suspended | 403 |\n\nThat a `PARTNER_ADMIN` is refused is the point of having roles at all rather than one \"partner user\"."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const role = pm.collectionVariables.get('partnerRole');",
+                  "const allowed = ['PARTNER_OWNER', 'PARTNER_FINANCE'].includes(role);",
+                  "",
+                  "if (allowed) {",
+                  "    pm.test('Status is 200 or 404 (nothing on file yet)', () => {",
+                  "        pm.expect([200, 403, 404]).to.include(pm.response.code);",
+                  "    });",
+                  "} else {",
+                  "    pm.test('Status is 403 — this role may not see bank details', () => {",
+                  "        pm.expect(pm.response.code,",
+                  "            `${role} was shown the bank details`).to.equal(403);",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 · Admin",
+      "description": "Everything under `/api/admin/*` is guarded by `authenticate + requireAdmin` on the **router**, not route by route. So the first test for every admin endpoint is the same three-way check: anonymous → 401, partner → 403, admin → 200.\n\nThis folder signs in as an admin first, then reads across the surface. The negative half lives in folder 07.",
+      "item": [
+        {
+          "name": "Login — admin",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{adminEmail}}\",\n    \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] },
+            "description": "**Expected: 200** with `role` of `ADMIN` or `SUPER_ADMIN`.\n\nThis replaces whatever session folder 05 left in the cookie jar."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Caller is staff', () => {",
+                  "    pm.expect(['SUPER_ADMIN', 'ADMIN']).to.include(pm.response.json().user.role);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Partners — list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/partners?page=1&pageSize=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "partners"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "25" },
+                { "key": "status", "value": "PENDING_APPROVAL", "disabled": true },
+                { "key": "search", "value": "alpine", "disabled": true }
+              ]
+            },
+            "description": "**Expected: 200**, paginated.\n\nThe rest of the partner surface:\n\n| Method | Path | Expected |\n| --- | --- | --- |\n| POST | `/api/admin/partners` | 201 — `{ partner, link: { kind, url, expiresAt }, emailSent }` |\n| GET/PATCH | `/api/admin/partners/:id` | 200 |\n| DELETE | `/api/admin/partners/:id` | 204/200 |\n| POST | `/:id/approve` · `/reject` · `/suspend` · `/reactivate` | 200 |\n| GET/PUT | `/:id/financial` | 200 |\n| GET/POST | `/:id/invitations` | 200 / 201 |\n| GET | `/:id/audit` | 200 — who changed what, when |\n\n`POST /api/admin/partners` takes a `mode`: `invite` (draft + registration link), `activate` (account now + password link), or `approve` (account, link, and approved at once). `approve` **requires complete company details** — try it with a partial `company` and expect 400.\n\n**The link is in the response as well as the email**, so a mail server being down does not leave an admin with a partner they cannot onboard. That is how you get an activation URL locally."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Paginated', () => pm.expect(pm.response.json()).to.have.property('totalPages'));",
+                  "",
+                  "const data = pm.response.json().data;",
+                  "if (data.length > 0) pm.collectionVariables.set('adminPartnerId', data[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hotels — list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/hotels?page=1&pageSize=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "hotels"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "25" },
+                { "key": "status", "value": "DRAFT", "disabled": true }
+              ]
+            },
+            "description": "**Expected: 200**. Unlike the public catalogue, this **does** show `DRAFT`, `INACTIVE`, `SUSPENDED` and `ARCHIVED` hotels — that is the whole point of the admin view.\n\nCreate takes **only** `slug`, `name`, `propertyType`, `destinationId`, `starRating`, and optionally `supplierId`, `countryCode`, `timezone`, `currency`. Everything else is a PATCH; sending it on create is a 400. A duplicate `slug` is a 409.\n\nThere is **no DELETE** — only `archive`. A property that has ever been booked has to stay readable."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const data = pm.response.json().data;",
+                  "if (data.length > 0) {",
+                  "    pm.collectionVariables.set('adminHotelId', data[0].id);",
+                  "",
+                  "    pm.test('Admin rows carry the status the public catalogue hides', () => {",
+                  "        pm.expect(data[0]).to.have.property('status');",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hotel detail + publish checklist",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/hotels/{{adminHotelId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "hotels", "{{adminHotelId}}"]
+            },
+            "description": "**Expected: 200**, the hotel **plus a `publishChecklist`**:\n\n```json\n{ \"id\": \"…\", \"status\": \"DRAFT\",\n  \"publishChecklist\": [{ \"code\": \"NO_IMAGES\", \"message\": \"Add at least one image\" }] }\n```\n\nEvery mutation returns the same pairing, so the panel never has to ask twice.\n\n`POST /:id/publish` answers **422** with `details.missing` when the checklist is not empty:\n\n```json\n{ \"error\": { \"message\": \"This hotel is not ready to publish\",\n             \"details\": { \"missing\": [{ \"code\": \"NO_IMAGES\", \"message\": \"…\" }] } } }\n```\n\nA published hotel has an empty checklist — that is worth asserting."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('Every admin hotel read carries a publish checklist', () => {",
+                  "    pm.expect(body.publishChecklist).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('An ACTIVE hotel has nothing outstanding', () => {",
+                  "    if (body.status === 'ACTIVE') {",
+                  "        pm.expect(body.publishChecklist).to.be.empty;",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('Admins DO see the supplier side of the money', () => {",
+                  "    pm.expect(body, 'an admin read should expose staff fields').to.be.an('object');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bookings — every booking on the platform",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/bookings?page=1&pageSize=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "bookings"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "25" },
+                { "key": "status", "value": "CANCELLED", "disabled": true },
+                { "key": "from", "value": "{{today}}", "disabled": true },
+                { "key": "partnerId", "value": "{{adminPartnerId}}", "disabled": true }
+              ]
+            },
+            "description": "**Expected: 200**, every booking on the platform — including the one folder 03 created and cancelled.\n\nUnlike the partner list, an admin **may** scope by `partnerId`.\n\n**This is where the staff-only fields should appear.** Compare a booking here with the same booking read as a guest in folder 03: `netTotalCents`, `markupBps`, `marginCents` and `partner` should be present here and absent there. If they are missing here too, the serializer is over-hiding; if they were present there, it is under-hiding — and that one is severity 1."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Paginated', () => pm.expect(pm.response.json()).to.have.property('totalPages'));",
+                  "",
+                  "pm.test('The booking created in folder 03 is visible to staff', () => {",
+                  "    const ref = pm.collectionVariables.get('bookingReference');",
+                  "    if (ref) {",
+                  "        pm.expect(pm.response.text(), 'run folder 03 first').to.include(ref);",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Booking detail as staff — net rates visible",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/bookings/{{bookingReference}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "bookings", "{{bookingReference}}"]
+            },
+            "description": "The same booking a guest read in folder 03, now read by staff. No `?email=` needed — the session proves it.\n\n**Expected: 200**, and this time carrying `netTotalCents`, `markupBps`, `marginCents` and `partner`.\n\n**This is the other half of the staff-only test.** Folder 03 asserted those fields were *absent* for a guest; this asserts they are *present* for an admin. Both must hold — a field that is hidden from everyone is a broken feature, and one shown to everyone is a leak."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 — no email query needed for staff', () => {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('Staff DO see the supplier side of the money', () => {",
+                  "    const text = pm.response.text();",
+                  "    const hasStaffField = text.includes('netTotalCents') || text.includes('markupBps') ||",
+                  "                          text.includes('marginCents');",
+                  "    pm.expect(hasStaffField,",
+                  "        'no staff-only money fields at all — the serializer may be over-hiding').to.equal(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Transfer bookings — admin",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/transfers/bookings?page=1&pageSize=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "transfers", "bookings"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "20" }
+              ]
+            },
+            "description": "**Expected: 200**, every transfer booking.\n\nAlso available: `GET /:reference` and `POST /:reference/cancel`.\n\nTransfers keep their bookings under their own prefix rather than joining `/bookings` — the two products share no identifier space, and a `TRF` reference is not a `BKG` one."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Paginated', () => pm.expect(pm.response.json()).to.have.property('totalPages'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Destinations tree — admin",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/destinations/tree",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "destinations", "tree"]
+            },
+            "description": "**Expected: 200**, the tree including destinations the public endpoint hides.\n\nThe rest: `GET`/`POST /api/admin/destinations`, `GET`/`PATCH`/`DELETE /:id`, and `PUT /:id/translations/:locale`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('Status is 200', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pricing rules — which markup applies",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/pricing-rules",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "pricing-rules"]
+            },
+            "description": "**Expected: 200**, the markup rules.\n\n`GET /api/admin/pricing-rules/explain?partnerId=…&hotelId=…` is the useful one for testing: it says **which rule wins and why** for a given partner and hotel. Use it when a price looks wrong — it will tell you whether the figure came from a partner-specific rule or from `HOTEL_DEFAULT_MARKUP_BPS` (1500 = 15%).\n\n`PUT`/`DELETE /:id` maintain them."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('Status is 200', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Media library",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/media?page=1&pageSize=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "media"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "25" },
+                { "key": "category", "value": "CONTRACT", "disabled": true }
+              ]
+            },
+            "description": "**Expected: 200**.\n\n**Visibility is decided by the category, not by the caller:**\n\n| Public — served directly | Private — no URL at all |\n| --- | --- |\n| `HOTEL_IMAGE`, `ROOM_IMAGE`, `AMENITY_ICON` | `CONTRACT`, `RATE_SHEET`, `INVOICE`, `VOUCHER`, `IMPORT`, `OTHER` |\n\nA private record has **no `url` field**. Fetch `GET /api/admin/media/:id/url` for a 60-second signed link instead. **If a `CONTRACT` ever comes back with a plain `url`, that is a security bug** — it is asserted below.\n\nUpload is multipart (`file`, `category`, `altText?`). Limits: 10 MB images, 25 MB documents. Over the limit → **413**, *\"That file is too large\"* — not a 500. Two files at once → 400. Wrong field name → 400."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const PRIVATE = ['CONTRACT', 'RATE_SHEET', 'INVOICE', 'VOUCHER', 'IMPORT', 'OTHER'];",
+                  "",
+                  "pm.test('SECURITY: private media never carries a plain URL', () => {",
+                  "    pm.response.json().data.forEach((m) => {",
+                  "        if (PRIVATE.includes(m.category)) {",
+                  "            pm.expect(m.url, `${m.category} ${m.id} exposed a direct URL`).to.not.be.a('string');",
+                  "        }",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "07 · Security & error contract",
+      "description": "Requests that are *supposed* to fail. Every one asserts the correct refusal, so a green run here means the guards hold.\n\nRun the first request last if you also want the session gone — it signs out on purpose.",
+      "item": [
+        {
+          "name": "Sign out",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/auth/logout", "host": ["{{baseUrl}}"], "path": ["api", "auth", "logout"] },
+            "description": "**Expected: 204.** The rest of this folder must run anonymously."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('Status is 204', () => pm.response.to.have.status(204));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin endpoint, anonymous (401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/partners",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "partners"]
+            },
+            "description": "**Expected: 401** — *\"Authentication required\"*.\n\n`authenticate + requireAdmin` is applied to the whole `/admin` router, so this same result should hold for **every** path under it. Worth sweeping across the surface once: pick five admin URLs at random and confirm all five are 401 anonymously and 403 as a partner."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 401', () => {",
+                  "    pm.expect(pm.response.code, 'an admin endpoint was reachable anonymously').to.equal(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Partner endpoint, anonymous (401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/partner/me", "host": ["{{baseUrl}}"], "path": ["api", "partner", "me"] },
+            "description": "**Expected: 401.** Even the endpoint an unapproved partner may read still requires *a* session."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('Status is 401', () => pm.response.to.have.status(401));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cross-site write (403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Origin", "value": "https://evil.example.com" },
+              { "key": "Sec-Fetch-Site", "value": "cross-site" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{adminEmail}}\",\n    \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] },
+            "description": "A state-changing request claiming to come from another origin.\n\n**Expected: 403** — *\"Cross-site requests are not accepted\"*.\n\nThe session cookie's `SameSite` attribute already stops the classic attack, but `SameSite` is same-**site**, not same-**origin**: `evil.iamgeorgia.travel` is the same site as `api.iamgeorgia.travel`, so a page on any sibling subdomain could otherwise make credentialed requests. This closes that.\n\nIt needs nothing from the client — the two headers it reads are set by the browser and cannot be changed by the page making the request.\n\n**Why your normal Postman requests are not blocked:** they carry neither header, and a browser cannot suppress those on a cross-origin write. A request with neither did not come from a page — it came from curl, Postman or a server integration, none of which has an ambient cookie jar to exploit."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 403', () => {",
+                  "    pm.expect(pm.response.code,",
+                  "        'a cross-site write was accepted — CSRF protection is not working').to.equal(403);",
+                  "});",
+                  "",
+                  "pm.test('No session cookie was issued to the foreign origin', () => {",
+                  "    pm.expect(pm.response.headers.has('Set-Cookie')).to.equal(false);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Same-origin write is allowed (not 403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Origin", "value": "http://localhost:3000" },
+              { "key": "Sec-Fetch-Site", "value": "same-site" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n    \"email\": \"someone@example.com\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/password/forgot",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "password", "forgot"]
+            },
+            "description": "The mirror of the previous test: the *configured* client origin must get through.\n\n**Expected: 204** (the forgot-password endpoint's always-204), and definitely **not 403**.\n\nA guard that blocks everything is not a working guard. If this is 403, check `CLIENT_ORIGIN` in `server/.env` — the header sent here is `http://localhost:3000`, the default."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Not 403 — the configured client origin is allowed', () => {",
+                  "    pm.expect(pm.response.code,",
+                  "        'the real client origin was blocked: check CLIENT_ORIGIN in server/.env').to.not.equal(403);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown route (404, correct envelope)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/there-is-no-such-endpoint",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "there-is-no-such-endpoint"]
+            },
+            "description": "**Expected: 404**\n\n```json\n{ \"error\": { \"message\": \"Cannot GET /there-is-no-such-endpoint\" } }\n```\n\nEven a missing route uses the standard envelope rather than Express's default HTML page. A client that parses `error.message` must never be handed HTML."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 404', () => pm.response.to.have.status(404));",
+                  "",
+                  "pm.test('JSON, not an HTML error page', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type') || '').to.include('json');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Malformed JSON (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{ \"email\": \"broken\", " },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] },
+            "description": "A truncated body.\n\n**Expected: 400** in the standard envelope — **not a 500**.\n\nExpress's body parser throws an `http-errors` object carrying its own status and an `expose` flag; the error handler honours both, so a client mistake reads as a client error."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 400 — a malformed body is a client error', () => {",
+                  "    pm.expect(pm.response.code, 'a truncated body should never be a 500').to.equal(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Oversized body (413)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"token\": \"{{hugePayload}}\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/search/offers/quote",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "search", "offers", "quote"]
+            },
+            "description": "A body well over the 100 KB JSON limit.\n\n**Expected: 413** — *payload too large* — in the standard envelope, not a 500 and not a hang.\n\nThe limit exists so a single request cannot make the process allocate unbounded memory. Note that logging is mounted *before* body parsing precisely so a request that blows the limit is still attributed in the logs."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// ~120 KB, comfortably over the 100 KB express.json limit.",
+                  "pm.collectionVariables.set('hugePayload', 'x'.repeat(120000));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 413', () => {",
+                  "    pm.expect(pm.response.code,",
+                  "        'an oversized body should be refused as 413, not processed').to.equal(413);",
+                  "});",
+                  "",
+                  "// Free the 120 KB so it is not carried through the rest of the run.",
+                  "pm.collectionVariables.set('hugePayload', '');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Page size over the cap (400)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?pageSize=5000",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels"],
+              "query": [{ "key": "pageSize", "value": "5000" }]
+            },
+            "description": "**Expected: 400.**\n\nAsking for 5,000 rows is **refused**, not silently clamped. Silently clamping would let a client believe it had the whole list when it had a page of it — which is how a caller ends up paginating incorrectly and missing records.\n\nThe cap is 50 on the catalogue and search, 100 on the admin and partner lists."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 400 — refused, not silently clamped', () => {",
+                  "    pm.expect(pm.response.code).to.equal(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Booking reference that does not exist (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings/BKG-999999?email={{guestEmail}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "bookings", "BKG-999999"],
+              "query": [{ "key": "email", "value": "{{guestEmail}}" }]
+            },
+            "description": "**Expected: 404** — indistinguishable from the \"right reference, wrong email\" case in folder 03.\n\nThat indistinguishability is the point: a booking reference is short and sequential, so if a wrong email and a wrong reference gave different answers, the references could be walked."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 404', () => {",
+                  "    pm.expect([401, 404]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Rate limit — 429 (run manually)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"ratelimit-probe@example.com\",\n    \"password\": \"wrong-on-purpose\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] },
+            "description": "**Send this 11 times in a row.**\n\n- Attempts 1–10 → **401**\n- Attempt 11 → **429**, *\"Too many sign-in attempts. Try again later.\"*, with `RateLimit-*` headers\n\nThe login limiter counts per **IP and email combined** — per-IP alone would let a botnet spread an attack on one account across many addresses, and per-account alone would let one address lock every account it can name.\n\nIt also uses `skipSuccessfulRequests`, so **a correct password is never punished for earlier typos**. Verify that: trip the limit on this probe address, then sign in correctly as the admin — that should still work, because the counter is keyed on the email that was failing.\n\n**Reset:** restart the server (counters live in process memory locally), or wait 15 minutes.\n\nThe test below accepts either code so a single run does not fail; the assertion you care about is that the 11th is a 429."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 401 (or 429 once the limit is reached)', () => {",
+                  "    pm.expect([401, 429]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 429) {",
+                  "    pm.test('Rate limit headers are present', () => {",
+                  "        const has = pm.response.headers.has('RateLimit-Limit') ||",
+                  "                    pm.response.headers.has('RateLimit-Policy') ||",
+                  "                    pm.response.headers.has('RateLimit');",
+                  "        pm.expect(has, 'standardHeaders should expose the limit').to.equal(true);",
+                  "    });",
+                  "",
+                  "    pm.test('429 still uses the standard error envelope', () => {",
+                  "        pm.expect(pm.response.json().error.message).to.be.a('string');",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
