@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
 
 import { prisma } from '../../db/index.js';
-import { ConflictError, ForbiddenError, NotFoundError } from '../../lib/errors.js';
+import {
+    ConflictError,
+    ForbiddenError,
+    NotFoundError,
+    UnprocessableEntityError
+} from '../../lib/errors.js';
 import { recordAudit, AUDIT_ENTITY } from '../../lib/audit.js';
 import { nextHotelBookingReference } from '../../lib/reference.js';
 import { dateOnlyToUtc, nightsBetween, toDateOnly } from '../../lib/time.js';
@@ -11,6 +16,10 @@ import { revalidateOffer } from './search.service.js';
 import { buildCancellationSchedule, calculateRefund } from './policy.service.js';
 import { categorise, DEFAULT_CHILD_POLICY } from './occupancy.service.js';
 import { commitHold, createHold, createHoldIn, findUsableHold, releaseBookedUnits } from './availability.service.js';
+import {
+    ALWAYS_REQUESTABLE_CODES,
+    KOSHER_AMENITY_CATEGORIES
+} from '../../db/seed/kosherAmenities.js';
 
 /**
  * Bookings.
@@ -40,7 +49,8 @@ const bookingInclude = {
             nights: { orderBy: { date: 'asc' } },
             guests: true
         }
-    }
+    },
+    requests: { orderBy: { createdAt: 'asc' } }
 };
 
 /**
@@ -63,6 +73,50 @@ const deriveIdempotencyKey = (input) =>
             ].join('|')
         )
         .digest('base64url');
+
+/**
+ * What this property can actually be asked for.
+ *
+ * A capability says the hotel *can*; a request says this guest *needs*. Keeping
+ * them apart is the whole reason requests are validated here rather than simply
+ * stored: an agency that asks a hotel with no mikveh for a mikveh should be told
+ * so at the point of booking, not discover it at the desk.
+ *
+ * The vocabulary is the hotel's own kosher amenities plus a small always-askable
+ * set — a property that serves kosher food can be asked for a kosher meal even
+ * if nobody remembered to tick the box, and refusing that would make the form
+ * useless for exactly the properties it matters most to.
+ */
+const requestableCodes = async (client, hotelId) => {
+    const amenities = await client.hotelAmenity.findMany({
+        where: { hotelId, amenity: { category: { in: KOSHER_AMENITY_CATEGORIES } } },
+        select: { amenity: { select: { code: true } } }
+    });
+
+    return new Set([...amenities.map((entry) => entry.amenity.code), ...ALWAYS_REQUESTABLE_CODES]);
+};
+
+/**
+ * 422 naming exactly what the property does not do.
+ *
+ * A 422 rather than a 400: the request is well formed, it is the property that
+ * cannot meet it — the same distinction the publish checklist already draws.
+ */
+const assertRequestsSupported = async (client, hotelId, requests) => {
+    if (!requests?.length) {
+        return;
+    }
+
+    const allowed = await requestableCodes(client, hotelId);
+    const unsupported = requests.map(({ code }) => code).filter((code) => !allowed.has(code));
+
+    if (unsupported.length > 0) {
+        throw new UnprocessableEntityError(
+            'This property does not offer some of those requirements',
+            { unsupported }
+        );
+    }
+};
 
 const snapshotHotel = (hotel) => ({
     id: hotel.id,
@@ -199,6 +253,11 @@ export const confirmBooking = async (input, actor, req) => {
 
     const party = categorise(adults, childAges, DEFAULT_CHILD_POLICY);
 
+    // Before anything is claimed. A requirement the property cannot meet should
+    // fail the request outright rather than leave a booking somebody has to
+    // unpick, and this is a read that has no business inside the transaction.
+    await assertRequestsSupported(prisma, hotel.id, input.requests);
+
     try {
         const booking = await prisma.$transaction(async (tx) => {
             // Claimed on this transaction, not its own, so the rooms and the
@@ -245,6 +304,19 @@ export const confirmBooking = async (input, actor, req) => {
                     leadGuestEmail: input.leadGuest.email,
                     leadGuestPhone: input.leadGuest.phone ?? null,
                     specialRequests: input.specialRequests ?? null,
+                    // Structured requirements, stored alongside the free text.
+                    // They deliberately do NOT hold the booking open: the rooms
+                    // are claimed and priced, so the reservation is CONFIRMED,
+                    // and each requirement carries its own answer. Making a meal
+                    // request gate the room would turn a secured booking into a
+                    // pending one and would put confirmed inventory into a state
+                    // cancellation and reconciliation do not expect.
+                    requests: {
+                        create: (input.requests ?? []).map((request) => ({
+                            code: request.code,
+                            note: request.note ?? null
+                        }))
+                    },
                     hotelSnapshot: snapshotHotel(hotel),
                     confirmedAt: new Date(),
                     source: input.source ?? 'web',
@@ -586,12 +658,17 @@ export const amendBooking = async (reference, input, actor, req) =>
                 : {})
         };
 
+        const requestChanges =
+            input.requests === undefined
+                ? null
+                : await reconcileRequests(tx, booking, input.requests);
+
         const fields = Object.keys(data);
 
         // An empty amendment is not an error — a form submitted unchanged is an
         // ordinary thing — but it must not leave an audit row saying nothing
         // happened.
-        if (fields.length === 0) {
+        if (fields.length === 0 && !requestChanges?.changed) {
             return booking;
         }
 
@@ -602,7 +679,10 @@ export const amendBooking = async (reference, input, actor, req) =>
             });
         }
 
-        await tx.hotelBooking.update({ where: { id: booking.id }, data });
+        if (fields.length > 0) {
+            await tx.hotelBooking.update({ where: { id: booking.id }, data });
+        }
+
 
         await recordAudit(tx, {
             action: 'BOOKING_AMENDED',
@@ -610,7 +690,163 @@ export const amendBooking = async (reference, input, actor, req) =>
             entityType: AUDIT_ENTITY.booking,
             entityId: booking.id,
             summary: `Amended ${booking.reference}`,
-            metadata: { reference: booking.reference, fields },
+            metadata: {
+                reference: booking.reference,
+                fields,
+                ...(requestChanges?.changed
+                    ? {
+                          requestsAdded: requestChanges.added,
+                          requestsWithdrawn: requestChanges.withdrawn,
+                          requestsRenoted: requestChanges.renoted
+                      }
+                    : {})
+            },
+            req
+        });
+
+        return tx.hotelBooking.findUnique({ where: { id: booking.id }, include: bookingInclude });
+    });
+
+/**
+ * Brings the request set in line with what the amendment asked for.
+ *
+ * Sent whole rather than patched, so withdrawing one is sending the list
+ * without it — the same shape the amenity checklist uses.
+ *
+ * Two rules, and both are about not letting an agency rewrite history:
+ *
+ *   * A request the property has already **answered** is left exactly as it is.
+ *     Otherwise re-sending a declined requirement would quietly reset it to
+ *     REQUESTED, and asking again would look like never having been refused.
+ *   * A withdrawal is a status, not a delete. "They asked for a mikveh and
+ *     changed their mind" is worth being able to see afterwards.
+ */
+const reconcileRequests = async (tx, booking, requested) => {
+    await assertRequestsSupported(tx, booking.hotelId, requested);
+
+    const existing = booking.requests ?? [];
+    const byCode = new Map(existing.map((request) => [request.code, request]));
+    const wanted = new Map(requested.map((request) => [request.code, request]));
+
+    const added = [];
+    const withdrawn = [];
+    const renoted = [];
+
+    for (const [code, request] of wanted) {
+        const current = byCode.get(code);
+
+        if (!current) {
+            await tx.hotelBookingRequest.create({
+                data: { bookingId: booking.id, code, note: request.note ?? null }
+            });
+            added.push(code);
+            continue;
+        }
+
+        // Answered is final from this side. The note may still be corrected —
+        // the agency clarifying which nights it meant is useful to the property
+        // whichever way the answer went.
+        if (request.note !== undefined && (request.note ?? null) !== (current.note ?? null)) {
+            await tx.hotelBookingRequest.update({
+                where: { id: current.id },
+                data: { note: request.note ?? null }
+            });
+
+            // Counted as a change. Without this a note-only amendment writes to
+            // the database and then returns the record as it was read at the
+            // top of the transaction — so the caller sees its own edit missing,
+            // and no audit row says it happened.
+            renoted.push(code);
+        }
+
+        if (current.status === 'WITHDRAWN') {
+            await tx.hotelBookingRequest.update({
+                where: { id: current.id },
+                data: { status: 'REQUESTED', respondedAt: null, respondedByUserId: null, responseNote: null }
+            });
+            added.push(code);
+        }
+    }
+
+    for (const request of existing) {
+        if (wanted.has(request.code) || request.status === 'WITHDRAWN') {
+            continue;
+        }
+
+        await tx.hotelBookingRequest.update({
+            where: { id: request.id },
+            data: { status: 'WITHDRAWN', respondedAt: new Date() }
+        });
+        withdrawn.push(request.code);
+    }
+
+    return {
+        changed: added.length > 0 || withdrawn.length > 0 || renoted.length > 0,
+        added,
+        withdrawn,
+        renoted
+    };
+};
+
+/**
+ * The property's answer to one requirement.
+ *
+ * Admin-only, because it is the platform speaking for the hotel: a partner
+ * saying its own request is confirmed would be a booking that confirms itself.
+ *
+ * Answering does not touch the booking's own status. The rooms were secured and
+ * priced at confirmation and nothing here changes that — which is the whole
+ * distinction between a reservation and a requirement attached to it.
+ */
+export const answerBookingRequest = async (reference, requestId, input, actor, req) =>
+    prisma.$transaction(async (tx) => {
+        const booking = await tx.hotelBooking.findFirst({
+            where: { OR: [{ id: reference }, { reference }] },
+            include: bookingInclude
+        });
+
+        if (!booking) {
+            throw new NotFoundError('Booking not found');
+        }
+
+        const request = booking.requests.find((entry) => entry.id === requestId);
+
+        if (!request) {
+            throw new NotFoundError('Requirement not found');
+        }
+
+        if (request.status === 'WITHDRAWN') {
+            throw new ConflictError('That requirement was withdrawn', { status: request.status });
+        }
+
+        if (request.status === input.status) {
+            throw new ConflictError(`That requirement is already ${input.status}`, {
+                status: request.status
+            });
+        }
+
+        await tx.hotelBookingRequest.update({
+            where: { id: requestId },
+            data: {
+                status: input.status,
+                respondedAt: new Date(),
+                respondedByUserId: actor?.id ?? null,
+                responseNote: input.responseNote ?? null
+            }
+        });
+
+        await recordAudit(tx, {
+            action: 'BOOKING_REQUEST_ANSWERED',
+            actor,
+            entityType: AUDIT_ENTITY.bookingRequest,
+            entityId: requestId,
+            summary: `${input.status === 'CONFIRMED' ? 'Confirmed' : 'Declined'} "${request.code}" on ${booking.reference}`,
+            metadata: {
+                reference: booking.reference,
+                hotelId: booking.hotelId,
+                code: request.code,
+                from: request.status
+            },
             req
         });
 

@@ -194,9 +194,23 @@ export const confirmTransferSchema = z
         specialRequests: textField(1000).optional(),
 
         source: z.enum(['web', 'partner', 'admin']).default('web'),
-        idempotencyKey: z.string().min(8).max(200).optional()
+        idempotencyKey: z.string().min(8).max(200).optional(),
+
+        /**
+         * A partner's choice of driver, and optionally which of their cars,
+         * for every leg. Ids only: the server decides whether the driver is
+         * eligible and free, and offers the job in the same transaction that
+         * writes the booking. A guest sending one is a 400 — the field is a
+         * partner feature, not a hint.
+         */
+        preferredDriverId: z.string().min(1).max(64).optional(),
+        preferredFleetVehicleId: z.string().min(1).max(64).optional()
     })
-    .strict();
+    .strict()
+    .refine((value) => !value.preferredFleetVehicleId || Boolean(value.preferredDriverId), {
+        message: 'A car can only be chosen together with its driver',
+        path: ['preferredFleetVehicleId']
+    });
 
 /**
  * An amendment.

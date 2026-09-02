@@ -1,3 +1,4 @@
+import type { KosherSummary } from "./catalogue";
 import type { AmenityId, GalleryImage, Review, ReviewCategoryScore } from "./common";
 
 export type PropertyType = "Hotel" | "Boutique" | "Resort" | "Guesthouse" | "Lodge";
@@ -60,4 +61,19 @@ export interface Hotel {
   /** Lowest nightly rate across room types, in USD. */
   priceFrom: number;
   featured: boolean;
+  /**
+   * Every amenity code the API sent, including ones the prototype's fourteen-key
+   * `AmenityId` union has no icon for.
+   *
+   * `amenities` above stays narrowed to that union so the icon map keeps its
+   * exhaustiveness check; this is the unfiltered list, and it is what a filter
+   * matches against — a kosher facility must be filterable whether or not the
+   * prototype ever had a picture for it.
+   *
+   * Optional because the prototype fixtures in `data/hotels.ts` predate it and
+   * carry only the narrowed union; a reader falls back to `amenities` there.
+   */
+  amenityCodes?: string[];
+  /** Present only for a property that offers kosher services at all. */
+  kosher?: KosherSummary | null;
 }

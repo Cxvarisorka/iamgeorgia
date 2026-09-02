@@ -106,6 +106,10 @@ const loadOfferContext = async (candidates, locale) => {
                 featuredImage: { include: { variants: true } },
                 amenities: { include: { amenity: true } },
                 childPolicy: { include: { bands: { orderBy: { minAge: 'asc' } } } },
+                // For the card's kosher line. Archived certificates are dropped
+                // here rather than in the serializer, so a property with years
+                // of history still costs a handful of rows on a search page.
+                kosher: { include: { certifications: { where: { archivedAt: null } } } },
                 taxFees: true,
                 translations: locale && locale !== 'en' ? { where: { locale }, take: 1 } : false
             }
@@ -245,6 +249,11 @@ export const searchHotels = async (criteria, viewer) => {
                 : [criteria.mealPlan]
             : null,
         refundableOnly: criteria.refundableOnly ?? false,
+        // Two clauses in the candidate query, and nothing else. Every kosher
+        // *facility* filter — restaurant, Shabbat elevator, synagogue, mikveh —
+        // travels on `amenity` above, because they are amenities.
+        kosherMinLevel: criteria.kosher ?? null,
+        kosherCertified: criteria.kosherCertified ?? false,
         includePartnerOnly: Boolean(viewer?.partnerId) || Boolean(viewer?.role),
         b2cOnly: !viewer?.partnerId && !viewer?.role,
         today

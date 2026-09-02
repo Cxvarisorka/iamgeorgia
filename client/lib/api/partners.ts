@@ -11,7 +11,7 @@ import type {
   PartnerStatus,
   PartnerSummary,
 } from "@/types/partner";
-import type { SessionUser } from "@/types/auth";
+import type { Session, SessionUser } from "@/types/auth";
 
 /**
  * Typed calls against the partner endpoints.
@@ -200,7 +200,7 @@ export const readActivation = (token: string) =>
   }>(`/api/auth/activation/${token}`);
 
 export const setPasswordFromActivation = (token: string, password: string) =>
-  apiFetch<{ user: unknown; partner: Partner | null }>(`/api/auth/activation/${token}`, {
+  apiFetch<Session>(`/api/auth/activation/${token}`, {
     method: "POST",
     body: { password },
   });

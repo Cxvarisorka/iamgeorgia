@@ -7,7 +7,7 @@ import { config } from '../../config.js';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../../lib/errors.js';
 import { recordAudit, AUDIT_ENTITY } from '../../lib/audit.js';
 import { logger } from '../../lib/logger.js';
-import { isAdmin } from '../../middleware/auth.js';
+import { isAdmin, isTransferOps } from '../../middleware/auth.js';
 import { newAssetFolder, objectKeyFor, extensionForMime } from '../../lib/media/keys.js';
 import { processImage } from './image.service.js';
 import { putObject, removeObjectPrefix, signedUrlForObject } from './storage.service.js';
@@ -50,11 +50,33 @@ const VISIBILITY_FOR_CATEGORY = {
     INVOICE: 'PRIVATE',
     VOUCHER: 'PRIVATE',
     IMPORT: 'PRIVATE',
+    // A scan of a signed certificate on a permanent public URL is a forgeable
+    // artefact. The *facts* — authority, scope, validity — travel in the API
+    // response for anyone to read; the image is reached through a signed,
+    // audited request, like every other document.
+    KOSHER_CERTIFICATE: 'PRIVATE',
+    // A car and the driver who meets the traveller are shown, so their
+    // photographs are public. Their licences, insurance and ID scans are not.
+    FLEET_IMAGE: 'PUBLIC',
+    DRIVER_PHOTO: 'PUBLIC',
+    DRIVER_DOCUMENT: 'PRIVATE',
+    VEHICLE_DOCUMENT: 'PRIVATE',
     OTHER: 'PRIVATE'
 };
 
 const isImageCategory = (category) =>
-    ['HOTEL_IMAGE', 'ROOM_IMAGE', 'AMENITY_ICON'].includes(category);
+    ['HOTEL_IMAGE', 'ROOM_IMAGE', 'AMENITY_ICON', 'FLEET_IMAGE', 'DRIVER_PHOTO'].includes(category);
+
+/**
+ * Categories that accept a photograph as well as a document.
+ *
+ * A kosher certificate arrives as a PDF from an authority that has one and as a
+ * phone photograph of a framed certificate from one that does not, and refusing
+ * the second would mean refusing most of them. It is still not an *image*
+ * category: it stays private and it is not resized into gallery renditions,
+ * because nothing renders it in a gallery.
+ */
+const MIXED_MEDIA_CATEGORIES = new Set(['KOSHER_CERTIFICATE']);
 
 /**
  * Establishes what a file actually is.
@@ -91,18 +113,35 @@ const looksLikeText = (buffer) => {
 
 const assertAcceptable = (mimeType, category, sizeBytes) => {
     const wantsImage = isImageCategory(category);
-    const allowed = wantsImage ? IMAGE_MIME_TYPES : DOCUMENT_MIME_TYPES;
+    const mixed = MIXED_MEDIA_CATEGORIES.has(category);
 
-    if (!allowed.has(mimeType)) {
-        throw new BadRequestError(
-            wantsImage
-                ? 'Upload a JPEG, PNG, WebP or AVIF image'
-                : 'Upload a PDF, Excel or CSV document',
-            { detectedMimeType: mimeType }
-        );
+    let allowed;
+    let message;
+
+    if (wantsImage) {
+        allowed = IMAGE_MIME_TYPES;
+        message = 'Upload a JPEG, PNG, WebP or AVIF image';
+    } else if (mixed) {
+        // Spreadsheets are excluded deliberately: a certificate is a document
+        // or a photograph of one, never a workbook, and a narrower list is a
+        // smaller surface.
+        allowed = new Set([...IMAGE_MIME_TYPES, 'application/pdf']);
+        message = 'Upload a PDF or a JPEG, PNG, WebP or AVIF image of the certificate';
+    } else {
+        allowed = DOCUMENT_MIME_TYPES;
+        message = 'Upload a PDF, Excel or CSV document';
     }
 
-    const limit = wantsImage ? config.media.maxImageBytes : config.media.maxDocumentBytes;
+    if (!allowed.has(mimeType)) {
+        throw new BadRequestError(message, { detectedMimeType: mimeType });
+    }
+
+    // A photograph of a certificate is sized like a photograph, so a mixed
+    // category takes whichever limit suits the bytes that actually arrived.
+    const limit =
+        wantsImage || (mixed && IMAGE_MIME_TYPES.has(mimeType))
+            ? config.media.maxImageBytes
+            : config.media.maxDocumentBytes;
 
     if (sizeBytes > limit) {
         throw new BadRequestError('That file is too large', { sizeBytes, limitBytes: limit });
@@ -224,9 +263,22 @@ export const uploadFile = async (
     }
 };
 
-/** Ownership, for supplier users. Admins reach everything. */
+/**
+ * The categories transfer operations staff work with. A dispatcher uploads a
+ * car's photograph and reads a driver's licence scan; a dispatcher never
+ * reaches a partner's contract.
+ */
+const OPS_CATEGORIES = new Set(['FLEET_IMAGE', 'DRIVER_PHOTO', 'DRIVER_DOCUMENT', 'VEHICLE_DOCUMENT']);
+
+export const isOpsCategory = (category) => OPS_CATEGORIES.has(category);
+
+/** Ownership, for supplier users. Admins reach everything; operations staff reach their own categories. */
 const assertMayReach = (asset, viewer) => {
     if (isAdmin(viewer)) {
+        return;
+    }
+
+    if (isTransferOps(viewer) && isOpsCategory(asset.category)) {
         return;
     }
 

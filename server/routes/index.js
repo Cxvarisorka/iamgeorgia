@@ -25,6 +25,11 @@ import {
     transferBookingRoutes
 } from './transfers.bookings.routes.js';
 import { adminTransferRoutes } from './admin.transfers.routes.js';
+import { adminFleetRoutes } from './admin.fleet.routes.js';
+import { adminDriverRoutes } from './admin.drivers.routes.js';
+import { adminDispatchRoutes } from './admin.dispatch.routes.js';
+import { driverRoutes } from './driver.routes.js';
+import { partnerDriverRoutes } from './partner.drivers.routes.js';
 
 /**
  * Everything under /api. Mounted as one router so app.js keeps saying what the
@@ -63,10 +68,19 @@ routes.use('/admin/media', adminMediaRoutes);
 routes.use('/admin/bookings', adminBookingRoutes);
 routes.use('/admin/pricing-rules', adminPricingRuleRoutes);
 routes.use('/admin/transfers/bookings', adminTransferBookingRoutes);
+// Operations staff (dispatchers included) run the fleet and the drivers;
+// the catalogue router below them stays admin-only. Mounted first so the
+// broader guard on /admin/transfers cannot shadow them.
+routes.use('/admin/transfers/fleet', adminFleetRoutes);
+routes.use('/admin/transfers/drivers', adminDriverRoutes);
+routes.use('/admin/transfers/dispatch', adminDispatchRoutes);
 routes.use('/admin/transfers', adminTransferRoutes);
 routes.use('/partner/hotels', partnerHotelRoutes);
 routes.use('/partner/bookings', partnerBookingRoutes);
 routes.use('/partner/transfers/bookings', partnerTransferBookingRoutes);
+routes.use('/partner/drivers', partnerDriverRoutes);
 routes.use('/partner', partnerRoutes);
+// The driver panel. Scoped on the session's driver profile, never on input.
+routes.use('/driver', driverRoutes);
 
 export default routes;

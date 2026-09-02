@@ -331,6 +331,26 @@ describe('hotel search', { skip: dbAvailable ? false : 'Postgres is not reachabl
             assert.ok(byMeal.includes(five.hotel.id) && !byMeal.includes(three.hotel.id));
         });
 
+        it('matches a camelCase amenity code without mangling it', async () => {
+            // A regression test for a filter that used to fail silently: the
+            // amenity parameter ran through `slugField`, which lowercases, so
+            // `skiStorage` became `skistorage` and matched no row. Twenty-six
+            // of the seeded codes are capitalised, and every kosher facility
+            // code is — so this is the assertion that keeps them filterable.
+            const camelCase = await makeAmenity(tracker, { code: unique('skiStorage') });
+            const has = await makeSellableHotel();
+            const lacks = await makeSellableHotel();
+
+            await prisma.hotelAmenity.create({
+                data: { hotelId: has.hotel.id, amenityId: camelCase.id }
+            });
+
+            const ids = idsIn(await search({ destinationPath: country.path, amenity: camelCase.code }));
+
+            assert.ok(ids.includes(has.hotel.id));
+            assert.ok(!ids.includes(lacks.hotel.id));
+        });
+
         it('requires every requested amenity, not just one', async () => {
             const [pool, parking] = [await makeAmenity(tracker), await makeAmenity(tracker)];
             const both = await makeSellableHotel();
@@ -350,6 +370,201 @@ describe('hotel search', { skip: dbAvailable ? false : 'Postgres is not reachabl
 
             assert.ok(ids.includes(both.hotel.id));
             assert.ok(!ids.includes(onlyPool.hotel.id));
+        });
+
+        /**
+         * Kosher, in the dated search.
+         *
+         * Two clauses and one LEFT JOIN, and the tests below are about what
+         * those two clauses must and must not match. The *facility* filters —
+         * a Shabbat elevator, a synagogue — are not tested separately here
+         * because they are amenities and are covered by the amenity test
+         * above: that is the point of modelling them as amenities.
+         */
+        const enableKosher = async (hotelId, serviceLevel = 'FULL') =>
+            prisma.hotelKosherProfile.create({ data: { hotelId, serviceLevel } });
+
+        const certify = async (profileId, overrides = {}) =>
+            prisma.hotelKosherCertification.create({
+                data: {
+                    profileId,
+                    authorityName: 'Chief Rabbinate of Georgia',
+                    scope: 'PROPERTY',
+                    verification: 'VERIFIED',
+                    verifiedAt: new Date(),
+                    ...overrides
+                }
+            });
+
+        it('leaves every result alone when no kosher filter is asked for', async () => {
+            const kosher = await makeSellableHotel();
+            const plain = await makeSellableHotel();
+            await enableKosher(kosher.hotel.id);
+
+            const ids = idsIn(await search({ destinationPath: country.path }));
+
+            // The whole backward-compatibility guarantee, as one assertion: an
+            // unfiltered search is unaffected by the feature existing.
+            assert.ok(ids.includes(kosher.hotel.id));
+            assert.ok(ids.includes(plain.hotel.id));
+        });
+
+        it('filters to properties that offer kosher services', async () => {
+            const kosher = await makeSellableHotel();
+            const plain = await makeSellableHotel();
+            await enableKosher(kosher.hotel.id, 'KOSHER_FRIENDLY');
+
+            const ids = idsIn(await search({ destinationPath: country.path, kosher: 'KOSHER_FRIENDLY' }));
+
+            assert.ok(ids.includes(kosher.hotel.id));
+            assert.ok(!ids.includes(plain.hotel.id));
+        });
+
+        it('treats the level as a minimum, ordered by the enum itself', async () => {
+            const full = await makeSellableHotel();
+            const friendly = await makeSellableHotel();
+            await enableKosher(full.hotel.id, 'FULL');
+            await enableKosher(friendly.hotel.id, 'KOSHER_FRIENDLY');
+
+            const atLeastPartial = idsIn(
+                await search({ destinationPath: country.path, kosher: 'PARTIAL' })
+            );
+            assert.ok(atLeastPartial.includes(full.hotel.id));
+            assert.ok(!atLeastPartial.includes(friendly.hotel.id));
+
+            const atLeastFriendly = idsIn(
+                await search({ destinationPath: country.path, kosher: 'KOSHER_FRIENDLY' })
+            );
+            assert.ok(atLeastFriendly.includes(full.hotel.id));
+            assert.ok(atLeastFriendly.includes(friendly.hotel.id));
+        });
+
+        it('never matches a property recorded as not kosher', async () => {
+            const declined = await makeSellableHotel();
+            await enableKosher(declined.hotel.id, 'NONE');
+
+            const ids = idsIn(await search({ destinationPath: country.path, kosher: 'ON_REQUEST' }));
+
+            assert.ok(!ids.includes(declined.hotel.id));
+        });
+
+        it('filters to a live certificate, and nothing else', async () => {
+            const certified = await makeSellableHotel();
+            const uncertified = await makeSellableHotel();
+            const expired = await makeSellableHotel();
+            const unverified = await makeSellableHotel();
+            const archived = await makeSellableHotel();
+            const restaurantOnly = await makeSellableHotel();
+
+            const profiles = Object.fromEntries(
+                await Promise.all(
+                    [certified, uncertified, expired, unverified, archived, restaurantOnly].map(
+                        async (entry) => [entry.hotel.id, await enableKosher(entry.hotel.id)]
+                    )
+                )
+            );
+
+            await certify(profiles[certified.hotel.id].id, { expiresOn: dateOnlyToUtc('2030-01-01') });
+            // Verified once, and lapsed since. No job has run; the filter is
+            // correct anyway, which is why expiry is derived rather than stored.
+            await certify(profiles[expired.hotel.id].id, { expiresOn: dateOnlyToUtc('2020-01-01') });
+            await certify(profiles[unverified.hotel.id].id, {
+                verification: 'UNVERIFIED',
+                verifiedAt: null
+            });
+            await certify(profiles[archived.hotel.id].id, { archivedAt: new Date() });
+            // A certified restaurant inside a hotel is not a certified hotel.
+            await certify(profiles[restaurantOnly.hotel.id].id, { scope: 'RESTAURANT' });
+
+            const ids = idsIn(
+                await search({ destinationPath: country.path, kosherCertified: 'true' })
+            );
+
+            assert.ok(ids.includes(certified.hotel.id));
+            assert.ok(!ids.includes(uncertified.hotel.id), 'no certificate at all');
+            assert.ok(!ids.includes(expired.hotel.id), 'an expired certificate is not a certificate');
+            assert.ok(!ids.includes(unverified.hotel.id), 'nobody checked it');
+            assert.ok(!ids.includes(archived.hotel.id), 'archived is history');
+            assert.ok(!ids.includes(restaurantOnly.hotel.id), 'a restaurant is not a property');
+        });
+
+        it('is still valid on the day it expires', async () => {
+            const hotel = await makeSellableHotel();
+            const profile = await enableKosher(hotel.hotel.id);
+            await certify(profile.id, {
+                expiresOn: dateOnlyToUtc(new Date().toISOString().slice(0, 10))
+            });
+
+            const ids = idsIn(
+                await search({ destinationPath: country.path, kosherCertified: 'true' })
+            );
+
+            assert.ok(ids.includes(hotel.hotel.id));
+        });
+
+        it('combines with destination, stars and a facility', async () => {
+            // The worked example from the brief: Tbilisi + 4/5 stars + kosher
+            // certified + Shabbat-friendly.
+            const shabbat = await makeAmenity(tracker, {
+                code: unique('shabbatLift'),
+                category: 'Shabbat'
+            });
+
+            const match = await makeSellableHotel({ starRating: 5 });
+            const noFacility = await makeSellableHotel({ starRating: 5 });
+            const tooFewStars = await makeSellableHotel({ starRating: 3 });
+
+            for (const entry of [match, noFacility, tooFewStars]) {
+                const profile = await enableKosher(entry.hotel.id);
+                await certify(profile.id, { expiresOn: dateOnlyToUtc('2030-01-01') });
+            }
+
+            await prisma.hotelAmenity.createMany({
+                data: [
+                    { hotelId: match.hotel.id, amenityId: shabbat.id },
+                    { hotelId: tooFewStars.hotel.id, amenityId: shabbat.id }
+                ]
+            });
+
+            const ids = idsIn(
+                await search({
+                    destinationPath: country.path,
+                    minStars: '4',
+                    kosherCertified: 'true',
+                    amenity: shabbat.code
+                })
+            );
+
+            assert.ok(ids.includes(match.hotel.id));
+            assert.ok(!ids.includes(noFacility.hotel.id));
+            assert.ok(!ids.includes(tooFewStars.hotel.id));
+        });
+
+        it('carries a kosher line on the result card, and only when there is one', async () => {
+            const kosher = await makeSellableHotel();
+            const plain = await makeSellableHotel();
+            const profile = await enableKosher(kosher.hotel.id);
+            await certify(profile.id, { expiresOn: dateOnlyToUtc('2030-01-01') });
+
+            const response = await search({ destinationPath: country.path });
+            const cards = Object.fromEntries(response.body.data.map((row) => [row.id, row]));
+
+            assert.equal(cards[kosher.hotel.id].kosher.certified, true);
+            assert.equal(
+                cards[kosher.hotel.id].kosher.authorityName,
+                'Chief Rabbinate of Georgia'
+            );
+            // Absent, not null: "this hotel does not do kosher" and "this
+            // response carries no kosher information" are the same absence.
+            assert.ok(!('kosher' in cards[plain.hotel.id]));
+        });
+
+        it('refuses NONE as a filter value', async () => {
+            // "Properties we have confirmed are not kosher" is not a search
+            // anybody performs, so the schema does not offer it.
+            const response = await search({ destinationPath: country.path, kosher: 'NONE' });
+
+            assert.equal(response.status, 400);
         });
 
         it('filters to refundable offers only', async () => {

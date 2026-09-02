@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { prisma } from '../db/index.js';
 import { dateOnlyToUtc } from '../lib/time.js';
 import { validate } from '../middleware/validate.js';
-import { authenticate, requireApprovedPartner, requireRole } from '../middleware/auth.js';
+import { authenticate, requireApprovedPartner, requirePartner, requireRole } from '../middleware/auth.js';
 import { ForbiddenError, NotFoundError } from '../lib/errors.js';
 import { partnerSelfUpdateSchema, accountUpdateSchema, financialUpdateSchema } from '../validation/partner.js';
 import { toPartnerDetail } from '../serializers/partner.js';
@@ -13,7 +13,7 @@ import { recordAudit, AUDIT_ENTITY } from '../lib/audit.js';
 
 export const partnerRoutes = Router();
 
-partnerRoutes.use(authenticate);
+partnerRoutes.use(authenticate, requirePartner);
 
 const ownPartnerId = (req) => {
     if (!req.user.partnerId) {

@@ -505,6 +505,13 @@ export const en = {
       anyScore: "Any score",
       veryGood: "Very good · 8+",
       exceptional: "Exceptional · 9+",
+      destination: "Destination",
+      starRating: "Star rating",
+      anyStars: "Any rating",
+      starsPlus: "{count}+ stars",
+      starsFive: "5 stars",
+      showAll: "Show all {count}",
+      showFewer: "Show fewer",
     },
     sort: {
       recommended: "Our recommendations",
@@ -548,6 +555,99 @@ export const en = {
       airportShuttle: "Airport shuttle",
       terrace: "Terrace",
       roomService: "Room service",
+    },
+    /**
+     * Kosher.
+     *
+     * Every label here is keyed on an enum value or a facility code, never on
+     * text stored in the database. `hotels.kosher.features.shabbatElevator` is
+     * the label; the row holds `shabbatElevator`, so a property entered by an
+     * English-speaking admin reads in Hebrew for the agency that books it.
+     *
+     * The three badge strings are not interchangeable, and picking between them
+     * is the whole point: "certified" is only ever rendered from the server's
+     * derived `certified` flag, which needs a verified, unexpired,
+     * property-scoped certificate. A hotel with every kosher facility ticked and
+     * no certificate reads "Kosher services · not certified".
+     */
+    kosher: {
+      title: "Kosher",
+      navLabel: "Kosher",
+      badgeCertified: "Kosher certified",
+      badgeUncertified: "Kosher services · not certified",
+      badgeExpired: "Kosher services · certification expired",
+      badgePending: "Kosher services · certification under review",
+      certification: "Certification",
+      certifiedBy: "Certification: {authority}",
+      scopeLabel: "Scope",
+      validUntil: "Valid until",
+      noExpiry: "No expiry",
+      issuedOn: "Issued",
+      reference: "Certificate number",
+      verifiedOn: "Verified by our team on {date}",
+      expiringSoon: "Expires in {count} days",
+      expiredOn: "Expired {date}",
+      viewCertificate: "View certificate",
+      certificateTradeOnly: "Sign in as a partner to view the certificate.",
+      selfDeclared:
+        "Facilities below are stated by the property. Only the certification above has been checked by our team.",
+      contact: "Kosher enquiries",
+      notesHeading: "In the property's words",
+      filterHeading: "Kosher",
+      filterAnyKosher: "Kosher services",
+      filterCertified: "Kosher certified",
+      serviceLevel: {
+        NONE: "Not kosher",
+        ON_REQUEST: "Kosher meals on request",
+        KOSHER_FRIENDLY: "Kosher-friendly",
+        PARTIAL: "Partly kosher",
+        FULL: "Fully kosher",
+      },
+      scopes: {
+        PROPERTY: "Whole property",
+        KITCHEN: "Kitchen",
+        RESTAURANT: "Restaurant only",
+        PASSOVER: "Passover only",
+      },
+      states: {
+        NONE: "No certificate",
+        UNVERIFIED: "Not yet checked",
+        PENDING_VERIFICATION: "Under review",
+        VERIFIED: "Verified",
+        EXPIRED: "Expired",
+        REJECTED: "Rejected",
+        ARCHIVED: "Archived",
+      },
+      groups: {
+        KosherFood: "Food & dining",
+        Shabbat: "Shabbat",
+        Religious: "Religious facilities",
+      },
+      features: {
+        kosherRestaurant: "Kosher restaurant",
+        kosherKitchen: "Kosher kitchen",
+        kosherBreakfast: "Kosher breakfast",
+        kosherLunch: "Kosher lunch",
+        kosherDinner: "Kosher dinner",
+        separateMeatDairy: "Separate meat and dairy preparation",
+        kosherMealOnRequest: "Kosher meal on request",
+        passoverKosher: "Kosher for Passover",
+        kosherWine: "Kosher wine",
+        shabbatElevator: "Shabbat elevator",
+        shabbatMeals: "Shabbat meals",
+        manualRoomKeys: "Physical room keys",
+        shabbatLighting: "Shabbat room lighting",
+        shabbatHotPlate: "Shabbat hot plate",
+        shabbatLateCheckout: "Late Saturday checkout",
+        synagogueOnSite: "Synagogue on property",
+        synagogueNearby: "Synagogue nearby",
+        prayerRoom: "Prayer room",
+        minyanDaily: "Daily minyan",
+        mikvehOnSite: "Mikveh on property",
+        mikvehNearby: "Mikveh nearby",
+        eruv: "Within an eruv",
+      },
+      walkingMinutes: "{count} min walk",
     },
     scoreLabels: {
       exceptional: "Exceptional",
@@ -636,6 +736,16 @@ export const en = {
   },
 
   transfers: {
+    rating: {
+      title: "How was your transfer?",
+      intro: "A minute to rate your driver helps us keep the good drivers busy. Your rating is anonymous to the driver.",
+      scoreLabel: "Score out of 5",
+      commentPlaceholder: "Anything to add? Comments are read by our team before they appear.",
+      submit: "Send rating",
+      thanks: "Thank you — your rating has been recorded.",
+      expired: "This rating link has expired.",
+      already: "This transfer has already been rated.",
+    },
     metaTitle: "Transfers",
     metaDescription:
       "Private cars, minivans and shared shuttles between Georgian airports, cities and hotels — booked in advance, with a named driver and a fixed price.",
@@ -807,6 +917,7 @@ export const en = {
       flightTracking: "Flight tracking",
       bottledWater: "Bottled water",
       freeWaiting: "Free waiting time",
+      wheelchairAccessible: "Wheelchair accessible",
     },
 
     kinds: {
@@ -992,6 +1103,28 @@ export const en = {
       noTransferBody:
         "Pick a vehicle from the results and we will bring your journey through to this step.",
       searchTransfers: "Search transfers",
+      // Choosing the driver: shown to partners only.
+      driverSection: "Choose your driver",
+      driverBody: "As a partner you can ask for a particular driver. They are offered the job first and asked to confirm; if they cannot take it, our dispatch team assigns another.",
+      driverAny: "Let us assign a driver",
+      driverAnyBody: "Dispatch picks the best available driver for this journey.",
+      driverLoading: "Checking who is available…",
+      driverNone: "No driver is free for this journey yet. Dispatch will assign one after you book.",
+      driverLoadFailed: "We could not load the available drivers. You can still book and let us assign one.",
+      driverVerified: "Verified",
+      driverRatings: "{avg} · {count} ratings",
+      driverNoRatings: "No ratings yet",
+      driverTransfers: "{count} transfers driven",
+      driverExperience: "{count} years driving",
+      driverSpeaks: "Speaks {languages}",
+      driverCarCapacity: "{passengers} passengers · {luggage} bags",
+      driverChooseCar: "Which car",
+      driverPhotos: "Photos of the car",
+      driverUnavailable: "That driver is no longer free for this journey. Choose another, or let us assign one.",
+      driverNotEligible: "That driver cannot take this journey. Choose another, or let us assign one.",
+      driverRequested: "Requested driver",
+      driverAwaiting: "Waiting for the driver to confirm. We will let you know as soon as they do.",
+      driverConfirmed: "Your driver has confirmed.",
       errors: {
         firstName: "Please give the lead passenger's first name.",
         lastName: "Please give the lead passenger's last name.",
@@ -1227,6 +1360,24 @@ export const en = {
    * translation nit here — it is a dispute later.
    */
   booking: {
+    requirements: {
+      heading: "Religious and dietary requirements",
+      hint:
+        "Only what this property offers is listed. Each is passed to the hotel and confirmed separately from your rooms — your booking is secure either way.",
+      none: "None requested",
+      notePlaceholder: "Anything the property needs to know",
+      noteLabel: "Note for {feature}",
+      pending: "{count} awaiting the property",
+      allConfirmed: "All requirements confirmed",
+      awaitingHeading: "Awaiting the property",
+      unsupported: "This property does not offer: {items}",
+      status: {
+        REQUESTED: "Requested",
+        CONFIRMED: "Confirmed by the property",
+        DECLINED: "Not available",
+        WITHDRAWN: "Withdrawn",
+      },
+    },
     search: {
       checkIn: "Check-in",
       checkOut: "Check-out",

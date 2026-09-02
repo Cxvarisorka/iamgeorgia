@@ -64,7 +64,10 @@ describe('media', { skip: dbAvailable ? false : 'Postgres is not reachable' }, (
     after(async () => {
         await tracker.cleanup();
         await disconnect();
-        await rm(config.media.localRoot, { recursive: true, force: true });
+        // Best effort: the fleet suite runs in another process and writes to
+        // the same scratch root, and a directory that is busy being written
+        // to is not a failure of this suite.
+        await rm(config.media.localRoot, { recursive: true, force: true }).catch(() => {});
     });
 
     /** Uploads through the real multipart route. */
@@ -153,6 +156,81 @@ describe('media', { skip: dbAvailable ? false : 'Postgres is not reachable' }, (
             // The same text claiming to be a PDF is not identifiable and is refused.
             const refused = await upload(csv, 'rates.pdf', 'application/pdf', 'IMPORT');
             assert.equal(refused.status, 400);
+        });
+    });
+
+    /**
+     * Kosher certificates.
+     *
+     * The one category that takes a document *or* a photograph, because an
+     * authority with no PDF hands over a framed certificate and a phone picture
+     * of it is what actually arrives. It is still not an image category: it
+     * stays private and grows no gallery renditions, because nothing renders a
+     * certificate in a gallery.
+     */
+    describe('kosher certificates', () => {
+        it('accepts a PDF', async () => {
+            const response = await upload(
+                pdfBuffer(),
+                'certificate.pdf',
+                'application/pdf',
+                'KOSHER_CERTIFICATE'
+            );
+
+            assert.equal(response.status, 201);
+        });
+
+        it('accepts a photograph of one', async () => {
+            const response = await upload(
+                await pngBuffer(900, 1200),
+                'certificate.png',
+                'image/png',
+                'KOSHER_CERTIFICATE'
+            );
+
+            assert.equal(response.status, 201);
+        });
+
+        it('stores it private, with no renditions and no public URL', async () => {
+            const response = await upload(
+                pdfBuffer(),
+                'certificate.pdf',
+                'application/pdf',
+                'KOSHER_CERTIFICATE'
+            );
+
+            const asset = await prisma.fileAsset.findUnique({
+                where: { id: response.body.id },
+                include: { variants: true }
+            });
+
+            // Visibility is decided by category and never by the caller, so a
+            // certificate cannot be uploaded public however anyone asks.
+            assert.equal(asset.visibility, 'PRIVATE');
+            assert.equal(asset.variants.length, 0);
+            assert.ok(!('url' in response.body), 'a private asset carries no address');
+        });
+
+        it('still refuses an executable wearing a certificate name', async () => {
+            const response = await upload(
+                exeBuffer(),
+                'certificate.pdf',
+                'application/pdf',
+                'KOSHER_CERTIFICATE'
+            );
+
+            assert.equal(response.status, 400);
+        });
+
+        it('refuses a spreadsheet — a certificate is not a workbook', async () => {
+            const response = await upload(
+                Buffer.from('a,b,c\n1,2,3\n'),
+                'certificate.csv',
+                'text/csv',
+                'KOSHER_CERTIFICATE'
+            );
+
+            assert.equal(response.status, 400);
         });
     });
 

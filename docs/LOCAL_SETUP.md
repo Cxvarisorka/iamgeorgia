@@ -179,7 +179,34 @@ node scripts/seed-catalogue.js
 node scripts/seed-transfers.js
 node scripts/seed-transfer-translations.js   # ka / ru / he copy
 node scripts/seed-transfer-bookings.js       # a few demo bookings
+node scripts/seed-fleet.js                   # demo drivers and cars, and dispatches the demo legs
+
+# Kosher: profiles and certificates over the hotels above.
+node scripts/seed-kosher.js
 ```
+
+`seed-kosher.js` is written for **coverage rather than volume** — eight
+properties, arranged so that every state the feature can be in is on a screen at
+once. Two of them are the ones worth opening first:
+
+* **Abanotubani Residence** holds a certificate that is verified and still valid,
+  and reads `certified: false` — it covers the restaurant, and a certified
+  restaurant inside a hotel is not a certified hotel.
+* **Gudauri Alpine Hotel** holds one that was verified and has since lapsed. It
+  reports `EXPIRED` with no job having run, because expiry is derived from the
+  date on every read rather than stored.
+
+Also seeded: a certificate expiring inside the 60-day warning window, one
+awaiting review, an archived predecessor certificate, a supplier update held
+back because staff have written the record, and structured nearby synagogues and
+mikvehs with walking times.
+
+Certificate dates are **relative to the day you run it**, so the expired one
+stays expired and the live one stays live however long the database sits.
+
+Like the others it is idempotent, and it goes further: a property that already
+has a kosher profile is skipped whole, so anything entered by hand in the admin
+panel survives a re-run untouched.
 
 Every one of these is **idempotent** — re-running refreshes editorial fields and
 never deletes anything an operator has changed. `seed-transfer-bookings.js`
@@ -187,6 +214,9 @@ books through the real quote-and-confirm path rather than inserting rows, so if
 it succeeds, the booking path works.
 
 To undo the demo bookings only: `node scripts/seed-transfer-bookings.js --clear`.
+To undo the demo drivers and cars: `node scripts/seed-fleet.js --clear`. Every
+demo driver signs in at `/driver/sign-in` with the password the script prints
+(`driver-demo-password` unless `--password` was given).
 
 ### 4.8 Start the API
 

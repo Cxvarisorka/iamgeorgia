@@ -37,6 +37,8 @@ import { hotelGallery } from '../services/hotel/gallery.service.js';
 import { adminChildPolicyRoutes, adminRoomTypeRoutes } from './admin.roomTypes.routes.js';
 import { adminHotelMealPlanRoutes, adminPolicyRoutes } from './admin.ratePlans.routes.js';
 import { adminTaxFeeRoutes } from './admin.inventory.routes.js';
+import { adminKosherRoutes } from './admin.hotels.kosher.routes.js';
+import { adminHotelDocumentRoutes } from './admin.hotels.documents.routes.js';
 
 /**
  * Hotel administration — the eleven-step wizard's back end.
@@ -58,6 +60,12 @@ adminHotelRoutes.use('/:hotelId/child-policy', adminChildPolicyRoutes);
 adminHotelRoutes.use('/:hotelId/policies', adminPolicyRoutes);
 adminHotelRoutes.use('/:hotelId/meal-plans', adminHotelMealPlanRoutes);
 adminHotelRoutes.use('/:hotelId/tax-fees', adminTaxFeeRoutes);
+// Kosher and the document library hang off a hotel the same way. Kosher lives
+// behind its own router rather than as fields on `PATCH /:id` so that
+// verification cannot be reached by an ordinary hotel update — the same
+// treatment `status` gets, and for the same reason.
+adminHotelRoutes.use('/:hotelId/kosher', adminKosherRoutes);
+adminHotelRoutes.use('/:hotelId/documents', adminHotelDocumentRoutes);
 
 adminHotelRoutes.get('/', validate({ query: hotelQuerySchema }), async (req, res) => {
     const { locale } = req.valid.query;

@@ -264,7 +264,29 @@ export interface TransferQuoteResult {
   offers: TransferOffer[];
 }
 
+/** Where a leg is operationally. The booking's own status is commercial. */
+export type TransferLegStatus =
+  | "UNASSIGNED"
+  | "ASSIGNED"
+  | "ACCEPTED"
+  | "EN_ROUTE"
+  | "ARRIVED"
+  | "ON_BOARD"
+  | "COMPLETED"
+  | "NO_SHOW_REPORTED"
+  | "NO_SHOW"
+  | "CANCELLED";
+
+export type TransferAssignmentStatus =
+  | "OFFERED"
+  | "ACCEPTED"
+  | "DECLINED"
+  | "REVOKED"
+  | "COMPLETED"
+  | "NO_SHOW";
+
 export interface TransferBookingLeg {
+  id: string;
   legIndex: number;
   direction: TransferLegDirection;
   from: string;
@@ -274,6 +296,15 @@ export interface TransferBookingLeg {
   durationMinutes: number;
   sellCents: number;
   netCents?: number;
+  status: TransferLegStatus;
+  /**
+   * Who is coming. Operations get the full assignment; a partner or a
+   * passenger gets the accepted driver's public profile, or null until then.
+   * Typed loosely here and narrowed by the screen that knows its audience.
+   */
+  assignment: import("./driver").AssignmentAdmin | import("./driver").AssignmentForPartner | null;
+  /** The score already left on this leg, if any. */
+  rating: { score: number; status: import("./driver").RatingStatus } | null;
 }
 
 /** The journey as it was sold. A voucher reads this, never the live route. */
@@ -325,6 +356,8 @@ export interface TransferBookingSummary {
   currency: string;
   totalCents: number;
   createdAt: string;
+  /** One per leg, in leg order. */
+  legStatuses: TransferLegStatus[];
 
   // staff only
   netTotalCents?: number;
@@ -386,6 +419,13 @@ export interface ConfirmTransferInput {
   dropoffAddress?: string;
   specialRequests?: string;
   idempotencyKey?: string;
+  /**
+   * A partner's choice of driver, and which of their cars, for every leg.
+   * Partner sessions only; the server checks eligibility and availability
+   * and answers 409 `DRIVER_UNAVAILABLE` or 422 `DRIVER_NOT_ELIGIBLE`.
+   */
+  preferredDriverId?: string;
+  preferredFleetVehicleId?: string;
 }
 
 /** Deliberately cannot move the journey. Amending that means cancel and rebook. */

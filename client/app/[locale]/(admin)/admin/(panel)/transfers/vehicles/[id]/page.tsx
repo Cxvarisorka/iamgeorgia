@@ -44,7 +44,7 @@ export default async function AdminTransferVehiclePage({
     <AdminContainer>
       <AdminBreadcrumbs
         items={[
-          { label: "Transfer fleet", href: path("/admin/transfers/vehicles") },
+          { label: "Vehicle classes", href: path("/admin/transfers/vehicles") },
           { label: vehicle.name },
         ]}
       />

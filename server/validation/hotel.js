@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import {
+    amenityCodeField,
     clockTimeField,
     countryField,
     currencyField,
@@ -15,11 +16,24 @@ import {
     websiteField
 } from './normalize.js';
 import { SUPPORTED_LOCALES } from '../lib/locales.js';
+import { KOSHER_SERVICE_LEVELS } from './kosher.js';
 import { hotelPoliciesSchema, nearbyPlaceSchema, reviewCategoryScoreSchema } from './domain.js';
 
 const PROPERTY_TYPES = ['Hotel', 'Boutique', 'Resort', 'Guesthouse', 'Lodge', 'Apartment', 'Chalet', 'Hostel', 'Villa'];
 const HOTEL_STATUSES = ['DRAFT', 'ACTIVE', 'INACTIVE', 'SUSPENDED', 'ARCHIVED'];
 const INVENTORY_SOURCES = ['MANUAL', 'CHANNEL_MANAGER', 'SUPPLIER_API'];
+
+/**
+ * The two kosher filters, shared by the admin register and the public
+ * catalogue.
+ *
+ * Facility filters are absent because they are not needed: a kosher restaurant
+ * and a Shabbat elevator are amenities, so they already travel on `amenity`.
+ */
+const kosherFilterFields = {
+    kosher: z.enum(KOSHER_SERVICE_LEVELS.filter((level) => level !== 'NONE')).optional(),
+    kosherCertified: z.stringbool().optional()
+};
 
 export const idParamSchema = z.object({ id: z.string().min(1) });
 export const slugParamSchema = z.object({ slug: slugField });
@@ -158,6 +172,7 @@ export const hotelQuerySchema = z.object({
     propertyType: z.union([z.enum(PROPERTY_TYPES), z.array(z.enum(PROPERTY_TYPES))]).optional(),
     countryCode: countryField.optional(),
     featured: z.stringbool().optional(),
+    ...kosherFilterFields,
     locale: z.enum(SUPPORTED_LOCALES).default('en'),
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(25)
@@ -177,8 +192,9 @@ export const publicHotelQuerySchema = z.object({
     propertyType: z.union([z.enum(PROPERTY_TYPES), z.array(z.enum(PROPERTY_TYPES))]).optional(),
     countryCode: countryField.optional(),
     minStars: z.coerce.number().int().min(1).max(5).optional(),
-    amenity: z.union([slugField, z.array(slugField)]).optional(),
+    amenity: z.union([amenityCodeField, z.array(amenityCodeField)]).optional(),
     featured: z.stringbool().optional(),
+    ...kosherFilterFields,
     locale: z.enum(SUPPORTED_LOCALES).default('en'),
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(50).default(24)

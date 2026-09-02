@@ -25,6 +25,8 @@ interface RoomOffersProps {
   hotelName: string;
   stay: StayQuery;
   roomTypes: RoomAvailability[];
+  /** Kosher facility codes this property offers, for the checkout picker. */
+  requestableCodes?: string[];
 }
 
 /**
@@ -40,7 +42,13 @@ interface RoomOffersProps {
  * page can alter what the guest is charged; the server re-prices it anyway when
  * the hold is taken, and again when the booking is confirmed.
  */
-export function RoomOffers({ hotelSlug, hotelName, stay, roomTypes }: RoomOffersProps) {
+export function RoomOffers({
+  hotelSlug,
+  hotelName,
+  stay,
+  roomTypes,
+  requestableCodes,
+}: RoomOffersProps) {
   const router = useRouter();
   const path = useLocalePath();
   const { t, locale, intlLocale } = useI18n();
@@ -66,6 +74,7 @@ export function RoomOffers({ hotelSlug, hotelName, stay, roomTypes }: RoomOffers
         hotelSlug,
         hotelName,
         stay,
+        requestableCodes,
         idempotencyKey: newIdempotencyKey(),
       });
 

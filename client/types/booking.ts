@@ -1,4 +1,4 @@
-import type { MealPlan, Money, PaymentPolicy } from "./catalogue";
+import type { KosherSummary, MealPlan, Money, PaymentPolicy } from "./catalogue";
 
 /**
  * Search offers and bookings, mirroring `server/serializers/search.js` and
@@ -13,6 +13,38 @@ import type { MealPlan, Money, PaymentPolicy } from "./catalogue";
 export type HotelBookingStatus = "PENDING" | "CONFIRMED" | "CANCELLED" | "COMPLETED" | "NO_SHOW";
 export type BookingRoomStatus = "CONFIRMED" | "CANCELLED";
 export type BookingGuestType = "ADULT" | "CHILD" | "INFANT";
+
+/**
+ * The life of one structured requirement on a booking.
+ *
+ * Deliberately independent of `HotelBookingStatus`: the rooms were secured and
+ * priced at confirmation, and a meal still being arranged does not put them
+ * back in doubt. A booking can be CONFIRMED with three REQUESTED requirements
+ * on it, and that is the accurate description of where things stand.
+ */
+export type BookingRequestStatus = "REQUESTED" | "CONFIRMED" | "DECLINED" | "WITHDRAWN";
+
+/**
+ * A requirement an agency asked the property for.
+ *
+ * `code` is a facility key from the amenity vocabulary, never a label — the
+ * display string comes from the client dictionary, so a booking made in English
+ * reads in Hebrew for whoever opens it next.
+ */
+export interface BookingRequest {
+  id: string;
+  code: string;
+  note: string | null;
+  status: BookingRequestStatus;
+  respondedAt: string | null;
+  responseNote: string | null;
+}
+
+/** What an agency asks for at checkout. */
+export interface BookingRequestInput {
+  code: string;
+  note?: string | null;
+}
 
 // --- search -----------------------------------------------------------------
 
@@ -106,6 +138,8 @@ export interface SearchResult {
   refundable: boolean;
   offerCount: number;
   cheapestOffer: Offer;
+  /** Present only for a property that offers kosher services at all. */
+  kosher?: KosherSummary | null;
 }
 
 export interface SearchResponse {
@@ -171,6 +205,15 @@ export interface ConfirmBookingInput {
   leadGuest: LeadGuest;
   guests?: BookingGuestInput[];
   specialRequests?: string;
+  /**
+   * Structured requirements, alongside the free text rather than instead of it.
+   *
+   * Validated against what the property actually offers: a code the hotel does
+   * not support is a 422 naming it, because a capability says the hotel *can*
+   * and a request says this guest *needs*, and an agency should learn the
+   * difference at booking rather than at the desk.
+   */
+  requests?: BookingRequestInput[];
   source?: "web" | "partner" | "admin";
   idempotencyKey?: string;
 }
@@ -192,6 +235,12 @@ export interface AmendBookingInput {
     phone?: string | null;
   };
   specialRequests?: string | null;
+  /**
+   * The requirement set, sent whole — withdrawing one means sending the list
+   * without it. Anything the property has already answered is left alone, so
+   * re-asking cannot quietly undo a refusal.
+   */
+  requests?: BookingRequestInput[];
   /** A guest's proof the booking is theirs. Ignored for a signed-in viewer. */
   email?: string;
 }
@@ -241,6 +290,8 @@ export interface BookingSummary {
   createdAt: string;
   confirmedAt: string | null;
   cancelledAt: string | null;
+  /** How many requirements the property has still to answer. */
+  requestsPending: number;
   /** staff only */
   netTotalCents?: number;
   markupBps?: number;
@@ -276,6 +327,8 @@ export interface Booking extends BookingSummary {
   cancellationChargeCents: number | null;
   cancellationReason: string | null;
   source: string;
+  /** The structured requirements and the property's answers to them. */
+  requests: BookingRequest[];
   bookingRooms: BookingRoom[];
 }
 

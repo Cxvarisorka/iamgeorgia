@@ -7,7 +7,7 @@ import { Loader2, Save } from "lucide-react";
 import { setHotelAmenities, updateHotel } from "@/lib/api/hotels";
 import { describeError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
-import type { CatalogueAmenity, Hotel } from "@/types/catalogue";
+import { KOSHER_AMENITY_CATEGORIES, type CatalogueAmenity, type Hotel } from "@/types/catalogue";
 
 /**
  * Everything about a property that is words and times.
@@ -73,14 +73,40 @@ export function HotelDetailsEditor({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * The general checklist, minus the three kosher categories.
+   *
+   * Those live on the kosher screen, behind its own switch. Left in here they
+   * would put twenty-two religious facilities on the form every ordinary hotel
+   * has to fill in — which is the thing that makes a form get skipped.
+   *
+   * They are still the *same* amenities written through the *same* endpoint;
+   * only the place they are edited differs. Because this form sends the whole
+   * set, the ones it does not show have to be carried through untouched, or
+   * saving descriptions here would silently strip a property's kosher
+   * facilities.
+   */
+  const kosherAmenityIds = useMemo(
+    () =>
+      new Set(
+        vocabulary
+          .filter((amenity) =>
+            (KOSHER_AMENITY_CATEGORIES as readonly string[]).includes(amenity.category),
+          )
+          .map((amenity) => amenity.id),
+      ),
+    [vocabulary],
+  );
+
   const byCategory = useMemo(() => {
     const groups = new Map<string, CatalogueAmenity[]>();
     for (const amenity of vocabulary) {
+      if (kosherAmenityIds.has(amenity.id)) continue;
       if (!groups.has(amenity.category)) groups.set(amenity.category, []);
       groups.get(amenity.category)!.push(amenity);
     }
     return [...groups.entries()];
-  }, [vocabulary]);
+  }, [vocabulary, kosherAmenityIds]);
 
   const toggle = (id: string) => {
     setSelected((current) => {

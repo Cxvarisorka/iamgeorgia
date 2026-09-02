@@ -109,6 +109,41 @@ const seed = async (tag) => {
         select: { id: true }
     });
 
+    /*
+     * Kosher, at a realistic share.
+     *
+     * Roughly one property in twelve carries a profile and most of those a live
+     * certificate, which is what makes the filter selective rather than a
+     * no-op — seeding every hotel as kosher would measure a filter that matches
+     * everything, and seeding none would measure one that short-circuits.
+     */
+    const kosherHotels = hotels.filter((unused, index) => index % 12 === 0);
+
+    await prisma.hotelKosherProfile.createMany({
+        data: kosherHotels.map((hotel, index) => ({
+            hotelId: hotel.id,
+            serviceLevel: index % 3 === 0 ? 'FULL' : 'KOSHER_FRIENDLY'
+        }))
+    });
+
+    const profiles = await prisma.hotelKosherProfile.findMany({
+        where: { hotel: { destinationId: country.id } },
+        select: { id: true }
+    });
+
+    await prisma.hotelKosherCertification.createMany({
+        // Three in four are live; the rest are expired or unverified, so the
+        // partial index has rows it must skip as well as rows it must return.
+        data: profiles.map((profile, index) => ({
+            profileId: profile.id,
+            authorityName: 'Bench Rabbinate',
+            scope: 'PROPERTY',
+            verification: index % 4 === 3 ? 'UNVERIFIED' : 'VERIFIED',
+            verifiedAt: index % 4 === 3 ? null : new Date(),
+            expiresOn: index % 4 === 2 ? new Date('2020-01-01') : new Date('2030-01-01')
+        }))
+    });
+
     // Set-based: one statement per table, expanded by generate_series, rather
     // than hundreds of thousands of round trips.
     await prisma.$executeRawUnsafe(
@@ -199,6 +234,58 @@ const run = async () => {
                 console.log(`  first page: ${result.hotels.length} hotels of ${result.total} matching\n`);
             }
         }
+
+        /*
+         * The kosher filters, measured against the same dataset.
+         *
+         * The claim being checked is that they change the plan's *shape* not at
+         * all: the LEFT JOIN is one probe on a unique foreign key, and the
+         * certification test is an EXISTS against a partial index holding only
+         * live rows. Both should come out at or below the unfiltered figure,
+         * because they narrow the set the pricing pass then has to hydrate.
+         */
+        const measureFilter = async (label, extra) => {
+            const runs = [];
+
+            for (let index = 0; index < 15; index += 1) {
+                const shifted = addDays(checkIn, index % 30);
+                const started = performance.now();
+
+                const result = await searchHotels(
+                    { ...criteria, ...extra, checkIn: shifted, checkOut: addDays(shifted, 3) },
+                    null
+                );
+
+                runs.push(performance.now() - started);
+
+                if (index === 0) {
+                    console.log(`  ${label}: ${result.total} matching`);
+                }
+            }
+
+            return runs;
+        };
+
+        console.log('Kosher filters');
+        const kosherRuns = await measureFilter('kosher services', { kosher: 'KOSHER_FRIENDLY' });
+        const certifiedRuns = await measureFilter('kosher certified', { kosherCertified: true });
+        const combinedRuns = await measureFilter('certified + 4 stars', {
+            kosherCertified: true,
+            minStars: 4
+        });
+
+        console.log(
+            `\n  kosher services   p50 ${percentile(kosherRuns, 50).toFixed(1)} ms  ` +
+                `p95 ${percentile(kosherRuns, 95).toFixed(1)} ms`
+        );
+        console.log(
+            `  kosher certified  p50 ${percentile(certifiedRuns, 50).toFixed(1)} ms  ` +
+                `p95 ${percentile(certifiedRuns, 95).toFixed(1)} ms`
+        );
+        console.log(
+            `  + 4 stars         p50 ${percentile(combinedRuns, 50).toFixed(1)} ms  ` +
+                `p95 ${percentile(combinedRuns, 95).toFixed(1)} ms\n`
+        );
 
         // Where the time goes, not just how much of it there is. Optimising the
         // wrong stage is the usual result of skipping this: the candidate query

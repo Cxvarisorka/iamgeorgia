@@ -7,6 +7,8 @@ import { BookingDetail } from "@/components/booking/BookingDetail";
 import { CancelBooking } from "@/components/booking/CancelBooking";
 import { PrintButton } from "@/components/booking/PrintButton";
 import { PortalBookingEditor } from "@/components/partners/PortalBookingEditor";
+import { PortalTransferBooking } from "@/components/partners/PortalTransferBooking";
+import { getPartnerTransferBooking } from "@/lib/api/transfers";
 import { Container } from "@/components/ui/Container";
 import { getCancellationQuote, getPartnerBooking } from "@/lib/api/bookings";
 import { ApiError } from "@/lib/api/client";
@@ -15,6 +17,7 @@ import { localePath } from "@/lib/i18n/config";
 import { getI18n, getLocale } from "@/lib/i18n/server";
 import { ADMIN_ROLES } from "@/types/auth";
 import type { Booking, CancellationQuote } from "@/types/booking";
+import type { TransferBooking } from "@/types/transfer";
 
 export async function generateMetadata(
   props: PageProps<"/[locale]/portal/bookings/[reference]">,
@@ -57,6 +60,38 @@ export default async function PortalBookingPage(
   }
 
   const { reference } = await props.params;
+
+  // A TRF reference is a transfer, a separate record with its own screen:
+  // the journey as sold, each leg's progress, and the driver once accepted.
+  if (reference.toUpperCase().startsWith("TRF-")) {
+    let transfer: TransferBooking;
+
+    try {
+      transfer = await getPartnerTransferBooking(reference);
+    } catch (error) {
+      if (error instanceof ApiError && [400, 403, 404].includes(error.status)) notFound();
+      throw error;
+    }
+
+    return (
+      <Container className="py-12 sm:py-16">
+        <Link
+          href={path("/portal/bookings")}
+          className="inline-flex items-center gap-2 text-[0.8125rem] text-muted transition-colors hover:text-ink"
+        >
+          <ArrowLeft size={15} className="rtl:-scale-x-100" aria-hidden />
+          All bookings
+        </Link>
+        <h1 className="mt-5 font-display text-[2rem] leading-tight text-ink sm:text-[2.5rem]">
+          {transfer.route.fromName} → {transfer.route.toName}
+        </h1>
+        <p className="mt-2 font-mono text-[0.8125rem] tracking-wide text-brand-text">{transfer.reference}</p>
+        <div className="mt-10 max-w-3xl">
+          <PortalTransferBooking booking={transfer} driverPath={(id) => path(`/portal/drivers/${id}`)} />
+        </div>
+      </Container>
+    );
+  }
 
   let booking: Booking;
 

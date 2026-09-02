@@ -4,6 +4,9 @@ import { logger } from './lib/logger.js';
 import { connect, disconnect } from './db/index.js';
 import { disconnectRateLimitStore } from './middleware/rateLimit.js';
 import { auditSweep, sweepExpiredHolds } from './services/hotel/availability.service.js';
+import { sweepExpiringCertifications } from './services/hotel/kosher.service.js';
+import { drainOutbox } from './services/notifications/outbox.service.js';
+import { sweepReminders } from './services/transfer/reminder.service.js';
 
 const start = async () => {
     await connect();
@@ -41,6 +44,50 @@ const start = async () => {
     // Never hold the process open for a sweep that has not fired yet.
     sweeper.unref();
 
+    /**
+     * Says when a kosher certificate is about to lapse.
+     *
+     * Unlike the hold sweep this one **changes no state**. Expiry is derived on
+     * every read, so a lapsed certificate stops counting as verified the moment
+     * it lapses whether or not this has run — which is deliberate, because a job
+     * that has to run for the data to be right is a job whose failure is
+     * invisible. What this adds is a human hearing about it first.
+     *
+     * Same advisory-lock discipline as the hold sweep, so every instance may run
+     * it and only one will.
+     */
+    const certificationSweeper = setInterval(() => {
+        sweepExpiringCertifications()
+            .then(({ notified, skipped }) => {
+                if (!skipped && notified > 0) {
+                    logger.info({ notified }, 'Kosher certificate expiry notices recorded');
+                }
+            })
+            .catch((err) => logger.error({ err }, 'Kosher certificate sweep failed'));
+    }, config.hotel.certificationSweepIntervalMs);
+
+    certificationSweeper.unref();
+
+    /**
+     * Turns dispatch events into emails and in-app notices.
+     *
+     * The events were written in the same transaction as the state change
+     * they describe; this is the other half. Same advisory-lock discipline:
+     * every instance may run it and only one will.
+     */
+    const outboxDrainer = setInterval(() => {
+        drainOutbox().catch((err) => logger.error({ err }, 'Outbox drain failed'));
+    }, config.transfer.dispatch.outboxDrainIntervalMs);
+
+    outboxDrainer.unref();
+
+    /** Reminders, driver details and "still no driver" alerts, by the clock. */
+    const reminderSweeper = setInterval(() => {
+        sweepReminders().catch((err) => logger.error({ err }, 'Transfer reminder sweep failed'));
+    }, config.transfer.dispatch.reminderSweepIntervalMs);
+
+    reminderSweeper.unref();
+
     let shuttingDown = false;
 
     const shutdown = async (reason, exitCode = 0) => {
@@ -51,6 +98,9 @@ const start = async () => {
         shuttingDown = true;
         logger.info({ reason }, 'Shutting down');
         clearInterval(sweeper);
+        clearInterval(certificationSweeper);
+        clearInterval(outboxDrainer);
+        clearInterval(reminderSweeper);
 
         // A client holding a keep-alive socket can stop server.close() from
         // ever completing, so give in-flight requests a window and then take

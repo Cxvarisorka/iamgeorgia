@@ -5,19 +5,12 @@ import { CalendarCheck, CarFront, Coins } from "lucide-react";
 import { AdminContainer, AdminPageHeader } from "@/components/admin/AdminPage";
 import { Cell, DataTable, EmptyRow, Row } from "@/components/admin/DataTable";
 import { StatCard } from "@/components/admin/StatCard";
+import { TransferBookingStatusBadge } from "@/components/admin/DispatchBadges";
 import { listAdminTransferBookings } from "@/lib/api/transfers";
 import { getI18n } from "@/lib/i18n/server";
 import { formatMoney, formatMoneyCompact } from "@/lib/money";
 
 export const metadata: Metadata = { title: "Transfer bookings" };
-
-const statusTone: Record<string, string> = {
-  CONFIRMED: "border-success/40 bg-success/10 text-success",
-  PENDING: "border-warning/40 bg-warning/10 text-warning-text",
-  CANCELLED: "border-line bg-surface-soft text-muted",
-  COMPLETED: "border-line bg-surface-soft text-muted",
-  NO_SHOW: "border-error/40 bg-error/10 text-error-text",
-};
 
 /**
  * Transfer bookings.
@@ -109,13 +102,7 @@ export default async function AdminTransferBookingsPage({
                   {new Date(booking.pickupAt).toISOString().slice(0, 16).replace("T", " ")}
                 </Cell>
                 <Cell>
-                  <span
-                    className={`inline-flex items-center rounded-sm border px-2 py-0.5 text-[0.6875rem] font-semibold tracking-wide uppercase ${
-                      statusTone[booking.status] ?? statusTone.PENDING
-                    }`}
-                  >
-                    {booking.status.toLowerCase().replace("_", " ")}
-                  </span>
+                  <TransferBookingStatusBadge status={booking.status} />
                 </Cell>
                 <Cell align="end" className="tabular-nums">
                   {formatMoney(booking.totalCents, booking.currency)}

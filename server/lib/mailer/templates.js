@@ -20,6 +20,8 @@ export const invitationUrl = (token) => link(`/partners/register/${token}`);
 export const activationUrl = (token) => link(`/activate/${token}`);
 export const passwordResetUrl = (token) => link(`/reset-password/${token}`);
 export const portalUrl = () => link('/portal');
+export const driverPanelUrl = (assignmentId) => link(assignmentId ? `/driver/assignments/${assignmentId}` : '/driver');
+export const ratingUrl = (token) => link(`/transfers/rate/${token}`);
 
 const formatDate = (date) =>
     new Intl.DateTimeFormat('en-GB', { dateStyle: 'long', timeStyle: 'short', timeZone: 'UTC' }).format(date);
@@ -176,6 +178,26 @@ export const templates = {
         })
     }),
 
+    /** A driver's login, created by operations against an existing profile. */
+    driverAccountActivation: ({ driverName, url, expiresAt }) => ({
+        subject: 'Your I am Georgia driver account',
+        text: plain([
+            `${driverName ? `Hello ${driverName},` : 'Hello,'}`,
+            'A driver account has been created for you on the I am Georgia platform. It is where your assigned transfers, pick-up details and passenger contacts will appear.',
+            `Choose a password to activate it:\n${url}`,
+            `This link can be used once and expires on ${formatDate(expiresAt)} UTC.`
+        ]),
+        html: layout({
+            heading: 'Activate your driver account',
+            paragraphs: [
+                `${driverName ? `Hello ${escapeHtml(driverName)},` : 'Hello,'}`,
+                'A driver account has been created for you on the I am Georgia platform. It is where your assigned transfers, pick-up details and passenger contacts will appear.',
+                `This link can be used once and expires on <strong>${escapeHtml(formatDate(expiresAt))} UTC</strong>.`
+            ],
+            cta: { label: 'Choose your password', url }
+        })
+    }),
+
     /** 6. A replacement invitation, after the first expired or was resent. */
     invitationReissued: ({ companyName, url, expiresAt }) => ({
         subject: 'Your new I am Georgia partner invitation link',
@@ -193,6 +215,152 @@ export const templates = {
                 `It can be used once and expires on <strong>${escapeHtml(formatDate(expiresAt))} UTC</strong>.`
             ],
             cta: { label: 'Complete your registration', url }
+        })
+    }),
+
+    /**
+     * Dispatch. Every one of these describes a fact already committed, and
+     * every one goes through `sendMailQuietly` from the outbox drain.
+     */
+    transferAssignmentOffered: ({ driverName, reference, from, to, pickupAt, timezone, passengers, flightNumber, onBehalf, url }) => ({
+        subject: `${onBehalf ? 'New transfer' : 'Transfer offered'}: ${from} to ${to}, ${formatLocal(pickupAt, timezone)}`,
+        text: plain([
+            `Hello ${driverName},`,
+            onBehalf
+                ? `Dispatch has assigned you a transfer, ${reference}.`
+                : `Dispatch has offered you a transfer, ${reference}. Please accept or decline it in your panel.`,
+            `${from} to ${to}\nPick-up: ${formatLocal(pickupAt, timezone)} (${timezone})\nPassengers: ${passengers}${flightNumber ? `\nFlight: ${flightNumber}` : ''}`,
+            `Open it here:\n${url}`
+        ]),
+        html: layout({
+            heading: onBehalf ? 'A transfer has been assigned to you' : 'A transfer has been offered to you',
+            paragraphs: [
+                `Hello ${escapeHtml(driverName)},`,
+                onBehalf
+                    ? `Dispatch has assigned you <strong>${escapeHtml(reference)}</strong>.`
+                    : `Dispatch has offered you <strong>${escapeHtml(reference)}</strong>. Please accept or decline it in your panel.`,
+                `<strong>${escapeHtml(from)} → ${escapeHtml(to)}</strong><br>Pick-up ${escapeHtml(formatLocal(pickupAt, timezone))} (${escapeHtml(timezone)})<br>${passengers} passenger${passengers === 1 ? '' : 's'}${flightNumber ? `<br>Flight ${escapeHtml(flightNumber)}` : ''}`
+            ],
+            cta: { label: onBehalf ? 'See the transfer' : 'Answer the offer', url },
+            footer: 'I am Georgia &middot; dispatch'
+        })
+    }),
+
+    transferAssignmentRevoked: ({ driverName, reference, from, to, pickupAt, timezone, reason }) => {
+        const why =
+            reason === 'REASSIGNED'
+                ? 'It has been reassigned to another driver.'
+                : reason === 'BOOKING_CANCELLED'
+                  ? 'The booking has been cancelled.'
+                  : 'Dispatch has withdrawn it.';
+
+        return {
+            subject: `${reference} is no longer yours`,
+            text: plain([
+                `Hello ${driverName},`,
+                `The transfer ${reference} (${from} to ${to}, ${formatLocal(pickupAt, timezone)}) is no longer assigned to you. ${why}`,
+                'Nothing more is needed from you for it.'
+            ]),
+            html: layout({
+                heading: `${escapeHtml(reference)} is no longer yours`,
+                paragraphs: [
+                    `Hello ${escapeHtml(driverName)},`,
+                    `The transfer <strong>${escapeHtml(reference)}</strong> (${escapeHtml(from)} → ${escapeHtml(to)}, ${escapeHtml(formatLocal(pickupAt, timezone))}) is no longer assigned to you. ${escapeHtml(why)}`,
+                    'Nothing more is needed from you for it.'
+                ],
+                footer: 'I am Georgia &middot; dispatch'
+            })
+        };
+    },
+
+    transferPickupReminder: ({ driverName, reference, from, to, pickupAt, timezone, passengerName, passengerPhone, pickupAddress, flightNumber, url }) => ({
+        subject: `Pick-up soon: ${from} at ${formatLocal(pickupAt, timezone)}`,
+        text: plain([
+            `Hello ${driverName},`,
+            `A reminder of your next transfer, ${reference}.`,
+            `${from} to ${to}\nPick-up: ${formatLocal(pickupAt, timezone)} (${timezone})${pickupAddress ? `\nAddress: ${pickupAddress}` : ''}${flightNumber ? `\nFlight: ${flightNumber}` : ''}\nPassenger: ${passengerName}${passengerPhone ? ` (${passengerPhone})` : ''}`,
+            `Open it here:\n${url}`
+        ]),
+        html: layout({
+            heading: 'Your next pick-up is coming up',
+            paragraphs: [
+                `Hello ${escapeHtml(driverName)},`,
+                `A reminder of <strong>${escapeHtml(reference)}</strong>.`,
+                `<strong>${escapeHtml(from)} → ${escapeHtml(to)}</strong><br>Pick-up ${escapeHtml(formatLocal(pickupAt, timezone))} (${escapeHtml(timezone)})${pickupAddress ? `<br>${escapeHtml(pickupAddress)}` : ''}${flightNumber ? `<br>Flight ${escapeHtml(flightNumber)}` : ''}<br>Passenger: ${escapeHtml(passengerName)}${passengerPhone ? ` (${escapeHtml(passengerPhone)})` : ''}`
+            ],
+            cta: { label: 'See the transfer', url },
+            footer: 'I am Georgia &middot; dispatch'
+        })
+    }),
+
+    transferDriverAssigned: ({ reference, from, to, pickupAt, timezone, driverName, driverPhone, vehicle }) => ({
+        subject: `Driver confirmed for ${reference}`,
+        text: plain([
+            `A driver has confirmed the transfer ${reference}: ${from} to ${to} on ${formatLocal(pickupAt, timezone)} (${timezone}).`,
+            `Driver: ${driverName}${vehicle ? `\nCar: ${vehicle}` : ''}${driverPhone ? `\nPhone: ${driverPhone}` : '\nThe phone number will be shared the day before the pick-up.'}`
+        ]),
+        html: layout({
+            heading: 'Your driver is confirmed',
+            paragraphs: [
+                `A driver has confirmed <strong>${escapeHtml(reference)}</strong>: ${escapeHtml(from)} → ${escapeHtml(to)} on ${escapeHtml(formatLocal(pickupAt, timezone))} (${escapeHtml(timezone)}).`,
+                `<strong>${escapeHtml(driverName)}</strong>${vehicle ? `<br>${escapeHtml(vehicle)}` : ''}${driverPhone ? `<br>${escapeHtml(driverPhone)}` : '<br>The phone number will be shared the day before the pick-up.'}`
+            ]
+        })
+    }),
+
+    transferDriverDetails: ({ reference, from, to, pickupAt, timezone, driverName, driverPhone, vehicle, passengerName }) => ({
+        subject: `Your driver for ${from}: ${driverName}`,
+        text: plain([
+            `${passengerName ? `Hello ${passengerName},` : 'Hello,'}`,
+            `Here is who is meeting you for ${reference}, ${from} to ${to} on ${formatLocal(pickupAt, timezone)} (${timezone}).`,
+            `Driver: ${driverName}${vehicle ? `\nCar: ${vehicle}` : ''}${driverPhone ? `\nPhone: ${driverPhone}` : ''}`,
+            'If anything changes on your side, call the driver or reply to this email.'
+        ]),
+        html: layout({
+            heading: 'Who is meeting you',
+            paragraphs: [
+                `${passengerName ? `Hello ${escapeHtml(passengerName)},` : 'Hello,'}`,
+                `Here is who is meeting you for <strong>${escapeHtml(reference)}</strong>, ${escapeHtml(from)} → ${escapeHtml(to)} on ${escapeHtml(formatLocal(pickupAt, timezone))} (${escapeHtml(timezone)}).`,
+                `<strong>${escapeHtml(driverName)}</strong>${vehicle ? `<br>${escapeHtml(vehicle)}` : ''}${driverPhone ? `<br>${escapeHtml(driverPhone)}` : ''}`,
+                'If anything changes on your side, call the driver or reply to this email.'
+            ],
+            footer: 'Need to change something? Reply to this email and quote your reference.'
+        })
+    }),
+
+    transferRatingInvite: ({ reference, from, to, driverName, passengerName, url }) => ({
+        subject: `How was your transfer, ${from} to ${to}?`,
+        text: plain([
+            `${passengerName ? `Hello ${passengerName},` : 'Hello,'}`,
+            `Thank you for travelling with us (${reference}). ${driverName ? `A minute to rate ${driverName} helps us keep the good drivers busy.` : 'A minute to rate your driver helps us keep the good drivers busy.'}`,
+            `Rate your transfer:\n${url}`,
+            'The link works once and for the next thirty days.'
+        ]),
+        html: layout({
+            heading: 'How was your transfer?',
+            paragraphs: [
+                `${passengerName ? `Hello ${escapeHtml(passengerName)},` : 'Hello,'}`,
+                `Thank you for travelling with us (<strong>${escapeHtml(reference)}</strong>). ${driverName ? `A minute to rate <strong>${escapeHtml(driverName)}</strong> helps us keep the good drivers busy.` : 'A minute to rate your driver helps us keep the good drivers busy.'}`,
+                'The link works once and for the next thirty days.'
+            ],
+            cta: { label: 'Rate your transfer', url },
+            footer: 'I am Georgia &middot; transfers'
+        })
+    }),
+
+    transferUnassignedAlert: ({ reference, from, to, pickupAt, timezone, passengers }) => ({
+        subject: `No driver yet: ${reference}, ${formatLocal(pickupAt, timezone)}`,
+        text: plain([
+            `The transfer ${reference} (${from} to ${to}, ${passengers} passengers) picks up at ${formatLocal(pickupAt, timezone)} (${timezone}) and still has no driver.`,
+            'Assign one from the dispatch board.'
+        ]),
+        html: layout({
+            heading: 'A transfer within a day has no driver',
+            paragraphs: [
+                `<strong>${escapeHtml(reference)}</strong> (${escapeHtml(from)} → ${escapeHtml(to)}, ${passengers} passenger${passengers === 1 ? '' : 's'}) picks up at ${escapeHtml(formatLocal(pickupAt, timezone))} (${escapeHtml(timezone)}) and still has no driver.`,
+                'Assign one from the dispatch board.'
+            ],
+            footer: 'I am Georgia &middot; dispatch'
         })
     }),
 

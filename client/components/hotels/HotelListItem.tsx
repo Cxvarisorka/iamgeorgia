@@ -3,6 +3,7 @@ import Link from "next/link";
 import { MapPin } from "lucide-react";
 
 import { amenityIcons } from "./amenityIcons";
+import { KosherBadge } from "./KosherBadge";
 import { Button } from "@/components/ui/Button";
 import { ScoreBadge, Stars } from "@/components/ui/Rating";
 import { amenityLabels } from "@/data/amenities";
@@ -77,6 +78,19 @@ export function HotelListItem({ hotel, className, priority }: HotelListItemProps
               );
             })}
           </ul>
+
+          {/*
+           * On its own row, below the facility icons.
+           *
+           * "Kosher certified" is a claim somebody checked; the icons above are
+           * the property describing itself. Putting them on one line would make
+           * the two look like the same kind of fact.
+           */}
+          {hotel.kosher && (
+            <div className="mt-3">
+              <KosherBadge kosher={hotel.kosher} showAuthority />
+            </div>
+          )}
 
           <div className="mt-5 flex flex-wrap items-end justify-between gap-4 border-t border-line pt-4 sm:mt-auto">
             <ScoreBadge score={hotel.guestScore} reviewCount={hotel.reviewCount} size="sm" />

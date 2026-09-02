@@ -1,10 +1,49 @@
 import { z } from 'zod';
 
-import { emailField, nameField, phoneField, textField } from './normalize.js';
+import { amenityCodeField, emailField, nameField, phoneField, textField } from './normalize.js';
 import { dateOnlyField } from './ratePlan.js';
 
 const BOOKING_STATUSES = ['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED', 'NO_SHOW'];
 const GUEST_TYPES = ['ADULT', 'CHILD', 'INFANT'];
+
+/**
+ * A property answering a request. REQUESTED is where one starts and is not a
+ * decision; WITHDRAWN belongs to the buyer, who takes it back through an
+ * amendment rather than through the property's own endpoint.
+ */
+const REQUEST_DECISIONS = ['CONFIRMED', 'DECLINED'];
+
+/**
+ * A structured requirement on a booking.
+ *
+ * `code` is a machine key from the shared amenity vocabulary — never a label.
+ * The display string is the client's business, so a booking made in English by
+ * one agent reads in Hebrew for the colleague who opens it, which storing
+ * "Shabbat elevator" in the row would have prevented for ever.
+ *
+ * The code is not validated against the vocabulary here. Whether this property
+ * can actually do this thing is a question about the hotel, and a schema has no
+ * hotel — the service answers it with a 422 naming what is unsupported.
+ */
+const bookingRequestSchema = z
+    .object({
+        // The same field the search filter validates a code with, so there is
+        // one definition of the shape and a code that can be filtered on can
+        // always be requested. Notably it does *not* lowercase: these are
+        // camelCase machine keys, and `shabbatElevator` is not
+        // `shabbatelevator`.
+        code: amenityCodeField,
+        note: textField(500).nullish()
+    })
+    .strict();
+
+const bookingRequestsField = z
+    .array(bookingRequestSchema)
+    .max(20)
+    .refine(
+        (value) => new Set(value.map((entry) => entry.code)).size === value.length,
+        { message: 'Each requirement may only be asked for once' }
+    );
 
 export const holdSchema = z.object({ token: z.string().min(20).max(4000) }).strict();
 
@@ -57,6 +96,15 @@ export const confirmBookingSchema = z
             .optional(),
 
         specialRequests: textField(1000).optional(),
+
+        /**
+         * Structured requirements, alongside the free text rather than instead
+         * of it. Both, because they do different jobs: these are validated
+         * against what the property offers, counted, and answered one by one;
+         * `specialRequests` carries everything a vocabulary never will.
+         */
+        requests: bookingRequestsField.optional(),
+
         source: z.enum(['web', 'partner', 'admin']).default('web'),
 
         // Supplied by the client when it can; derived from the request when it
@@ -115,6 +163,34 @@ export const amendBookingSchema = z
 
         specialRequests: textField(1000).nullish(),
 
+        /**
+         * The requirements, sent whole.
+         *
+         * Replacing the set rather than patching it, so withdrawing one is
+         * sending the list without it — the same shape the amenity checklist
+         * uses. A requirement the property has already answered is left alone
+         * by the service: an agency must not be able to un-decline something by
+         * asking for it again.
+         */
+        requests: bookingRequestsField.optional(),
+
         email: emailField.optional()
     })
     .strict();
+
+/** A property's answer to one requirement. */
+export const answerBookingRequestSchema = z
+    .object({
+        status: z.enum(REQUEST_DECISIONS),
+        responseNote: textField(500).nullish()
+    })
+    .strict()
+    .refine((value) => value.status === 'CONFIRMED' || Boolean(value.responseNote), {
+        message: 'Say why it cannot be done, so the agency can tell the guest',
+        path: ['responseNote']
+    });
+
+export const bookingRequestParamSchema = z.object({
+    reference: z.string().min(1).max(64),
+    requestId: z.string().min(1)
+});

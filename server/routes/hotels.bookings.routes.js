@@ -4,21 +4,25 @@ import {
     authenticate,
     optionalAuthenticate,
     requireAdmin,
-    requireApprovedPartner
+    requireApprovedPartner,
+    requirePartner
 } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import {
     amendBookingSchema,
+    answerBookingRequestSchema,
     bookingQuerySchema,
+    bookingRequestParamSchema,
     cancelBookingSchema,
     confirmBookingSchema,
-    holdSchema,
     guestLookupSchema,
+    holdSchema,
     holdTokenParamSchema,
     referenceParamSchema
 } from '../validation/booking.js';
 import {
     amendBooking,
+    answerBookingRequest,
     cancelBooking,
     confirmBooking,
     findBookingOr404,
@@ -153,7 +157,7 @@ export const partnerBookingRoutes = Router();
 // portal behind this gate is not readable while the suspension stands.
 // `requireApprovedPartner` lets admins straight through, so the admin-scoped
 // listing below still works.
-partnerBookingRoutes.use(authenticate, requireApprovedPartner);
+partnerBookingRoutes.use(authenticate, requirePartner, requireApprovedPartner);
 
 partnerBookingRoutes.get('/', validate({ query: bookingQuerySchema }), async (req, res) => {
     const { bookings, ...page } = await listBookings(req.valid.query, req.user);
@@ -177,6 +181,28 @@ adminBookingRoutes.get('/:reference', validate({ params: referenceParamSchema })
 
     res.json(toBookingDetail(booking, req.user));
 });
+
+/**
+ * The property's answer to one requirement.
+ *
+ * Admin-only: this is the platform speaking for the hotel, and a partner
+ * confirming its own request would be a booking that confirms itself.
+ *
+ * It does not touch the booking's status. The rooms were claimed and priced at
+ * confirmation; a meal that is still being arranged does not put them back in
+ * doubt, and pretending otherwise would break the one guarantee a confirmation
+ * makes.
+ */
+adminBookingRoutes.post(
+    '/:reference/requests/:requestId',
+    validate({ params: bookingRequestParamSchema, body: answerBookingRequestSchema }),
+    async (req, res) => {
+        const { reference, requestId } = req.valid.params;
+        const booking = await answerBookingRequest(reference, requestId, req.valid.body, req.user, req);
+
+        res.json(toBookingDetail(booking, req.user));
+    }
+);
 
 adminBookingRoutes.post(
     '/:reference/cancel',

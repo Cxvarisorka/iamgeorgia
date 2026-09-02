@@ -11,6 +11,11 @@ const FILE_CATEGORIES = [
     'INVOICE',
     'VOUCHER',
     'IMPORT',
+    'KOSHER_CERTIFICATE',
+    'FLEET_IMAGE',
+    'DRIVER_PHOTO',
+    'DRIVER_DOCUMENT',
+    'VEHICLE_DOCUMENT',
     'OTHER'
 ];
 

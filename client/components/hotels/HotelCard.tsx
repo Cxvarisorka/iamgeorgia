@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { MapPin } from "lucide-react";
 
+import { KosherBadge } from "./KosherBadge";
 import { Badge } from "@/components/ui/Badge";
 import { ScoreBadge, Stars } from "@/components/ui/Rating";
 import type { Hotel } from "@/types";
@@ -51,6 +52,14 @@ export function HotelCard({ hotel, className, priority }: HotelCardProps) {
           </h3>
 
           <p className="type-body-sm mt-3 text-muted line-clamp-2">{hotel.summary}</p>
+
+          {/* No authority here: a vertical card is narrow, and a truncated
+              rabbinate name is worse than the label on its own. */}
+          {hotel.kosher && (
+            <div className="mt-3">
+              <KosherBadge kosher={hotel.kosher} />
+            </div>
+          )}
 
           <div className="mt-auto flex items-end justify-between gap-4 border-t border-line pt-5">
             <ScoreBadge score={hotel.guestScore} reviewCount={hotel.reviewCount} size="sm" />

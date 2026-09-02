@@ -9,6 +9,10 @@ import {
   AdminPanel,
 } from "@/components/admin/AdminPage";
 import { Cell, DataTable, Row } from "@/components/admin/DataTable";
+import { TransferBookingStatusBadge, TransferLegStatusBadge } from "@/components/admin/DispatchBadges";
+import { LegActions } from "@/components/admin/LegActions";
+import { listDispatchLegs } from "@/lib/api/dispatch";
+import { formatPickup } from "@/lib/admin/dispatch";
 import { ApiError } from "@/lib/api/client";
 import { getAdminTransferBooking } from "@/lib/api/transfers";
 import { getI18n } from "@/lib/i18n/server";
@@ -41,6 +45,11 @@ export default async function AdminTransferBookingPage({
 
   const { route, vehicle } = booking;
 
+  // The operational side of each leg, from the dispatch board's own endpoint,
+  // so the actions here are exactly the ones the board offers.
+  const dispatch = await listDispatchLegs({ search: booking.reference, pageSize: 10 });
+  const legs = dispatch.data.filter((leg) => leg.booking.reference === booking.reference);
+
   const instant = (iso: string) =>
     new Intl.DateTimeFormat("en-GB", {
       dateStyle: "long",
@@ -59,11 +68,41 @@ export default async function AdminTransferBookingPage({
 
       <AdminPageHeader
         title={booking.reference}
-        description={`${route.fromName} → ${route.toName} · ${booking.status.toLowerCase()}`}
+        description={`${route.fromName} → ${route.toName}`}
+        actions={<TransferBookingStatusBadge status={booking.status} />}
       />
 
       <div className="mt-8 grid gap-8 lg:grid-cols-12">
         <div className="space-y-8 lg:col-span-7">
+          <AdminPanel title="Dispatch" description="Who is driving each leg, and where it stands.">
+            {legs.length === 0 ? (
+              <p className="text-[0.875rem] text-muted">No legs to dispatch.</p>
+            ) : (
+              <ul className="divide-y divide-line">
+                {legs.map((leg) => (
+                  <li key={leg.id} className="flex flex-wrap items-start justify-between gap-4 py-4 first:pt-0 last:pb-0">
+                    <div className="min-w-0">
+                      <p className="text-[0.875rem] font-medium text-ink">
+                        {leg.direction === "RETURN" ? "Return" : "Outbound"} · {formatPickup(leg.pickupAt, leg.timezone)}
+                      </p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                        <TransferLegStatusBadge status={leg.status} />
+                        {leg.assignment && (
+                          <span className="text-[0.8125rem] text-muted">
+                            {leg.assignment.driver.firstName} {leg.assignment.driver.lastName}
+                            {leg.assignment.vehicle ? ` · ${leg.assignment.vehicle.plateNumber}` : ""}
+                            {leg.assignment.overrides.length > 0 ? ` · overrides: ${leg.assignment.overrides.join(", ")}` : ""}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <LegActions leg={leg} compact />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </AdminPanel>
+
           <AdminPanel title="Legs" description="Each journey as it was priced.">
             <DataTable
               caption="Booking legs"

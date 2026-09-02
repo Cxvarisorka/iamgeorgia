@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import { ImageOff, Search, Star } from "lucide-react";
+import { BadgeCheck, ImageOff, Search, ShieldAlert, Star } from "lucide-react";
 
 import { Cell, DataTable, EmptyRow, Row, type Column } from "./DataTable";
 import { HotelStatusBadge } from "./HotelStatusBadge";
@@ -167,6 +167,22 @@ export function HotelsBrowser({
                           <Star size={11} aria-hidden />
                           {hotel.starRating}
                           {hotel.supplier && <span> · {hotel.supplier.name}</span>}
+                          {/* Only ever from the server's derived flag, and only
+                              the certified case gets a mark — a property that
+                              merely offers kosher services says so on its own
+                              screen rather than earning a badge in a register. */}
+                          {hotel.kosher?.certified && (
+                            <span className="inline-flex items-center gap-0.5 text-success">
+                              <BadgeCheck size={11} aria-hidden />
+                              Kosher
+                            </span>
+                          )}
+                          {hotel.kosher?.certificationState === "EXPIRED" && (
+                            <span className="inline-flex items-center gap-0.5 text-error-text">
+                              <ShieldAlert size={11} aria-hidden />
+                              Kosher cert expired
+                            </span>
+                          )}
                         </span>
                       </span>
                     </span>

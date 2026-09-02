@@ -88,6 +88,27 @@ export const timezoneField = z
         { message: 'Use an IANA time zone, for example Asia/Tbilisi' }
     );
 
+/**
+ * An amenity code, as a filter value.
+ *
+ * Deliberately **not** `slugField`, which lowercases. Amenity codes are stable
+ * camelCase machine keys — `skiStorage`, `shabbatElevator`, `airConditioning` —
+ * and lowercasing one produces a string that matches no row at all. Filtering
+ * by any of the twenty-six capitalised codes in the seed therefore returned an
+ * empty result rather than an error, which is the worst way for a filter to
+ * fail: silently, and looking like "no properties match".
+ *
+ * Case is preserved and the shape is checked instead. Hyphens and digits are
+ * allowed because the test factories and any future generated code use them.
+ */
+export const amenityCodeField = z
+    .string()
+    .trim()
+    .refine((value) => /^[A-Za-z][A-Za-z0-9-]*$/.test(value), {
+        message: 'Use an amenity code, for example shabbatElevator'
+    })
+    .refine((value) => value.length <= 60, { message: 'Amenity code is too long' });
+
 /** Latitude and longitude, as a pair or not at all — see the check constraint. */
 export const latitudeField = z.number().min(-90).max(90);
 export const longitudeField = z.number().min(-180).max(180);

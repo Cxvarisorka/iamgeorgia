@@ -22,7 +22,7 @@ comes back, and which fields depend on who is asking.
 | --- | --- | --- |
 | GET | `/destinations` | Whole tree, nested. `?locale&countryCode&featured` |
 | GET | `/destinations/:slug` | Detail with `parent`, `children` |
-| GET | `/hotels` | Browse, no dates. `?search&destinationSlug&destinationPath&propertyType&minStars&amenity&featured&locale&page&pageSize` |
+| GET | `/hotels` | Browse, no dates. `?search&destinationSlug&destinationPath&propertyType&minStars&amenity&kosher&kosherCertified&featured&locale&page&pageSize` |
 | GET | `/hotels/:slug` | Detail with `roomTypes[]`, `amenities[]`, `images[]`, `childPolicy` |
 | GET | `/amenities` | Vocabulary. `?category&scope&locale` |
 
@@ -38,7 +38,22 @@ Only `ACTIVE` hotels are ever returned, whatever the query string says.
 
 `/search` filters: `destinationSlug`, `destinationPath`, `countryCode`,
 `propertyType`, `minStars`, `amenity` (repeatable), `mealPlan`, `refundableOnly`,
-`locale`, `page`, `pageSize`.
+`kosher`, `kosherCertified`, `locale`, `page`, `pageSize`.
+
+**Kosher filtering** is two parameters, and only two. Every kosher *facility* —
+a kosher restaurant, a Shabbat elevator, a synagogue, a mikveh — is an amenity,
+so it travels on `amenity` like any other:
+
+| Parameter | Meaning |
+| --- | --- |
+| `kosher` | A **minimum** level of kosher service: `ON_REQUEST`, `KOSHER_FRIENDLY`, `PARTIAL`, `FULL`. `NONE` is rejected — it records "we asked, and the answer is no". |
+| `kosherCertified` | A certificate that is verified **and** still valid today **and** covers the property (`PROPERTY` or `KITCHEN`, not `RESTAURANT` or `PASSOVER`). |
+| `amenity=shabbatElevator` | A facility. Repeatable, and every one asked for must be present. |
+
+`amenity` values are amenity **codes** and are case-sensitive: `shabbatElevator`,
+not `shabbatelevator`.
+
+A search that sends neither kosher parameter is unaffected by any of this.
 
 **Search result card**
 
@@ -49,9 +64,22 @@ Only `ACTIVE` hotels are ever returned, whatever the query string says.
   "destination": { "id": "...", "name": "...", "path": "/georgia/..." },
   "startingFrom": { "totalCents": 52500, "perNightCents": 17500, "currency": "GEL" },
   "mealPlans": ["BB"], "refundable": true, "offerCount": 3,
+  // Present only for a property that offers kosher services at all.
+  "kosher": {
+    "serviceLevel": "FULL", "offersKosher": true,
+    "certified": true, "certificationState": "VERIFIED", "expiringSoon": false,
+    "authorityName": "Chief Rabbinate of Georgia", "expiresOn": "2027-01-14"
+  },
   "cheapestOffer": { /* offer, below */ }
 }
 ```
+
+`certified` is **derived**, never stored: it needs a VERIFIED, unexpired,
+property-scoped certificate. No admin field sets it and no amenity produces it,
+so a property with every kosher facility ticked and no certificate comes back
+`certified: false`. `certificationState` folds expiry in and is computed on
+every read — a certificate that lapsed overnight reports `EXPIRED` at 00:01
+without any job having run.
 
 **Offer** — the unit taken into checkout.
 
@@ -88,9 +116,9 @@ Errors: `409 { reason: 'PRICE_CHANGED', quotedCents, currentCents }`,
 | --- | --- | --- |
 | POST | `/bookings/holds` | `{ token }` → hold. 409 if gone |
 | DELETE | `/bookings/holds/:token` | Always 204 |
-| POST | `/bookings` | `{ holdToken \| offerToken, leadGuest, guests?, specialRequests? }`. Send `Idempotency-Key` |
+| POST | `/bookings` | `{ holdToken \| offerToken, leadGuest, guests?, specialRequests?, requests? }`. Send `Idempotency-Key` |
 | GET | `/bookings/:reference` | Guests must add `?email=` |
-| PATCH | `/bookings/:reference` | Amend paperwork only. `{ leadGuest?, specialRequests?, email? }` |
+| PATCH | `/bookings/:reference` | Amend paperwork only. `{ leadGuest?, specialRequests?, requests?, email? }` |
 | GET | `/bookings/:reference/cancellation-quote` | `?email=` for guests |
 | POST | `/bookings/:reference/cancel` | `{ reason?, email? }` |
 | GET | `/partner/bookings` | Own bookings. `?status&from&to&search&page&pageSize` |
@@ -98,6 +126,45 @@ Errors: `409 { reason: 'PRICE_CHANGED', quotedCents, currentCents }`,
 
 **There is no field for an amount.** The schema is strict; sending one is a 400.
 `201` on create, `200` when a replay.
+
+**Structured requirements** travel in `requests`, alongside `specialRequests`
+rather than instead of it:
+
+```jsonc
+"requests": [
+  { "code": "kosherMealOnRequest", "note": "Two kosher dinners, Fri and Sat" },
+  { "code": "shabbatElevator" }
+]
+```
+
+Each `code` is checked against what the property actually offers — its own
+kosher-category amenities, plus `kosherMealOnRequest`, which any kosher property
+may be asked for. A code it does not offer is a **422**:
+
+```jsonc
+{ "error": { "message": "This property does not offer some of those requirements",
+             "details": { "unsupported": ["mikvehOnSite"] } } }
+```
+
+The check runs *before* any inventory is claimed, so a refused request leaves no
+hold and no booking behind it.
+
+**Requirements do not gate confirmation.** The rooms were claimed and priced, so
+the booking is `CONFIRMED` and each requirement carries its own
+`REQUESTED → CONFIRMED | DECLINED` status. Every booking response carries
+`requestsPending`, and the detail carries the rows:
+
+```jsonc
+"requestsPending": 1,
+"requests": [
+  { "id": "...", "code": "kosherMealOnRequest", "note": "…",
+    "status": "CONFIRMED", "respondedAt": "…", "responseNote": null }
+]
+```
+
+On a `PATCH`, `requests` is the **whole set**: withdrawing one means sending the
+list without it. A requirement the property has already answered is left alone —
+re-asking cannot undo a refusal — though its note may still be corrected.
 
 **Amendments are paperwork only.** `PATCH` reaches the lead guest's name,
 email and phone, and the special requests — nothing that was priced. Dates,
@@ -216,7 +283,7 @@ hard constraint, not a filter.
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| POST | `/transfers/bookings` | `{ quoteToken, leadPassenger, flightNumber?, pickupAddress?, dropoffAddress?, specialRequests? }`. Send `Idempotency-Key` |
+| POST | `/transfers/bookings` | `{ quoteToken, leadPassenger, flightNumber?, pickupAddress?, dropoffAddress?, specialRequests?, preferredDriverId?, preferredFleetVehicleId? }`. Send `Idempotency-Key` |
 | GET | `/transfers/bookings/:reference` | Travellers must add `?email=` |
 | PATCH | `/transfers/bookings/:reference` | Paperwork only |
 | GET | `/transfers/bookings/:reference/cancellation-quote` | |
@@ -225,6 +292,18 @@ hard constraint, not a filter.
 
 References are `TRF-000001`. **There is no field for an amount**; the schema is
 strict, so sending one is a 400. `201` on create, `200` on a replay.
+
+**A partner may name the driver.** `preferredDriverId` (and optionally which
+of that driver's cars, `preferredFleetVehicleId`) is honoured for a partner
+session or operations; a guest sending it is a 400. The driver has to be one
+`POST /partner/drivers/available` would list — verified, active, in a car on
+the road that is sold as the booked class and big enough for the party — or
+the answer is 422 `DRIVER_NOT_ELIGIBLE`. The offer is written for every leg in
+the same transaction as the booking: a driver who was taken in the meantime is
+409 `DRIVER_UNAVAILABLE` and nothing is written, so the partner chooses again
+(or omits the field and lets dispatch assign). The driver still has to accept;
+until then the booking's `legs[].assignment` carries them with
+`awaitingDriver: true`.
 
 **Amendments are paperwork only** — the lead passenger, their phone, the flight
 number and the two addresses. The journey, the vehicle, the date and the party
@@ -321,6 +400,189 @@ fills gaps and leaves every figure someone has already set. Returns
 
 ---
 
+### Operations roles and the driver identity
+
+Two platform-side roles exist beside the admins. `DISPATCHER` may read every
+transfer booking (`GET /api/admin/transfers/bookings`, `GET
+/api/admin/transfers/bookings/:reference`) and, from the dispatch phase on,
+manage cars, drivers and assignments — but not the catalogue, the fares, the
+partners or the money: the summary and detail shapes carry `netTotalCents`,
+`markupBps` and `marginCents` for admins only. `DRIVER` reaches nothing under
+`/api/partner/*` or `/api/admin/*`; its own routes arrive with the driver
+panel.
+
+`GET /api/auth/me` answers with a third field, `driver`, beside `user` and
+`partner`: the driver's own profile for a `DRIVER` account (`null` until an
+operations user has linked one), and `null` for everyone else.
+
+```json
+{
+  "user": { "role": "DRIVER", "partnerId": null, "...": "..." },
+  "partner": null,
+  "driver": {
+    "id": "…", "firstName": "Levan", "lastName": "Gogoladze",
+    "photo": null, "languages": ["ka", "en"], "yearsExperience": 7, "bio": null,
+    "verified": true, "ratingAvg": 0, "ratingCount": 0, "completedCount": 0,
+    "phone": "+995555000111", "email": null,
+    "provider": { "id": "…", "name": "I am Georgia fleet" },
+    "verificationStatus": "VERIFIED", "isActive": true, "licenceExpiresOn": null,
+    "homeBasePoint": null, "vehicles": []
+  }
+}
+```
+
+The licence number, date of birth, internal notes and documents are never in
+this shape, nor in the one a partner sees; they exist only in the operations
+view.
+
+### Fleet and drivers (operations)
+
+`/api/admin/transfers/fleet` and `/api/admin/transfers/drivers` are open to
+`SUPER_ADMIN`, `ADMIN` and `DISPATCHER`. Every response is the operations
+view; a document response never carries a URL — the bytes are reached through
+the `…/url` endpoint, which authorises and writes a `PRIVATE_FILE_ACCESSED`
+audit row.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/admin/transfers/fleet` | `providerId`, `vehicleClassId`, `status` (repeatable), `search` (make, model, plate however spelt), `page`, `pageSize` |
+| POST | `/admin/transfers/fleet` | 201. 409 `field: plateNumber` when the normalised plate is already on a non-archived car |
+| GET / PATCH | `/admin/transfers/fleet/:id` | PATCH refuses `status: ARCHIVED` (400) — use the action |
+| POST | `/admin/transfers/fleet/:id/archive` | 409 `reason: ACTIVE_ASSIGNMENTS` with the bookings while a live assignment names the car |
+| POST | `/admin/transfers/fleet/:id/activate` | DRAFT / INACTIVE / ARCHIVED → ACTIVE; 409 if the plate has since been reissued |
+| DELETE | `/admin/transfers/fleet/:id` | **Admin only.** A real delete, open only while no assignment names the car: 409 `HAS_ASSIGNMENTS` (with the count) once it has been on a job — archive instead. Photographs and documents nothing else references are removed with it |
+| GET / POST | `/admin/transfers/fleet/:id/images` | Gallery, as for hotels. The cover is mirrored onto `mainImage` |
+| PATCH / DELETE | `/admin/transfers/fleet/:id/images/:imageId` | |
+| PUT | `/admin/transfers/fleet/:id/images/order` | `{ order: [imageId…] }`, every image exactly once |
+| GET / POST | `/admin/transfers/fleet/:id/documents` | `docType` ∈ REGISTRATION, INSURANCE, TECHNICAL_INSPECTION, OTHER; the asset must be PRIVATE |
+| GET | `/admin/transfers/fleet/:id/documents/:documentId/url` | Short-lived signed link, audited |
+| DELETE | `/admin/transfers/fleet/:id/documents/:documentId` | The bytes stay in the media library |
+| GET | `/admin/transfers/drivers` | `providerId`, `verificationStatus` (repeatable), `isActive` (`true`/`false`), `search`, `page`, `pageSize` |
+| POST | `/admin/transfers/drivers` | 201. `languages` is a closed ISO 639-1 list |
+| GET / PATCH | `/admin/transfers/drivers/:id` | |
+| POST | `/admin/transfers/drivers/:id/verify` | `{ status, note? }`. VERIFIED stamps who and when; anything else clears both |
+| POST | `/admin/transfers/drivers/:id/deactivate` | `{ reason, force? }`. 409 `ACTIVE_ASSIGNMENTS` unless `force`, which revokes them and returns their legs to UNASSIGNED. Ends the login's sessions |
+| POST | `/admin/transfers/drivers/:id/activate` | |
+| DELETE | `/admin/transfers/drivers/:id` | **Admin only.** A real delete, open only while no assignment names the driver: 409 `HAS_ASSIGNMENTS` once they have been on a job — deactivate instead. Takes the `DRIVER` login (and its sessions) with the profile, and the documents and photo nothing else references |
+| POST | `/admin/transfers/drivers/:id/account` | `{ email }`. Creates the `DRIVER` login and emails `driverAccountActivation`. Returns `{ driver, link: { kind: 'activation', url, expiresAt }, email, emailSent }` so the admin can copy the link themselves. 409 if one exists or the email is taken |
+| POST | `/admin/transfers/drivers/:id/account/resend` | Same response shape, with a fresh link. 409 once the account has a password |
+| PUT | `/admin/transfers/drivers/:id/vehicles` | `{ vehicles: [{ fleetVehicleId, isPrimary }] }`, replaced as a whole; at most one primary |
+| GET / POST / DELETE | `/admin/transfers/drivers/:id/documents[/:documentId]` | `docType` ∈ DRIVING_LICENCE, ID_DOCUMENT, MEDICAL, BACKGROUND_CHECK, OTHER |
+| GET | `/admin/transfers/drivers/:id/documents/:documentId/url` | Signed link, audited |
+
+`/api/admin/media` is likewise open to dispatchers for the four fleet and
+driver categories (`FLEET_IMAGE`, `DRIVER_PHOTO`, `DRIVER_DOCUMENT`,
+`VEHICLE_DOCUMENT`) and nothing else: an upload in another category is 403,
+a read of another category's file is 404, and delete stays admin-only.
+
+### Dispatch (operations)
+
+`/api/admin/transfers/dispatch`, open to `SUPER_ADMIN`, `ADMIN` and `DISPATCHER`.
+A *leg* is the unit of dispatch — a return booking is two. Each leg carries an
+operational `status` (`UNASSIGNED → ASSIGNED → ACCEPTED → EN_ROUTE → ARRIVED →
+ON_BOARD → COMPLETED`, with `NO_SHOW_REPORTED → NO_SHOW` and `CANCELLED`
+beside it) and at most one live assignment. The booking's own `status` is
+unchanged by any of this until every leg is terminal, when it rolls up to
+`COMPLETED` or `NO_SHOW`.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/dispatch/legs` | `from`, `to` (dates), `legStatus` (repeatable), `driverId`, `search`; each row carries `booking`, `assignment` and `allowedTransitions` |
+| GET | `/dispatch/legs/:legId` | |
+| GET | `/dispatch/legs/:legId/candidates` | Active drivers with an active car of the booked class, ranked, with those cars and any conflicts in the leg's window |
+| POST | `/dispatch/legs/:legId/assign` | `{ driverId, fleetVehicleId?, acceptOnBehalf?, overrideUnverified?, overrideClassMismatch?, overrideVehicleLink?, windowEndOverride?, note? }`. 201. Reassigns when the leg is already held. 422 `CAPACITY`; 422 `OVERRIDE_REQUIRED` with `overrides[]`; 409 `SCHEDULE_CONFLICT` with `conflicts[]` |
+| POST | `/dispatch/legs/:legId/unassign` | `{ reason }` |
+| POST | `/dispatch/legs/:legId/status` | `{ to, expectedFrom?, note? }` on behalf of the driver, or an operations-only move (`NO_SHOW`, corrections). 409 `STALE_STATE`, `INVALID_TRANSITION`, `TOO_EARLY` |
+| POST | `/dispatch/legs/:legId/cancel` | One leg only — a return whose outbound already ran |
+| GET | `/dispatch/assignments` | History: `driverId`, `fleetVehicleId`, `status`, `from`, `to` |
+| GET | `/dispatch/assignments/:id` | |
+| GET | `/dispatch/schedule` | `driverId` \| `fleetVehicleId` \| `providerId`, `from`, `to`: every live claim on the resource's time, jobs and blocks alike |
+| GET / POST | `/dispatch/blocks` | A block names one driver or one car; 409 `SCHEDULE_CONFLICT` while a job sits inside it |
+| DELETE | `/dispatch/blocks/:id` | |
+
+Occupancy is pick-up minus `TRANSFER_DISPATCH_PRE_BUFFER_MINUTES` to the end
+of the journey plus `TRANSFER_DISPATCH_POST_BUFFER_MINUTES`, stored on the
+assignment. Two dispatchers offering the same driver overlapping legs get one
+201 and one 409: the service locks the driver's row and checks the occupancy
+view under it, and the database's exclusion constraints refuse the overlap
+regardless.
+
+### The driver panel
+
+`/api/driver`, for `DRIVER` accounts with a linked, active profile. Every
+query is scoped on the session's driver; another driver's assignment is a
+404. Nothing here ever carries a fare.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET / PATCH | `/driver/me` | PATCH accepts `phone`, `languages`, `bio` only |
+| GET | `/driver/vehicles` | The cars linked to the driver |
+| GET | `/driver/assignments` | `scope=today|upcoming|history` |
+| GET | `/driver/assignments/:id` | The job, the passenger block, the car, the milestones and `allowedTransitions` |
+| POST | `/driver/assignments/:id/accept` | 409 `ASSIGNMENT_NOT_ACTIVE` once the offer has been withdrawn |
+| POST | `/driver/assignments/:id/decline` | `{ reason? }`. An accepted job may be declined until `TRANSFER_DISPATCH_LATE_DECLINE_HOURS` before pick-up; after that, 409 `LATE_DECLINE` |
+| POST | `/driver/assignments/:id/status` | `{ to, expectedFrom?, note? }`. Forward skips fill the milestones they jumped; every timestamp is the server's |
+
+### What a partner and a passenger see
+
+`GET /api/partner/transfers/bookings/:reference` (new) and the guest lookup
+`GET /api/transfers/bookings/:reference?email=` carry `legs[].status` and
+`legs[].assignment`. The assignment is `null` until the driver has accepted;
+then it holds the driver's public profile (`firstName`, `lastName` — the
+initial only for a passenger — photo, languages, experience, `verified`,
+rating and completed counts), the car, and the milestones. `driver.phone` is
+present only from `TRANSFER_DISPATCH_CONTACT_REVEAL_HOURS` before pick-up.
+The one exception is the driver the partner asked for at checkout: that
+offer is shown while it waits, with `awaitingDriver: true` and no phone
+number, so the partner can see whom they asked for. An offer a dispatcher
+made stays hidden until it is answered.
+
+**Choosing a driver at checkout.** `POST /api/partner/drivers/available`
+`{ token }` — the quote token from the results page — answers with the
+drivers a partner may ask for: `{ vehicleClass, legs: [{ direction, pickupAt,
+windowStart, windowEnd }], drivers: [...] }`. Each driver is the public
+profile plus `provider` and `cars`, every car of the booked class that is
+linked to them, on the road, big enough for the party and free across every
+leg (with its gallery). Verified, active drivers only; the list is advice,
+and the booking call checks again under the driver's row lock. Approved
+partners and admins; 401 / 403 otherwise. `GET /api/partner/drivers/:id` now
+also answers for a driver the partner has requested but who has not yet
+accepted.
+
+### Ratings and notifications
+
+One rating per completed leg, 1–5 with optional words. Who may leave it:
+
+| Who | How | Endpoint |
+|---|---|---|
+| The lead passenger | the link emailed after the transfer (`transferRatingInvite`), signed with `TRANSFER_RATING_TOKEN_SECRET` and valid for `TRANSFER_RATING_WINDOW_DAYS` | `POST /api/transfers/ratings` `{ token, score, comment? }` |
+| The partner | from the portal, on one of its own bookings | `POST /api/partner/transfers/bookings/:reference/legs/:legIndex/rating` |
+| Operations | feedback taken by phone | `POST /api/admin/transfers/dispatch/legs/:legId/rating` |
+
+First submission wins; a second is 409 `ALREADY_RATED`. A rating without a
+comment is `PUBLISHED` at once; one with a comment is `PENDING` until
+operations publish or reject it (`GET /api/admin/transfers/dispatch/ratings`,
+`POST …/ratings/:id/publish|reject`). The driver's `ratingAvg` /
+`ratingCount` and the provider's `rating` / `reviewCount` are recomputed from
+the published rows inside the same transaction — never incremented, never
+editable. `GET /api/driver/me/ratings` gives a driver the average, the count
+and the score distribution, never the comments. `GET /api/partner/drivers/:id`
+gives a partner the public profile, cars and published reviews of a driver
+who has held an accepted assignment on one of its bookings; anyone else is
+404.
+
+Notifications ride a transactional outbox: every dispatch write enqueues an
+event in its own transaction, and a sweeper (`TRANSFER_OUTBOX_DRAIN_INTERVAL_MS`)
+turns events into in-app rows and emails under an advisory lock, retrying a
+failed handler with backoff. A second sweeper
+(`TRANSFER_REMINDER_SWEEP_INTERVAL_MS`) enqueues the time-driven ones — the
+driver's reminder two hours before pick-up, the passenger's driver details at
+`TRANSFER_DISPATCH_CONTACT_REVEAL_HOURS`, and the "still no driver" alert for
+a confirmed leg within a day (also emailed to `TRANSFER_OPS_EMAIL`). Each is
+stamped on the leg in the statement that selects it, so it fires once.
+Drivers read theirs at `GET /api/driver/notifications` (`unread=true`) and
+mark them with `POST /api/driver/notifications/:id/read` or `…/read-all`.
+
 ## Admin
 
 All under `/admin/*`, guarded by `authenticate + requireAdmin`.
@@ -336,6 +598,13 @@ All under `/admin/*`, guarded by `authenticate + requireAdmin`.
 | POST / PATCH / DELETE | `/admin/hotels/:id/images` · `/images/:imageId` |
 | PUT | `/admin/hotels/:id/images/order` — `{ order: [imageId] }` |
 | PUT | `/admin/hotels/:id/translations/:locale` |
+| GET / PUT / DELETE | `/admin/hotels/:id/kosher` |
+| POST | `/admin/hotels/:id/kosher/certifications` |
+| PATCH / DELETE | `…/kosher/certifications/:certId` |
+| POST | `…/kosher/certifications/:certId/verify` |
+| GET / POST | `/admin/hotels/:id/documents` |
+| DELETE | `/admin/hotels/:id/documents/:documentId` |
+| POST | `/admin/bookings/:reference/requests/:requestId` |
 
 `GET /admin/hotels/:id` and every mutation return the hotel plus
 `publishChecklist: [{ code, message }]`. `POST /publish` answers **422** with
@@ -343,6 +612,56 @@ All under `/admin/*`, guarded by `authenticate + requireAdmin`.
 
 Create takes only: `slug, name, propertyType, destinationId, starRating,
 supplierId?, countryCode?, timezone?, currency?`. Everything else is PATCH.
+
+### Kosher
+
+`PUT /admin/hotels/:id/kosher` creates the record, and **creating it is the
+switch**: a hotel with no kosher row shows no kosher block anywhere, matches no
+kosher filter, and renders no kosher admin section.
+
+```jsonc
+// PUT /admin/hotels/:id/kosher   → 201 on create, 200 on update
+{ "serviceLevel": "FULL", "notes": "Glatt kosher kitchen.",
+  "contactName": "Front office", "contactEmail": "kosher@example.ge" }
+```
+
+`serviceLevel` is required — the column's default exists so it can be NOT NULL,
+not so the API can classify a property nobody assessed.
+
+**There is no `verification` field in any of these schemas.** Marking a
+certificate verified is `POST …/certifications/:certId/verify`, a transition of
+its own with its own audit action — the same treatment `status` gets on a hotel.
+`PATCH /admin/hotels/:id` is strict and has no kosher key at all, so no ordinary
+hotel update can reach certification.
+
+```jsonc
+// POST …/kosher/certifications/:certId/verify
+{ "decision": "VERIFIED" | "REJECTED" | "PENDING_VERIFICATION", "notes": "…" }
+```
+
+`notes` is required for anything but an approval. Editing a verified
+certificate's authority, reference, scope, dates or document withdraws its
+verification and clears the verifier: verification attaches to a set of facts,
+not to a row id. Every mutation answers with the **whole** kosher block,
+re-derived.
+
+`DELETE /admin/hotels/:id/kosher` is a **409** while a live certificate exists —
+removing the record would cascade its history away with it. Archive first, or
+set `serviceLevel: "NONE"`.
+
+Facilities are **not** written here. They are ordinary amenities in the
+`KosherFood`, `Shabbat` and `Religious` categories, written through
+`PUT /admin/hotels/:id/amenities` like any other, and *projected* into
+`kosher.features` on read — so there is exactly one place a facility lives.
+
+### Documents
+
+`HotelDocument` is the private file library: a `docType` machine key, an optional
+`validUntil`, and no URL anywhere in the response. Reaching the bytes is
+`GET /admin/media/:id/url`, which is authorized and audited as
+`PRIVATE_FILE_ACCESSED`. Attaching requires a **private** asset; upload it as
+`KOSHER_CERTIFICATE` (PDF or an image, stored private, no gallery renditions).
+Detaching is a 409 while a verified certificate points at it.
 
 ### Rooms, rates, inventory
 
@@ -454,6 +773,16 @@ TaxFeeBasis    PERCENT PER_NIGHT_PER_PERSON PER_NIGHT_PER_ROOM PER_STAY
 BookingStatus  PENDING CONFIRMED CANCELLED COMPLETED NO_SHOW
 ImageCategory  Exterior Lobby Restaurant Pool Spa Room Bathroom View Facilities
 AmenityCategory General FoodDrink Wellness Parking Business Family Ski Accessibility Transportation
+                KosherFood Shabbat Religious
+FileCategory   HOTEL_IMAGE ROOM_IMAGE AMENITY_ICON CONTRACT RATE_SHEET INVOICE VOUCHER IMPORT
+               KOSHER_CERTIFICATE OTHER
+
+KosherServiceLevel       NONE ON_REQUEST KOSHER_FRIENDLY PARTIAL FULL   (weakest first)
+KosherCertificationScope PROPERTY KITCHEN RESTAURANT PASSOVER
+KosherCertificationState NONE UNVERIFIED PENDING_VERIFICATION VERIFIED EXPIRED REJECTED ARCHIVED
+                         (EXPIRED and ARCHIVED are derived, never stored)
+KosherDataSource         ADMIN HOTEL SUPPLIER IMPORT
+BookingRequestStatus     REQUESTED CONFIRMED DECLINED WITHDRAWN
 
 TransferPointKind     AIRPORT CITY RESORT HOTEL LANDMARK STATION
 TransferVehicleClass  ECONOMY COMFORT MINIVAN VAN GROUP JEEP_4X4 VIP

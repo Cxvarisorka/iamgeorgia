@@ -53,6 +53,16 @@ enum AmenityCategory {
   Ski
   Accessibility
   Transportation
+  /// The three below group the facilities an observant traveller filters on.
+  /// Categories rather than a code prefix, because a category is already what
+  /// the admin checklist groups by and what the client renders as a filter
+  /// group — so three sections come for free. Shabbat and Religious are not
+  /// kosher-specific on purpose: a prayer room and a step-free entrance are
+  /// both facilities, and the next specialised requirement should be able to
+  /// reuse the same machinery.
+  KosherFood
+  Shabbat
+  Religious
 
   @@map("amenity_category")
 }
@@ -251,6 +261,89 @@ enum InventorySource {
   @@map("inventory_source")
 }
 
+/// How much of a property's operation is kosher.
+///
+/// Deliberately *not* a single "kosher status" scale. Scope of service and
+/// assurance are independent facts: a fully kosher property may hold no
+/// certificate, and a certified one may be certified for its restaurant only.
+/// Collapsing them into one enum would make "certified" something an admin can
+/// simply assert, and would leave nowhere to store the day a certificate
+/// lapses. So certification is *not expressible here* — it is derived from
+/// HotelKosherCertification rows and from today's date.
+///
+/// Declared weakest-first: the search filter compares positions in
+/// `enum_range()`, so the declaration order is the ordering.
+enum KosherServiceLevel {
+  /// Asked, and the answer was no. Kept so the question is not re-asked, and
+  /// so a profile can be stood down without losing its certification history.
+  NONE
+  /// Kosher meals arranged with notice. The property is not otherwise kosher.
+  ON_REQUEST
+  /// Accommodates observant guests — Shabbat arrangements, nearby facilities —
+  /// without a kosher kitchen of its own.
+  KOSHER_FRIENDLY
+  /// A kosher outlet or kitchen inside a property that is not.
+  PARTIAL
+  /// The whole property operates kosher.
+  FULL
+
+  @@map("kosher_service_level")
+}
+
+/// What a certificate actually covers.
+///
+/// A restaurant certificate is not a property certificate, and presenting one
+/// as the other is the specific misrepresentation this column exists to stop:
+/// only PROPERTY and KITCHEN satisfy a "kosher certified property" filter.
+enum KosherCertificationScope {
+  PROPERTY
+  KITCHEN
+  RESTAURANT
+  PASSOVER
+
+  @@map("kosher_certification_scope")
+}
+
+/// A human decision about a certificate.
+///
+/// EXPIRED is absent on purpose. Expiry is a function of `expiresOn` and
+/// today, derived on every read, so it is correct at 00:01 whether or not any
+/// job has run. A stored EXPIRED would be wrong for exactly as long as the gap
+/// between midnight and the next sweep — which is the one failure this whole
+/// subsystem exists to prevent.
+enum KosherVerification {
+  UNVERIFIED
+  PENDING_VERIFICATION
+  VERIFIED
+  REJECTED
+
+  @@map("kosher_verification")
+}
+
+/// Who asserted this.
+///
+/// The whole point of the column is that a SUPPLIER import may not silently
+/// overwrite what an ADMIN reviewed. VERIFIED is deliberately not a value here:
+/// verification is a state of a certificate, not a source of data.
+enum KosherDataSource {
+  ADMIN
+  HOTEL
+  SUPPLIER
+  IMPORT
+
+  @@map("kosher_data_source")
+}
+
+/// The life of one structured requirement on a booking.
+enum BookingRequestStatus {
+  REQUESTED
+  CONFIRMED
+  DECLINED
+  WITHDRAWN
+
+  @@map("booking_request_status")
+}
+
 enum FileVisibility {
   PUBLIC
   PRIVATE
@@ -267,6 +360,19 @@ enum FileCategory {
   INVOICE
   VOUCHER
   IMPORT
+  /// A scan or photograph of a kosher certificate. PRIVATE, like every other
+  /// document category: a scan of a signed certificate on a permanent public
+  /// URL is a forgeable artefact, so the bytes are reached through a signed,
+  /// audited request and the *facts* travel in the API response instead.
+  KOSHER_CERTIFICATE
+  /// Photographs of a fleet car and of a driver: PUBLIC, they are shown to the
+  /// partner and the traveller meeting the car.
+  FLEET_IMAGE
+  DRIVER_PHOTO
+  /// Licences, insurance, inspections, ID scans: PRIVATE, reached only through
+  /// a signed, audited request by operations staff.
+  DRIVER_DOCUMENT
+  VEHICLE_DOCUMENT
   OTHER
 
   @@map("file_category")
@@ -494,6 +600,14 @@ model Hotel {
   images               HotelImage[]
   documents            HotelDocument[]
   translations         HotelTranslation[]
+
+  /// The kosher offering. Optional, and its *existence* is the switch: a hotel
+  /// with no row here shows no kosher block anywhere, matches no kosher filter
+  /// and renders no kosher admin section. Kept off this table rather than as
+  /// columns on it because these fields need their own endpoint, their own
+  /// authorization and their own audit actions — the same reasoning that keeps
+  /// `status` out of `updateHotelSchema`.
+  kosher HotelKosherProfile?
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1289,8 +1403,9 @@ model HotelBooking {
   /// Where it came from: web, partner API, admin.
   source String @default("web")
 
-  rooms HotelBookingRoom[]
-  hold  BookingHold?
+  rooms    HotelBookingRoom[]
+  hold     BookingHold?
+  requests HotelBookingRequest[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1383,6 +1498,43 @@ model BookingGuest {
 
   @@index([bookingRoomId])
   @@map("booking_guests")
+}
+
+/// A structured requirement attached to a booking.
+///
+/// Deliberately generic — `code` is a machine key from the shared vocabulary,
+/// so "late checkout" and "adjoining rooms" will use this table too rather than
+/// each growing a column of its own.
+///
+/// This is **not** a hotel capability. A capability says the property *can*; a
+/// request says this guest *needs*, and carries the property's answer to it.
+/// Conflating the two is how an agency ends up told a meal is confirmed because
+/// the hotel once ticked a box.
+///
+/// The code is stored as a string rather than a foreign key, following the same
+/// discipline as `mealPlanCode` on HotelBookingRoom: an amenity renamed next
+/// year must not change what this booking asked for.
+model HotelBookingRequest {
+  id        String       @id @default(cuid())
+  bookingId String       @map("booking_id")
+  booking   HotelBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  code String
+  note String?
+
+  status BookingRequestStatus @default(REQUESTED)
+
+  respondedAt       DateTime? @map("responded_at")
+  respondedByUserId String?   @map("responded_by_user_id")
+  respondedBy       User?     @relation("BookingRequestRespondedBy", fields: [respondedByUserId], references: [id], onDelete: SetNull)
+  responseNote      String?   @map("response_note")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([bookingId, code])
+  @@index([bookingId, status])
+  @@map("hotel_booking_requests")
 }
 
 /// Who pays what markup.
@@ -1532,6 +1684,12 @@ model FileAsset {
   hotelDocuments    HotelDocument[]
   featuredForHotels Hotel[]         @relation("HotelFeaturedImage")
 
+  fleetVehicleImages    TransferFleetVehicleImage[]    @relation("FleetVehicleImages")
+  fleetVehicleDocuments TransferFleetVehicleDocument[] @relation("FleetVehicleDocuments")
+  mainImageForFleet     TransferFleetVehicle[]         @relation("FleetVehicleMainImage")
+  driverDocuments       TransferDriverDocument[]       @relation("DriverDocuments")
+  driverPhotos          TransferDriver[]               @relation("DriverPhoto")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -1599,12 +1757,145 @@ model HotelDocument {
   label      String?
   validUntil DateTime? @map("valid_until") @db.Date
 
+  uploadedByUserId String? @map("uploaded_by_user_id")
+  uploadedByUser   User?   @relation("HotelDocumentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  kosherCertifications HotelKosherCertification[]
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@unique([hotelId, fileAssetId])
   @@index([hotelId, docType])
+  @@index([uploadedByUserId])
   @@map("hotel_documents")
+}
+
+// ---------------------------------------------------------------------------
+// Kosher.
+//
+// Three kinds of claim, kept apart because they are trusted differently:
+//
+//   * **Facilities** — "there is a Shabbat elevator" — are rows in `amenities`
+//     under the KosherFood / Shabbat / Religious categories, reached through
+//     the ordinary HotelAmenity join. They are the property's own statement,
+//     they are filterable through machinery that already exists, and adding
+//     one is a seed row rather than a migration.
+//   * **Scope of service** — how much of the property is kosher — is
+//     `HotelKosherProfile.serviceLevel`, declared by staff.
+//   * **Assurance** — who says so, and until when — is a certificate, and is
+//     the only thing that may ever produce the word "certified".
+//
+// The split is the point. An admin cannot mark a hotel kosher certified,
+// because there is no such field to set: `certified` is computed from a
+// VERIFIED, unexpired, unarchived certificate and from today's date.
+// ---------------------------------------------------------------------------
+
+/// A property's kosher offering.
+///
+/// The existence of this row IS the "this property provides Kosher services"
+/// switch. No row means no kosher block in any response, no match for any
+/// kosher filter, and no kosher section in the admin panel — enforced by data
+/// rather than by a condition in a form.
+model HotelKosherProfile {
+  id      String @id @default(cuid())
+  hotelId String @unique @map("hotel_id")
+  hotel   Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  serviceLevel KosherServiceLevel @default(KOSHER_FRIENDLY) @map("service_level")
+
+  /// What the property actually does, in prose, for an agent reading the page.
+  notes String?
+
+  /// Who to ask at the property about a kosher requirement. A booking request
+  /// is worth little if nobody knows where to send it.
+  contactName  String? @map("contact_name")
+  contactEmail String? @map("contact_email")
+  contactPhone String? @map("contact_phone")
+
+  // --- provenance ---------------------------------------------------------
+  // Which of the four kinds of information this is. `Hotel.sourceType` says
+  // which system owns *inventory*; nothing said who asserted a content fact,
+  // and without that a future channel-manager sync has nothing to refuse to
+  // overwrite.
+  source          KosherDataSource @default(ADMIN)
+  /// The upstream identifier this arrived under, when it arrived from one.
+  sourceRef       String?          @map("source_ref")
+  sourceUpdatedAt DateTime?        @map("source_updated_at")
+
+  /// Set when staff have reviewed the record. A supplier import may not write
+  /// a locked profile — it parks its payload in `pendingSupplierData` and logs
+  /// the divergence for an admin, rather than quietly winning.
+  lockedAt       DateTime? @map("locked_at")
+  lockedByUserId String?   @map("locked_by_user_id")
+  lockedBy       User?     @relation("KosherProfileLockedBy", fields: [lockedByUserId], references: [id], onDelete: SetNull)
+
+  /// A supplier payload that could not be applied. Shapeless by nature — one
+  /// channel manager's fields are not another's — so it is constrained to an
+  /// object by `jsonFieldSchemas` and no further.
+  pendingSupplierData Json? @map("pending_supplier_data")
+
+  certifications HotelKosherCertification[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([serviceLevel])
+  @@map("hotel_kosher_profiles")
+}
+
+/// One certificate, as issued.
+///
+/// Never updated in place on renewal: a renewal is a new row, so last year's
+/// certificate keeps its own dates and stays readable. Never hard-deleted once
+/// VERIFIED — archived instead, because "we were certified by X until March"
+/// is a fact somebody will eventually have to answer for.
+model HotelKosherCertification {
+  id        String             @id @default(cuid())
+  profileId String             @map("profile_id")
+  profile   HotelKosherProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  /// The supervising organisation, as a proper noun. Deliberately free text and
+  /// deliberately never translated: a badatz is a named real-world body, and
+  /// enumerating the world's certifying authorities is not this platform's job.
+  authorityName    String  @map("authority_name")
+  authorityWebsite String? @map("authority_website")
+  /// What the certificate is called, when it has a name of its own.
+  name             String?
+  /// The certificate number, for anyone checking it upstream.
+  reference        String?
+
+  scope KosherCertificationScope @default(PROPERTY)
+
+  issuedOn  DateTime? @map("issued_on") @db.Date
+  /// Null means the authority issues no expiry — a different thing from nobody
+  /// having entered one, which is why the admin form makes it a deliberate
+  /// choice. Anything else is compared against today on every single read.
+  expiresOn DateTime? @map("expires_on") @db.Date
+
+  verification      KosherVerification @default(UNVERIFIED)
+  verifiedAt        DateTime?          @map("verified_at")
+  verifiedByUserId  String?            @map("verified_by_user_id")
+  verifiedBy        User?              @relation("KosherCertificationVerifiedBy", fields: [verifiedByUserId], references: [id], onDelete: SetNull)
+  verificationNotes String?            @map("verification_notes")
+
+  /// The scan or photograph, held through the document library so it inherits
+  /// the private-file path: reaching the bytes is a signed, audited request.
+  documentId String?        @map("document_id")
+  document   HotelDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  source KosherDataSource @default(ADMIN)
+
+  /// Historical rather than deleted. An archived certificate is invisible to
+  /// filters and to the B2B card, and still readable in the admin panel.
+  archivedAt DateTime? @map("archived_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([profileId, verification])
+  @@index([expiresOn])
+  @@map("hotel_kosher_certifications")
 }
 
 /// Prose in a non-default locale. Every field is nullable and the serializer
@@ -1680,10 +1971,16 @@ model AmenityTranslation {
 enum Role {
   SUPER_ADMIN
   ADMIN
+  /// Transfer operations staff: dispatches drivers and cars, never touches
+  /// fares, partners or margins. Platform-side (no partnerId), not an admin.
+  DISPATCHER
   PARTNER_OWNER
   PARTNER_ADMIN
   PARTNER_AGENT
   PARTNER_FINANCE
+  /// A transfer driver. Platform-side (no partnerId): affiliation to a supplier
+  /// lives on the TransferDriver profile, so partner scoping fails closed.
+  DRIVER
 
   @@map("role")
 }
@@ -1790,6 +2087,46 @@ enum AuditAction {
   TRANSFER_BOOKING_CREATED
   TRANSFER_BOOKING_CANCELLED
   TRANSFER_BOOKING_AMENDED
+  HOTEL_KOSHER_ENABLED
+  HOTEL_KOSHER_UPDATED
+  HOTEL_KOSHER_DISABLED
+  KOSHER_CERTIFICATION_ADDED
+  KOSHER_CERTIFICATION_UPDATED
+  KOSHER_CERTIFICATION_VERIFIED
+  KOSHER_CERTIFICATION_ARCHIVED
+  KOSHER_CERTIFICATION_EXPIRING
+  KOSHER_SUPPLIER_UPDATE_HELD
+  HOTEL_DOCUMENT_UPLOADED
+  HOTEL_DOCUMENT_DELETED
+  BOOKING_REQUEST_ANSWERED
+  TRANSFER_FLEET_VEHICLE_CREATED
+  TRANSFER_FLEET_VEHICLE_UPDATED
+  TRANSFER_FLEET_VEHICLE_ARCHIVED
+  TRANSFER_DRIVER_CREATED
+  TRANSFER_DRIVER_UPDATED
+  TRANSFER_DRIVER_VERIFIED
+  TRANSFER_DRIVER_DEACTIVATED
+  TRANSFER_DRIVER_REACTIVATED
+  DRIVER_ACCOUNT_CREATED
+  TRANSFER_ASSIGNMENT_CREATED
+  TRANSFER_ASSIGNMENT_ACCEPTED
+  TRANSFER_ASSIGNMENT_DECLINED
+  TRANSFER_ASSIGNMENT_REVOKED
+  TRANSFER_LEG_STATUS_CHANGED
+  TRANSFER_LEG_CANCELLED
+  TRANSFER_BOOKING_COMPLETED
+  TRANSFER_BOOKING_NO_SHOW
+  TRANSFER_BLOCK_CREATED
+  TRANSFER_BLOCK_DELETED
+  TRANSFER_RATING_SUBMITTED
+  TRANSFER_RATING_MODERATED
+  TRANSFER_DRIVER_DOCUMENT_UPLOADED
+  TRANSFER_DRIVER_DOCUMENT_DELETED
+  TRANSFER_VEHICLE_DOCUMENT_UPLOADED
+  TRANSFER_VEHICLE_DOCUMENT_DELETED
+  TRANSFER_PICKUP_REMINDER_SENT
+  TRANSFER_FLEET_VEHICLE_DELETED
+  TRANSFER_DRIVER_DELETED
 
   @@map("audit_action")
 }
@@ -1832,6 +2169,22 @@ model User {
   holdsCreated      BookingHold[]  @relation("HoldCreatedBy")
 
   transferBookingsMade TransferBooking[] @relation("TransferBookingBookedBy")
+
+  /// The driver profile behind a DRIVER account, when one has been linked.
+  driverProfile                 TransferDriver?                @relation("DriverUser")
+  driversVerified               TransferDriver[]               @relation("DriverVerifiedBy")
+  driverDocumentsUploaded       TransferDriverDocument[]       @relation("DriverDocumentUploadedBy")
+  fleetVehicleDocumentsUploaded TransferFleetVehicleDocument[] @relation("FleetVehicleDocumentUploadedBy")
+  transferAssignmentsMade       TransferAssignment[]           @relation("AssignmentAssignedBy")
+  transferResourceBlocksCreated TransferResourceBlock[]        @relation("ResourceBlockCreatedBy")
+  transferRatingsSubmitted      TransferDriverRating[]         @relation("RatingSubmittedBy")
+  transferRatingsModerated      TransferDriverRating[]         @relation("RatingModeratedBy")
+  notifications                 Notification[]                 @relation("NotificationRecipient")
+
+  kosherProfilesLocked         HotelKosherProfile[]       @relation("KosherProfileLockedBy")
+  kosherCertificationsVerified HotelKosherCertification[] @relation("KosherCertificationVerifiedBy")
+  bookingRequestsAnswered      HotelBookingRequest[]      @relation("BookingRequestRespondedBy")
+  hotelDocumentsUploaded       HotelDocument[]            @relation("HotelDocumentUploadedBy")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2228,6 +2581,7 @@ model TransferPoint {
   legsFrom     TransferBookingLeg[]       @relation("TransferLegFrom")
   legsTo       TransferBookingLeg[]       @relation("TransferLegTo")
   translations TransferPointTranslation[]
+  driversBased TransferDriver[]           @relation("DriverHomeBase")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2259,7 +2613,9 @@ model TransferProvider {
 
   status TransferStatus @default(ACTIVE)
 
-  vehicles TransferVehicle[]
+  vehicles      TransferVehicle[]
+  fleetVehicles TransferFleetVehicle[]
+  drivers       TransferDriver[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2335,10 +2691,12 @@ model TransferVehicle {
   partnerId String?  @map("partner_id")
   partner   Partner? @relation("PartnerTransferVehicles", fields: [partnerId], references: [id], onDelete: SetNull)
 
-  prices       TransferRoutePrice[]
-  blackouts    TransferBlackout[]
-  bookings     TransferBooking[]
-  translations TransferVehicleTranslation[]
+  prices        TransferRoutePrice[]
+  blackouts     TransferBlackout[]
+  bookings      TransferBooking[]
+  translations  TransferVehicleTranslation[]
+  /// The physical cars sold as this class.
+  fleetVehicles TransferFleetVehicle[]       @relation("FleetVehicleClass")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2595,12 +2953,16 @@ model TransferBooking {
   cancelledAt             DateTime? @map("cancelled_at")
   cancellationChargeCents Int?      @map("cancellation_charge_cents")
   cancellationReason      String?   @map("cancellation_reason")
+  /// Set by the roll-up when the last leg reaches a terminal state.
+  completedAt             DateTime? @map("completed_at")
 
   /// Where it came from: web, partner API, admin.
   source String @default("web")
 
-  legs   TransferBookingLeg[]
-  extras TransferBookingExtra[]
+  legs        TransferBookingLeg[]
+  extras      TransferBookingExtra[]
+  assignments TransferAssignment[]
+  ratings     TransferDriverRating[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2642,12 +3004,29 @@ model TransferBookingLeg {
   netCents  Int @map("net_cents")
   sellCents Int @map("sell_cents")
 
+  /// Operational state — who is doing this leg and how far along it is. The
+  /// commercial state stays on the booking. Live states have exactly one
+  /// OFFERED/ACCEPTED assignment; the partial unique index in the migration
+  /// makes that a database fact.
+  status          TransferLegStatus @default(UNASSIGNED)
+  statusChangedAt DateTime          @default(now()) @map("status_changed_at")
+
+  /// Idempotency stamps for the reminder sweeper: set in the same statement
+  /// that enqueues the event, so a crash between the two cannot double-send.
+  reminderSentAt      DateTime? @map("reminder_sent_at")
+  driverDetailsSentAt DateTime? @map("driver_details_sent_at")
+  unassignedAlertAt   DateTime? @map("unassigned_alert_at")
+
+  assignments TransferAssignment[]
+  rating      TransferDriverRating?
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@unique([bookingId, legIndex])
   @@index([fromPointId])
   @@index([toPointId])
+  @@index([status, pickupAt])
   @@map("transfer_booking_legs")
 }
 
@@ -2726,4 +3105,510 @@ model TransferRouteTranslation {
 
   @@unique([routeId, locale])
   @@map("transfer_route_translations")
+}
+
+// ---------------------------------------------------------------------------
+// Transfer operations: fleet, drivers, dispatch, ratings
+//
+// The catalogue above sells a *class* of car. This block is what actually
+// turns up at the kerb: an individual car, a named driver, and the record of
+// which of them was sent to which leg of which booking.
+//
+// The commercial state of a booking (`TransferBooking.status`) is untouched.
+// Operational progress lives on the leg, because a return booking is two jobs
+// on two days with, quite possibly, two drivers. An assignment is one offer of
+// one driver for one leg; reassignment never edits the old row, it revokes it
+// and inserts a new one, so the history of who was asked is always there.
+//
+// Double-booking is prevented in the database, not just in the service: an
+// EXCLUDE constraint over (driver, time window) and another over (car, time
+// window), both added in the migration because Prisma cannot express them.
+// ---------------------------------------------------------------------------
+
+enum TransferDriverVerification {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+
+  @@map("transfer_driver_verification")
+}
+
+/// Operational state of one leg. UNASSIGNED..ON_BOARD are live; COMPLETED,
+/// NO_SHOW and CANCELLED are terminal. NO_SHOW_REPORTED is the driver's claim
+/// awaiting an operations decision.
+enum TransferLegStatus {
+  UNASSIGNED
+  ASSIGNED
+  ACCEPTED
+  EN_ROUTE
+  ARRIVED
+  ON_BOARD
+  COMPLETED
+  NO_SHOW_REPORTED
+  NO_SHOW
+  CANCELLED
+
+  @@map("transfer_leg_status")
+}
+
+/// Lifecycle of one offer. OFFERED and ACCEPTED are the only two that occupy
+/// the driver's and the car's time; everything else has dropped out of the
+/// exclusion constraint.
+enum TransferAssignmentStatus {
+  OFFERED
+  ACCEPTED
+  DECLINED
+  REVOKED
+  COMPLETED
+  NO_SHOW
+
+  @@map("transfer_assignment_status")
+}
+
+enum TransferRatingStatus {
+  PENDING
+  PUBLISHED
+  REJECTED
+
+  @@map("transfer_rating_status")
+}
+
+enum TransferRatingSource {
+  GUEST
+  PARTNER
+  ADMIN
+
+  @@map("transfer_rating_source")
+}
+
+enum NotificationKind {
+  TRANSFER_ASSIGNMENT_OFFERED
+  TRANSFER_ASSIGNMENT_ACCEPTED
+  TRANSFER_ASSIGNMENT_DECLINED
+  TRANSFER_ASSIGNMENT_REVOKED
+  TRANSFER_LEG_UNASSIGNED_ALERT
+  TRANSFER_LEG_STATUS_CHANGED
+  TRANSFER_LEG_NO_SHOW_REPORTED
+  TRANSFER_BOOKING_CANCELLED
+  TRANSFER_PICKUP_REMINDER
+  TRANSFER_DRIVER_DETAILS
+  TRANSFER_RATING_RECEIVED
+
+  @@map("notification_kind")
+}
+
+/// A physical car. Owned by a provider, sold as one class.
+///
+/// The class link is what assignment validates against: a car sold as COMFORT
+/// on an ECONOMY booking is an upgrade a dispatcher may choose, a car with
+/// three seats on a party of five is a mistake at the kerb, so the capacity
+/// check is hard and the class check is an audited override.
+model TransferFleetVehicle {
+  id String @id @default(cuid())
+
+  providerId String           @map("provider_id")
+  provider   TransferProvider @relation(fields: [providerId], references: [id], onDelete: Restrict)
+
+  vehicleClassId String          @map("vehicle_class_id")
+  vehicleClass   TransferVehicle @relation("FleetVehicleClass", fields: [vehicleClassId], references: [id], onDelete: Restrict)
+
+  make   String
+  model  String
+  year   Int?
+  colour String?
+  body   TransferVehicleBody
+
+  /// As typed, for display. Matched on the normalised form below, which is
+  /// unique among non-archived cars (partial index in the migration).
+  plateNumber     String  @map("plate_number")
+  plateNormalized String  @map("plate_normalized")
+  /// Internal.
+  vin             String?
+
+  passengerCapacity Int @map("passenger_capacity")
+  luggageCapacity   Int @map("luggage_capacity")
+  cabinBagCapacity  Int @default(0) @map("cabin_bag_capacity")
+
+  /// Closed vocabulary, validated on write: the class feature list plus
+  /// `wheelchairAccessible`.
+  features String[]
+
+  /// Public copy.
+  description   String?
+  /// Never leaves the admin panel.
+  internalNotes String? @map("internal_notes")
+
+  mainImageId String?    @map("main_image_id")
+  mainImage   FileAsset? @relation("FleetVehicleMainImage", fields: [mainImageId], references: [id], onDelete: SetNull)
+
+  status TransferStatus @default(DRAFT)
+
+  images      TransferFleetVehicleImage[]
+  documents   TransferFleetVehicleDocument[]
+  drivers     TransferDriverVehicle[]
+  assignments TransferAssignment[]
+  blocks      TransferResourceBlock[]
+  ratings     TransferDriverRating[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([providerId, status])
+  @@index([vehicleClassId])
+  @@map("transfer_fleet_vehicles")
+}
+
+/// The gallery join for a car, shaped exactly like HotelImage so the same
+/// gallery service drives both.
+model TransferFleetVehicleImage {
+  id             String               @id @default(cuid())
+  fleetVehicleId String               @map("fleet_vehicle_id")
+  fleetVehicle   TransferFleetVehicle @relation(fields: [fleetVehicleId], references: [id], onDelete: Cascade)
+  fileAssetId    String               @map("file_asset_id")
+  fileAsset      FileAsset            @relation("FleetVehicleImages", fields: [fileAssetId], references: [id], onDelete: Restrict)
+
+  caption   String?
+  sortOrder Int     @default(0) @map("sort_order")
+  /// At most one per car: partial unique index in the migration.
+  isCover   Boolean @default(false) @map("is_cover")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([fleetVehicleId, fileAssetId])
+  @@index([fleetVehicleId, sortOrder])
+  @@map("transfer_fleet_vehicle_images")
+}
+
+/// Registration, insurance, inspection. Same rules as HotelDocument: the
+/// asset is PRIVATE and the bytes are reached only through a signed request.
+model TransferFleetVehicleDocument {
+  id             String               @id @default(cuid())
+  fleetVehicleId String               @map("fleet_vehicle_id")
+  fleetVehicle   TransferFleetVehicle @relation(fields: [fleetVehicleId], references: [id], onDelete: Cascade)
+  fileAssetId    String               @map("file_asset_id")
+  fileAsset      FileAsset            @relation("FleetVehicleDocuments", fields: [fileAssetId], references: [id], onDelete: Restrict)
+
+  /// REGISTRATION | INSURANCE | TECHNICAL_INSPECTION | OTHER
+  docType    String    @map("doc_type")
+  label      String?
+  validUntil DateTime? @map("valid_until") @db.Date
+
+  uploadedByUserId String? @map("uploaded_by_user_id")
+  uploadedByUser   User?   @relation("FleetVehicleDocumentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([fleetVehicleId, fileAssetId])
+  @@index([fleetVehicleId, docType])
+  @@map("transfer_fleet_vehicle_documents")
+}
+
+/// A driver. The profile, not the login: a profile can exist before an
+/// account is linked (a subcontractor's driver the dispatcher phones) and
+/// survives the account being deactivated.
+///
+/// Affiliation is the provider, never `User.partnerId`. A DRIVER user carries
+/// no partnerId at all, which is what keeps every partner-scoped query on the
+/// platform closed to drivers without each of them having to remember.
+model TransferDriver {
+  id String @id @default(cuid())
+
+  userId String? @unique @map("user_id")
+  user   User?   @relation("DriverUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  providerId String           @map("provider_id")
+  provider   TransferProvider @relation(fields: [providerId], references: [id], onDelete: Restrict)
+
+  firstName String  @map("first_name")
+  lastName  String  @map("last_name")
+  /// Required: dispatch is a phone call when the app is not answering.
+  phone     String
+  /// Contact only. The login email lives on the User.
+  email     String?
+
+  /// ISO 639-1 codes.
+  languages       String[]
+  yearsExperience Int      @default(0) @map("years_experience")
+  /// Public.
+  bio             String?
+
+  photoFileAssetId String?    @map("photo_file_asset_id")
+  photo            FileAsset? @relation("DriverPhoto", fields: [photoFileAssetId], references: [id], onDelete: SetNull)
+
+  // --- internal, never serialised outside operations ---
+  licenceNumber    String?   @map("licence_number")
+  licenceExpiresOn DateTime? @map("licence_expires_on") @db.Date
+  dateOfBirth      DateTime? @map("date_of_birth") @db.Date
+  internalNotes    String?   @map("internal_notes")
+
+  verificationStatus TransferDriverVerification @default(UNVERIFIED) @map("verification_status")
+  verifiedAt         DateTime?                  @map("verified_at")
+  verifiedByUserId   String?                    @map("verified_by_user_id")
+  verifiedByUser     User?                      @relation("DriverVerifiedBy", fields: [verifiedByUserId], references: [id], onDelete: SetNull)
+
+  isActive           Boolean   @default(true) @map("is_active")
+  deactivatedAt      DateTime? @map("deactivated_at")
+  deactivationReason String?   @map("deactivation_reason")
+
+  /// Where the driver starts the day. The seam for automatic assignment.
+  homeBasePointId String?        @map("home_base_point_id")
+  homeBasePoint   TransferPoint? @relation("DriverHomeBase", fields: [homeBasePointId], references: [id], onDelete: SetNull)
+
+  /// Denormalised and recomputed from the rating rows in the same transaction
+  /// as whatever changed them — never incremented, never edited by hand.
+  ratingAvg      Float @default(0) @map("rating_avg")
+  ratingCount    Int   @default(0) @map("rating_count")
+  completedCount Int   @default(0) @map("completed_count")
+
+  vehicles    TransferDriverVehicle[]
+  documents   TransferDriverDocument[]
+  assignments TransferAssignment[]
+  blocks      TransferResourceBlock[]
+  ratings     TransferDriverRating[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([providerId, isActive])
+  @@index([verificationStatus])
+  @@map("transfer_drivers")
+}
+
+model TransferDriverDocument {
+  id          String         @id @default(cuid())
+  driverId    String         @map("driver_id")
+  driver      TransferDriver @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  fileAssetId String         @map("file_asset_id")
+  fileAsset   FileAsset      @relation("DriverDocuments", fields: [fileAssetId], references: [id], onDelete: Restrict)
+
+  /// DRIVING_LICENCE | ID_DOCUMENT | MEDICAL | BACKGROUND_CHECK | OTHER
+  docType    String    @map("doc_type")
+  label      String?
+  validUntil DateTime? @map("valid_until") @db.Date
+
+  uploadedByUserId String? @map("uploaded_by_user_id")
+  uploadedByUser   User?   @relation("DriverDocumentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([driverId, fileAssetId])
+  @@index([driverId, docType])
+  @@map("transfer_driver_documents")
+}
+
+/// Which cars a driver usually takes. Eligibility and a default for the
+/// dispatch screen, not the record of what was driven — that is on the
+/// assignment. At most one primary per driver (partial index in the migration).
+model TransferDriverVehicle {
+  id             String               @id @default(cuid())
+  driverId       String               @map("driver_id")
+  driver         TransferDriver       @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  fleetVehicleId String               @map("fleet_vehicle_id")
+  fleetVehicle   TransferFleetVehicle @relation(fields: [fleetVehicleId], references: [id], onDelete: Cascade)
+
+  isPrimary Boolean @default(false) @map("is_primary")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([driverId, fleetVehicleId])
+  @@index([fleetVehicleId])
+  @@map("transfer_driver_vehicles")
+}
+
+/// One offer of one driver, and usually one car, for one leg.
+///
+/// Append-only. The leg's status says where the job is; this row says who was
+/// sent, when they said yes, and — through the milestone stamps — how far
+/// they got, which a superseded row still remembers after a reassignment.
+///
+/// `windowStart`/`windowEnd` are the occupancy the exclusion constraints
+/// protect: pick-up minus a buffer to the end of the journey plus a buffer.
+/// The buffers are stored on the row so a later change of config cannot
+/// reinterpret history.
+model TransferAssignment {
+  id String @id @default(cuid())
+
+  legId String             @map("leg_id")
+  leg   TransferBookingLeg @relation(fields: [legId], references: [id], onDelete: Cascade)
+
+  /// Denormalised from the leg for the driver's list queries and the partner
+  /// scope join.
+  bookingId String          @map("booking_id")
+  booking   TransferBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  driverId       String                @map("driver_id")
+  driver         TransferDriver        @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  fleetVehicleId String?               @map("fleet_vehicle_id")
+  fleetVehicle   TransferFleetVehicle? @relation(fields: [fleetVehicleId], references: [id], onDelete: Restrict)
+
+  status TransferAssignmentStatus @default(OFFERED)
+
+  windowStart       DateTime @map("window_start")
+  windowEnd         DateTime @map("window_end")
+  preBufferMinutes  Int      @map("pre_buffer_minutes")
+  postBufferMinutes Int      @map("post_buffer_minutes")
+
+  assignedByUserId String?  @map("assigned_by_user_id")
+  assignedByUser   User?    @relation("AssignmentAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  assignedAt       DateTime @default(now()) @map("assigned_at")
+  /// What the dispatcher knowingly overrode: CLASS_MISMATCH, VEHICLE_NOT_LINKED,
+  /// UNVERIFIED_DRIVER. Empty for a clean assignment.
+  overrides        String[]
+
+  acceptedAt    DateTime? @map("accepted_at")
+  declinedAt    DateTime? @map("declined_at")
+  declineReason String?   @map("decline_reason")
+  revokedAt     DateTime? @map("revoked_at")
+  revokeReason  String?   @map("revoke_reason")
+
+  supersededByAssignmentId String?             @unique @map("superseded_by_assignment_id")
+  supersededBy             TransferAssignment? @relation("AssignmentSupersedes", fields: [supersededByAssignmentId], references: [id], onDelete: SetNull)
+  supersedes               TransferAssignment? @relation("AssignmentSupersedes")
+
+  /// Milestones, always the server clock. A phone's clock is not evidence.
+  enRouteAt        DateTime? @map("en_route_at")
+  arrivedAt        DateTime? @map("arrived_at")
+  pickedUpAt       DateTime? @map("picked_up_at")
+  completedAt      DateTime? @map("completed_at")
+  noShowReportedAt DateTime? @map("no_show_reported_at")
+
+  driverNotes     String? @map("driver_notes")
+  dispatcherNotes String? @map("dispatcher_notes")
+
+  ratings TransferDriverRating[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([driverId, windowStart])
+  @@index([fleetVehicleId, windowStart])
+  @@index([legId, status])
+  @@index([bookingId])
+  @@index([status, windowStart])
+  @@map("transfer_assignments")
+}
+
+/// A driver's day off or a car's service slot. Exactly one of the two targets
+/// is set (CHECK in the migration). Checked against assignments under the
+/// same row lock the dispatcher takes, so a block is never placed over a job.
+model TransferResourceBlock {
+  id String @id @default(cuid())
+
+  driverId       String?               @map("driver_id")
+  driver         TransferDriver?       @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  fleetVehicleId String?               @map("fleet_vehicle_id")
+  fleetVehicle   TransferFleetVehicle? @relation(fields: [fleetVehicleId], references: [id], onDelete: Cascade)
+
+  startsAt DateTime @map("starts_at")
+  endsAt   DateTime @map("ends_at")
+
+  /// DAY_OFF | SICK | MAINTENANCE | OTHER
+  reason String
+  note   String?
+
+  createdByUserId String? @map("created_by_user_id")
+  createdByUser   User?   @relation("ResourceBlockCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([driverId, startsAt])
+  @@index([fleetVehicleId, startsAt])
+  @@map("transfer_resource_blocks")
+}
+
+/// One rating for one completed leg. The unique leg is what makes a second
+/// submission a conflict rather than a second opinion. The assignment is
+/// snapshotted so a later correction of who drove cannot move the score.
+model TransferDriverRating {
+  id String @id @default(cuid())
+
+  legId     String             @unique @map("leg_id")
+  leg       TransferBookingLeg @relation(fields: [legId], references: [id], onDelete: Cascade)
+  bookingId String             @map("booking_id")
+  booking   TransferBooking    @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  driverId       String                @map("driver_id")
+  driver         TransferDriver        @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  assignmentId   String                @map("assignment_id")
+  assignment     TransferAssignment    @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  fleetVehicleId String?               @map("fleet_vehicle_id")
+  fleetVehicle   TransferFleetVehicle? @relation(fields: [fleetVehicleId], references: [id], onDelete: SetNull)
+
+  /// 1..5, CHECK in the migration.
+  score   Int
+  comment String?
+
+  source            TransferRatingSource
+  submittedByUserId String?              @map("submitted_by_user_id")
+  submittedByUser   User?                @relation("RatingSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  /// Lower-cased lead passenger email for GUEST submissions.
+  submittedByEmail  String?              @map("submitted_by_email")
+
+  status            TransferRatingStatus @default(PENDING)
+  moderatedAt       DateTime?            @map("moderated_at")
+  moderatedByUserId String?              @map("moderated_by_user_id")
+  moderatedByUser   User?                @relation("RatingModeratedBy", fields: [moderatedByUserId], references: [id], onDelete: SetNull)
+  moderationNote    String?              @map("moderation_note")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([driverId, status])
+  @@index([status, createdAt])
+  @@map("transfer_driver_ratings")
+}
+
+/// An in-app notification. Written by the outbox drain, never directly by a
+/// request handler, so every channel sees the same event once.
+model Notification {
+  id String @id @default(cuid())
+
+  recipientUserId String @map("recipient_user_id")
+  recipientUser   User   @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+
+  kind  NotificationKind
+  title String
+  body  String
+
+  /// Deep-link data: booking reference, leg, assignment, driver.
+  payload Json @default("{}")
+
+  entityType String? @map("entity_type")
+  entityId   String? @map("entity_id")
+
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([recipientUserId, readAt, createdAt])
+  @@map("notifications")
+}
+
+/// The transactional outbox. Written in the same transaction as the state
+/// change it describes and drained by a sweeper, which is what lets an email
+/// be retried without the booking being re-cancelled. This — not the audit
+/// log — is the queue: audit rows are history and never carry processing
+/// state.
+model OutboxEvent {
+  id String @id @default(cuid())
+
+  /// e.g. transfer.assignment.offered
+  topic   String
+  payload Json
+
+  entityType String? @map("entity_type")
+  entityId   String? @map("entity_id")
+
+  attempts      Int       @default(0)
+  lastError     String?   @map("last_error")
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at")
+  processedAt   DateTime? @map("processed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([processedAt, nextAttemptAt])
+  @@map("outbox_events")
 }

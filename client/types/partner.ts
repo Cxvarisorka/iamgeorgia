@@ -15,10 +15,12 @@
 export type Role =
   | "SUPER_ADMIN"
   | "ADMIN"
+  | "DISPATCHER"
   | "PARTNER_OWNER"
   | "PARTNER_ADMIN"
   | "PARTNER_AGENT"
-  | "PARTNER_FINANCE";
+  | "PARTNER_FINANCE"
+  | "DRIVER";
 
 /**
  * A partner's lifecycle. Only APPROVED reaches the B2B platform;

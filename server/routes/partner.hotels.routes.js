@@ -1,6 +1,6 @@
 import { Router } from 'express';
 
-import { authenticate, requireApprovedPartner } from '../middleware/auth.js';
+import { authenticate, requireApprovedPartner, requirePartner } from '../middleware/auth.js';
 import { hotelScopeFor, requireHotelAccess } from '../middleware/hotelAccess.js';
 import { validate } from '../middleware/validate.js';
 import { hotelQuerySchema, idParamSchema } from '../validation/hotel.js';
@@ -34,7 +34,7 @@ import { toBookingSummary } from '../serializers/booking.js';
  */
 export const partnerHotelRoutes = Router();
 
-partnerHotelRoutes.use(authenticate, requireApprovedPartner);
+partnerHotelRoutes.use(authenticate, requirePartner, requireApprovedPartner);
 
 partnerHotelRoutes.get('/', validate({ query: hotelQuerySchema }), async (req, res) => {
     const { locale } = req.valid.query;

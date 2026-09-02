@@ -5,6 +5,7 @@ import Link from "next/link";
 import { MapPin, ShieldCheck, Utensils } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
+import { KosherBadge } from "@/components/hotels/KosherBadge";
 import { ScoreBadge, Stars } from "@/components/ui/Rating";
 import { stayQueryString } from "@/lib/booking/stay";
 import { fill } from "@/lib/i18n/dictionaries";
@@ -113,6 +114,20 @@ export function StayResultCard({ result, stay, nights, priority }: StayResultCar
               {fill(t.booking.results.ratesAvailable, { count: result.offerCount })}
             </li>
           </ul>
+
+          {/*
+           * Its own row rather than another chip in the list above.
+           *
+           * "Kosher certified · Chief Rabbinate of Georgia" is a different kind
+           * of statement from "BB" or "3 rates available" — one of them is a
+           * claim somebody checked — and sitting it among them would flatten
+           * that difference at exactly the moment an agent is scanning.
+           */}
+          {result.kosher && (
+            <div className="mt-3">
+              <KosherBadge kosher={result.kosher} showAuthority />
+            </div>
+          )}
 
           <div className="mt-5 flex flex-wrap items-end justify-between gap-4 border-t border-line pt-4 sm:mt-auto">
             <ScoreBadge score={result.guestScore} reviewCount={result.reviewCount} size="sm" />

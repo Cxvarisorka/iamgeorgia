@@ -6,6 +6,14 @@ import { UnauthorizedError, ForbiddenError } from '../lib/errors.js';
 export const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN'];
 export const PARTNER_ROLES = ['PARTNER_OWNER', 'PARTNER_ADMIN', 'PARTNER_AGENT', 'PARTNER_FINANCE'];
 
+/**
+ * Who runs transfer operations: admins, and dispatchers — who assign drivers
+ * and cars all day and must not, for that, be able to change a fare, approve
+ * a partner or read a margin. DISPATCHER is therefore deliberately *not* in
+ * ADMIN_ROLES: everything gated on `isAdmin` stays closed to it.
+ */
+export const TRANSFER_OPS_ROLES = [...ADMIN_ROLES, 'DISPATCHER'];
+
 /** Roles allowed to see a partner's bank details. */
 export const FINANCIAL_ROLES = [...ADMIN_ROLES, 'PARTNER_OWNER', 'PARTNER_FINANCE'];
 
@@ -19,6 +27,9 @@ export const FINANCIAL_ROLES = [...ADMIN_ROLES, 'PARTNER_OWNER', 'PARTNER_FINANC
  * simply not an admin.
  */
 export const isAdmin = (viewer) => Boolean(viewer) && ADMIN_ROLES.includes(viewer.role);
+
+/** Whether a viewer may run transfer operations: every admin, plus dispatchers. */
+export const isTransferOps = (viewer) => Boolean(viewer) && TRANSFER_OPS_ROLES.includes(viewer.role);
 
 /** Roles that may edit a supplier's own inventory, rates and content. */
 export const SUPPLIER_MANAGE_ROLES = ['PARTNER_OWNER', 'PARTNER_ADMIN'];
@@ -179,6 +190,75 @@ export const requireRole =
     };
 
 export const requireAdmin = requireRole(...ADMIN_ROLES);
+
+export const requireTransferOps = requireRole(...TRANSFER_OPS_ROLES);
+
+/**
+ * A partner user — or an admin acting for the platform, which the partner
+ * routers have always allowed.
+ *
+ * Exists because the partner routers used to rely on `authenticate` alone and
+ * scope by `viewer.partnerId`. That was sound while every non-admin account
+ * belonged to a partner; a driver or a dispatcher does not, and although
+ * `partnerId ?? '__none__'` fails closed for them, a router that names its
+ * audience is one that stays closed when the next role arrives.
+ */
+export const requirePartner = requireRole(...ADMIN_ROLES, ...PARTNER_ROLES);
+
+/**
+ * Gates the driver panel.
+ *
+ * Loads the profile here rather than joining it into every session lookup:
+ * only driver requests need it, and the two flags it checks are the two that
+ * end a driver's access — an unlinked account cannot be dispatched to, and a
+ * deactivated profile is refused even if the user row is still active. Puts
+ * the profile on `req.driver` so the routes scope on `req.driver.id`, never
+ * on anything the client sent.
+ */
+export const requireDriver = async (req, res, next) => {
+    if (!req.user) {
+        throw new UnauthorizedError('Authentication required');
+    }
+
+    if (req.user.role !== 'DRIVER') {
+        throw new ForbiddenError('Driver account required');
+    }
+
+    const driver = await prisma.transferDriver.findUnique({
+        where: { userId: req.user.id },
+        select: {
+            id: true,
+            providerId: true,
+            firstName: true,
+            lastName: true,
+            isActive: true,
+            verificationStatus: true,
+            provider: { select: { status: true, partner: { select: { status: true } } } }
+        }
+    });
+
+    if (!driver) {
+        throw new ForbiddenError('No driver profile is linked to this account', { reason: 'DRIVER_UNLINKED' });
+    }
+
+    if (!driver.isActive) {
+        throw new ForbiddenError('Driver profile is not active', { reason: 'DRIVER_INACTIVE' });
+    }
+
+    // A supplier that has been suspended or rejected takes its drivers with
+    // it: their sessions were ended at the time, and this is what keeps them
+    // from simply signing in again.
+    const partnerStatus = driver.provider?.partner?.status;
+
+    if (driver.provider?.status === 'ARCHIVED' || partnerStatus === 'SUSPENDED' || partnerStatus === 'REJECTED') {
+        throw new ForbiddenError('Your transfer company is not active on the platform', {
+            reason: 'DRIVER_PROVIDER_INACTIVE'
+        });
+    }
+
+    req.driver = driver;
+    next();
+};
 
 /**
  * Gates the B2B platform itself.

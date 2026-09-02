@@ -10,6 +10,7 @@ import {
   AdminPanel,
 } from "@/components/admin/AdminPage";
 import { BookingActions } from "@/components/admin/BookingActions";
+import { BookingRequests } from "@/components/admin/BookingRequests";
 import { BookingStatusBadge } from "@/components/admin/StatusBadge";
 import { Cell, DataTable, Row } from "@/components/admin/DataTable";
 import { getAdminBooking } from "@/lib/api/bookings";
@@ -204,10 +205,15 @@ export default async function AdminBookingPage({
                   ),
                 },
                 { label: "Phone", value: booking.leadGuestPhone ?? "—" },
-                { label: "Requests", value: booking.specialRequests ?? "—" },
+                { label: "Notes", value: booking.specialRequests ?? "—" },
               ]}
             />
           </AdminPanel>
+
+          {/* Structured requirements, each answered on its own. Renders nothing
+              when the booking carries none, which is every booking made before
+              they existed. */}
+          <BookingRequests booking={booking} />
 
           <AdminPanel title="Money">
             <AdminDefinitionList

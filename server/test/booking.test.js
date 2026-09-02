@@ -10,6 +10,7 @@ import {
     createTracker,
     databaseAvailable,
     makeAdmin,
+    makeAmenity,
     makeDestination,
     makeHotel,
     makePartner,
@@ -815,6 +816,338 @@ describe('bookings', { skip: dbAvailable ? false : 'Postgres is not reachable' }
      * The interesting assertions are the negative ones: what a PATCH *cannot*
      * reach is the whole reason the endpoint is safe to expose to a partner.
      */
+    /**
+     * Structured requirements on a booking.
+     *
+     * The distinction being tested throughout: a **capability** says the
+     * property can, a **request** says this guest needs. The two are different
+     * records, they are validated against each other, and neither one is
+     * allowed to be read as the other.
+     */
+    describe('requirements', () => {
+        /** Gives a property a kosher facility, so it can be asked for one. */
+        const withFacility = async (hotelId, category = 'Shabbat') => {
+            const amenity = await makeAmenity(tracker, {
+                code: unique('shabbatLift'),
+                category
+            });
+
+            await prisma.hotelAmenity.create({ data: { hotelId, amenityId: amenity.id } });
+
+            return amenity;
+        };
+
+        it('records what was asked for, and leaves the booking confirmed', async () => {
+            const { hotel } = await makeSellable();
+            const facility = await withFacility(hotel.id);
+            const offer = await offerFor(hotel);
+
+            const response = await request(app)
+                .post('/api/bookings')
+                .send({
+                    offerToken: offer.token,
+                    leadGuest: leadGuest(),
+                    requests: [{ code: facility.code, note: 'Two kosher dinners, Fri and Sat' }]
+                });
+
+            assert.equal(response.status, 201);
+            // The rooms were claimed and priced; a meal still being arranged
+            // does not put them back in doubt.
+            assert.equal(response.body.status, 'CONFIRMED');
+            assert.equal(response.body.requests.length, 1);
+            assert.equal(response.body.requests[0].status, 'REQUESTED');
+            assert.equal(response.body.requests[0].note, 'Two kosher dinners, Fri and Sat');
+            assert.equal(response.body.requestsPending, 1);
+        });
+
+        it('refuses a requirement the property does not offer', async () => {
+            const { hotel } = await makeSellable();
+            const offer = await offerFor(hotel);
+
+            const response = await request(app)
+                .post('/api/bookings')
+                .send({
+                    offerToken: offer.token,
+                    leadGuest: leadGuest(),
+                    requests: [{ code: 'mikvehOnSite' }]
+                });
+
+            // 422 rather than 400: the request is well formed, it is the
+            // property that cannot meet it.
+            assert.equal(response.status, 422);
+            assert.deepEqual(response.body.error.details.unsupported, ['mikvehOnSite']);
+        });
+
+        it('claims no inventory when a requirement is refused', async () => {
+            const { hotel, roomType } = await makeSellable();
+            const offer = await offerFor(hotel);
+
+            await request(app)
+                .post('/api/bookings')
+                .send({
+                    offerToken: offer.token,
+                    leadGuest: leadGuest(),
+                    requests: [{ code: 'mikvehOnSite' }]
+                });
+
+            const inventory = await inventoryFor(roomType.id);
+
+            // The check runs before anything is claimed, so a refused booking
+            // leaves no held or booked room behind it.
+            assert.equal(inventory.bookedUnits, 0);
+            assert.equal(inventory.heldUnits, 0);
+        });
+
+        it('always allows a kosher meal to be asked for', async () => {
+            // A property that serves kosher food can be asked for a kosher meal
+            // whether or not anybody remembered to tick the box.
+            const { hotel } = await makeSellable();
+            const offer = await offerFor(hotel);
+
+            const response = await request(app)
+                .post('/api/bookings')
+                .send({
+                    offerToken: offer.token,
+                    leadGuest: leadGuest(),
+                    requests: [{ code: 'kosherMealOnRequest' }]
+                });
+
+            assert.equal(response.status, 201);
+        });
+
+        it('refuses the same requirement twice in one request', async () => {
+            const { hotel } = await makeSellable();
+            const facility = await withFacility(hotel.id);
+            const offer = await offerFor(hotel);
+
+            const response = await request(app)
+                .post('/api/bookings')
+                .send({
+                    offerToken: offer.token,
+                    leadGuest: leadGuest(),
+                    requests: [{ code: facility.code }, { code: facility.code }]
+                });
+
+            assert.equal(response.status, 400);
+        });
+
+        it('lets the property confirm one, and requires a reason to decline', async () => {
+            const { hotel } = await makeSellable();
+            const facility = await withFacility(hotel.id);
+            const offer = await offerFor(hotel);
+
+            const booked = await request(app)
+                .post('/api/bookings')
+                .send({
+                    offerToken: offer.token,
+                    leadGuest: leadGuest(),
+                    requests: [{ code: facility.code }, { code: 'kosherMealOnRequest' }]
+                });
+
+            const [first, second] = booked.body.requests;
+            const base = `/api/admin/bookings/${booked.body.reference}/requests`;
+
+            const confirmed = await request(app)
+                .post(`${base}/${first.id}`)
+                .set('Cookie', adminCookie)
+                .send({ status: 'CONFIRMED' });
+
+            assert.equal(confirmed.status, 200);
+            assert.equal(confirmed.body.requestsPending, 1);
+
+            const bare = await request(app)
+                .post(`${base}/${second.id}`)
+                .set('Cookie', adminCookie)
+                .send({ status: 'DECLINED' });
+            assert.equal(bare.status, 400, 'a refusal an agency cannot explain is not a decision');
+
+            const declined = await request(app)
+                .post(`${base}/${second.id}`)
+                .set('Cookie', adminCookie)
+                .send({ status: 'DECLINED', responseNote: 'The chef is away that week.' });
+
+            assert.equal(declined.status, 200);
+            assert.equal(declined.body.requestsPending, 0);
+            // Declining a requirement does not cancel a reservation.
+            assert.equal(declined.body.status, 'CONFIRMED');
+        });
+
+        it('will not let a partner answer its own request', async () => {
+            const { hotel } = await makeSellable();
+            const facility = await withFacility(hotel.id);
+            const offer = await offerFor(hotel, partnerCookie);
+
+            const booked = await request(app)
+                .post('/api/bookings')
+                .set('Cookie', partnerCookie)
+                .send({
+                    offerToken: offer.token,
+                    leadGuest: leadGuest(),
+                    requests: [{ code: facility.code }]
+                });
+
+            const response = await request(app)
+                .post(
+                    `/api/admin/bookings/${booked.body.reference}/requests/${booked.body.requests[0].id}`
+                )
+                .set('Cookie', partnerCookie)
+                .send({ status: 'CONFIRMED' });
+
+            // A booking that confirms its own requirements is not a
+            // confirmation of anything.
+            assert.equal(response.status, 403);
+        });
+
+        it('refuses to answer the same requirement twice', async () => {
+            const { hotel } = await makeSellable();
+            const facility = await withFacility(hotel.id);
+            const offer = await offerFor(hotel);
+
+            const booked = await request(app)
+                .post('/api/bookings')
+                .send({
+                    offerToken: offer.token,
+                    leadGuest: leadGuest(),
+                    requests: [{ code: facility.code }]
+                });
+
+            const url = `/api/admin/bookings/${booked.body.reference}/requests/${booked.body.requests[0].id}`;
+
+            await request(app).post(url).set('Cookie', adminCookie).send({ status: 'CONFIRMED' });
+            const again = await request(app)
+                .post(url)
+                .set('Cookie', adminCookie)
+                .send({ status: 'CONFIRMED' });
+
+            assert.equal(again.status, 409);
+        });
+
+        it('withdraws a requirement left out of an amendment, rather than deleting it', async () => {
+            const { hotel } = await makeSellable();
+            const facility = await withFacility(hotel.id);
+            const offer = await offerFor(hotel);
+
+            const booked = await request(app)
+                .post('/api/bookings')
+                .send({
+                    offerToken: offer.token,
+                    leadGuest: leadGuest(),
+                    requests: [{ code: facility.code }, { code: 'kosherMealOnRequest' }]
+                });
+
+            const amended = await request(app)
+                .patch(`/api/bookings/${booked.body.reference}`)
+                .set('Cookie', adminCookie)
+                .send({ requests: [{ code: 'kosherMealOnRequest' }] });
+
+            const byCode = Object.fromEntries(
+                amended.body.requests.map((request_) => [request_.code, request_])
+            );
+
+            assert.equal(amended.status, 200);
+            // Still on the record: "they asked and changed their mind" is worth
+            // being able to see.
+            assert.equal(byCode[facility.code].status, 'WITHDRAWN');
+            assert.equal(byCode.kosherMealOnRequest.status, 'REQUESTED');
+        });
+
+        it('cannot un-decline a requirement by asking again', async () => {
+            const { hotel } = await makeSellable();
+            const offer = await offerFor(hotel);
+
+            const booked = await request(app)
+                .post('/api/bookings')
+                .send({
+                    offerToken: offer.token,
+                    leadGuest: leadGuest(),
+                    requests: [{ code: 'kosherMealOnRequest' }]
+                });
+
+            await request(app)
+                .post(
+                    `/api/admin/bookings/${booked.body.reference}/requests/${booked.body.requests[0].id}`
+                )
+                .set('Cookie', adminCookie)
+                .send({ status: 'DECLINED', responseNote: 'No kosher kitchen that week.' });
+
+            const amended = await request(app)
+                .patch(`/api/bookings/${booked.body.reference}`)
+                .set('Cookie', adminCookie)
+                .send({ requests: [{ code: 'kosherMealOnRequest', note: 'Please reconsider' }] });
+
+            // The note may be corrected; the answer stands.
+            assert.equal(amended.body.requests[0].status, 'DECLINED');
+            assert.equal(amended.body.requests[0].note, 'Please reconsider');
+        });
+
+        it('adds a requirement through an amendment, checked against the property', async () => {
+            const { hotel } = await makeSellable();
+            const offer = await offerFor(hotel);
+
+            const booked = await request(app)
+                .post('/api/bookings')
+                .send({ offerToken: offer.token, leadGuest: leadGuest() });
+
+            assert.deepEqual(booked.body.requests, []);
+
+            const added = await request(app)
+                .patch(`/api/bookings/${booked.body.reference}`)
+                .set('Cookie', adminCookie)
+                .send({ requests: [{ code: 'kosherMealOnRequest' }] });
+
+            assert.equal(added.body.requests.length, 1);
+
+            const refused = await request(app)
+                .patch(`/api/bookings/${booked.body.reference}`)
+                .set('Cookie', adminCookie)
+                .send({ requests: [{ code: 'mikvehOnSite' }] });
+
+            assert.equal(refused.status, 422);
+        });
+
+        it('leaves a booking made without any requirements exactly as it was', async () => {
+            // Backward compatibility, as an assertion: every booking made before
+            // this feature existed reads as an empty list and a zero count.
+            const { hotel } = await makeSellable();
+            const offer = await offerFor(hotel);
+
+            const response = await request(app)
+                .post('/api/bookings')
+                .send({ offerToken: offer.token, leadGuest: leadGuest() });
+
+            assert.equal(response.status, 201);
+            assert.deepEqual(response.body.requests, []);
+            assert.equal(response.body.requestsPending, 0);
+        });
+
+        it('writes an audit row when the property answers', async () => {
+            const { hotel } = await makeSellable();
+            const offer = await offerFor(hotel);
+
+            const booked = await request(app)
+                .post('/api/bookings')
+                .send({
+                    offerToken: offer.token,
+                    leadGuest: leadGuest(),
+                    requests: [{ code: 'kosherMealOnRequest' }]
+                });
+
+            const requestId = booked.body.requests[0].id;
+
+            await request(app)
+                .post(`/api/admin/bookings/${booked.body.reference}/requests/${requestId}`)
+                .set('Cookie', adminCookie)
+                .send({ status: 'CONFIRMED' });
+
+            const entries = await prisma.auditLog.findMany({
+                where: { action: 'BOOKING_REQUEST_ANSWERED', entityId: requestId }
+            });
+
+            assert.equal(entries.length, 1);
+            assert.equal(entries[0].metadata.code, 'kosherMealOnRequest');
+        });
+    });
+
     describe('amending a booking', () => {
         const bookAsPartner = async () => {
             const { hotel } = await makeSellable();

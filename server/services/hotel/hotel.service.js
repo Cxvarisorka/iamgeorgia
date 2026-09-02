@@ -10,6 +10,13 @@ import { logger } from '../../lib/logger.js';
 import { completeHotelPoliciesSchema } from '../../validation/domain.js';
 import { removeObjectPrefix } from '../media/storage.service.js';
 import { setHotelAmenities } from './amenity.service.js';
+import {
+    atLeastServiceLevel,
+    certificationState,
+    kosherInclude,
+    kosherToday,
+    liveCertificationWhere
+} from './kosher.service.js';
 
 /**
  * Hotels: catalogue content only.
@@ -60,6 +67,10 @@ const detailInclude = (locale) => ({
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }]
     },
     childPolicy: { include: { bands: { orderBy: { minAge: 'asc' } } } },
+    // Optional and usually absent. A hotel with no kosher profile costs one
+    // extra probe on a unique foreign key, which is not worth making the detail
+    // endpoint conditional over.
+    kosher: { include: kosherInclude },
     translations: translationInclude(locale)
 });
 
@@ -119,6 +130,23 @@ export const buildPublishChecklist = (hotel) => {
         )
     );
 
+    // Asked only of a property that claims to be partly or wholly kosher, and
+    // only when it has a profile at all — an ordinary hotel never sees this
+    // line. A claim that strong going on sale with nothing behind it is exactly
+    // what the certification model exists to prevent, so it belongs in the
+    // checklist rather than in a warning somebody can scroll past.
+    if (hotel.kosher && ['PARTIAL', 'FULL'].includes(hotel.kosher.serviceLevel)) {
+        const today = kosherToday(hotel.timezone);
+
+        require(
+            'kosherCertification',
+            'Verify a kosher certificate, or lower the kosher service level',
+            (hotel.kosher.certifications ?? []).some(
+                (certification) => certificationState(certification, today) === 'VERIFIED'
+            )
+        );
+    }
+
     return missing;
 };
 
@@ -153,7 +181,14 @@ const buildWhere = ({
     featured,
     minStars,
     amenity,
-    destinationSlug
+    destinationSlug,
+    kosher,
+    kosherCertified,
+    // The catalogue has no dates, so "today" is the platform's rather than any
+    // one property's. A certificate lapsing at a Tbilisi midnight is at most a
+    // few hours out of step on a browse page, and the dated search — where it
+    // would actually matter — resolves it per property.
+    today = kosherToday()
 }) => ({
     // The sales channel. Everything is B2B by default; only records switched
     // on for B2C exist as far as an anonymous visitor is concerned.
@@ -180,6 +215,21 @@ const buildWhere = ({
               AND: (Array.isArray(amenity) ? amenity : [amenity]).map((code) => ({
                   amenities: { some: { amenity: { code } } }
               }))
+          }
+        : {}),
+    // The two kosher predicates. Both go through `kosher: { is: ... }` so that
+    // asking for either also requires the profile to exist — a hotel with no
+    // kosher record must never match a kosher filter.
+    ...(kosher || kosherCertified
+        ? {
+              kosher: {
+                  is: {
+                      ...(kosher ? { serviceLevel: { in: atLeastServiceLevel(kosher) } } : {}),
+                      ...(kosherCertified
+                          ? { certifications: { some: liveCertificationWhere(today) } }
+                          : {})
+                  }
+              }
           }
         : {}),
     ...(search
@@ -215,7 +265,11 @@ export const listHotels = async (query) => {
                 featuredImage: { include: { variants: true } },
                 // Codes only, for the card icons. The narrow select keeps a
                 // fifty-hotel page from dragging fifty amenity vocabularies.
-                amenities: { select: { amenity: { select: { code: true } } } },
+                amenities: { select: { amenity: { select: { code: true, category: true } } } },
+                // Enough for one honest line on a card. Archived certificates
+                // are excluded here rather than in the serializer, so a hotel
+                // with ten years of history still costs a handful of rows.
+                kosher: { include: { certifications: { where: { archivedAt: null } } } },
                 translations: translationInclude(locale),
                 _count: { select: { amenities: true, images: true } }
             },
@@ -356,7 +410,15 @@ export const publishHotel = async (id, actor, req) =>
     prisma.$transaction(async (tx) => {
         const hotel = await tx.hotel.findUnique({
             where: { id },
-            include: { amenities: true, images: true, roomTypes: { include: { ratePlans: true } } }
+            include: {
+                amenities: true,
+                images: true,
+                roomTypes: { include: { ratePlans: true } },
+                // The checklist asks about certification for a property that
+                // claims PARTIAL or FULL, so the check has to be able to see the
+                // certificates rather than assume there are none.
+                kosher: { include: { certifications: true } }
+            }
         });
 
         if (!hotel) {

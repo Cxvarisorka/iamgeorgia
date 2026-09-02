@@ -23,6 +23,11 @@ const CATEGORY_PREFIX = {
     INVOICE: 'invoice',
     VOUCHER: 'voucher',
     IMPORT: 'import',
+    KOSHER_CERTIFICATE: 'kosher-certificate',
+    FLEET_IMAGE: 'fleet-image',
+    DRIVER_PHOTO: 'driver-photo',
+    DRIVER_DOCUMENT: 'driver-document',
+    VEHICLE_DOCUMENT: 'vehicle-document',
     OTHER: 'other'
 };
 

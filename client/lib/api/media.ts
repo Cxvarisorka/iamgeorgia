@@ -21,6 +21,11 @@ export type MediaCategory =
   | "INVOICE"
   | "VOUCHER"
   | "IMPORT"
+  | "KOSHER_CERTIFICATE"
+  | "FLEET_IMAGE"
+  | "DRIVER_PHOTO"
+  | "DRIVER_DOCUMENT"
+  | "VEHICLE_DOCUMENT"
   | "OTHER";
 
 export const listMedia = (query: Record<string, string | number | undefined> = {}) =>

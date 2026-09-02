@@ -524,8 +524,16 @@ A vertical stays flat until it has more than one catalogue screen. Hotels, desti
 | Group | Contents |
 | --- | --- |
 | Operations | Overview · Hotel bookings · Transfer bookings |
-| Inventory | Destinations · Hotels · **Transfers** (Routes, Fleet, Pick-up points, Extras) · Tours |
+| Inventory | Destinations · Hotels · **Transfers** (Catalogue: Routes, Pick-up points, Vehicle classes, Extras — Fleet & drivers: Fleet, Drivers, Schedule, Ratings) · Tours |
 | Network | Partners · Applications |
+
+### Sub-groups inside a long section
+
+Transfers grew from four screens to eight once the fleet half landed (§10), and one run of eight rows under a single disclosure stopped being scannable. `AdminNavSection` now holds `groups: AdminNavSubgroup[]` — a labelled run of items — rather than a flat `items`, and `adminSectionItems(section)` flattens them for the callers that only care about the screens (active state, badge roll-up).
+
+The split follows the line the product itself draws: **Catalogue** is what a traveller buys (routes, the points they run between, the vehicle classes, the extras), **Fleet & drivers** is what turns up to drive them (cars, drivers, their schedule, their ratings). The catalogue is admin-only and changes rarely; the fleet is worked every day and is the half a dispatcher is allowed to see.
+
+In the sidebar each sub-group is its own `<ul>` under a small uppercase caption, `aria-labelledby` it, with a hairline (`border-t border-on-dark/10`) between neighbours. Captions render only when a section has more than one sub-group left: `navigationFor("DISPATCHER")` filters items and then drops any sub-group left empty, so the dispatcher's Transfers section is a single uncaptioned run — a divider with nothing on the other side of it would be a line for its own sake.
 
 ### The active-state trap
 
@@ -551,6 +559,23 @@ Adding Transfer bookings meant "Bookings" stopped being unambiguous, so it is no
 The disclosure chevron uses `rotate-180` rather than a left/right glyph — a rotation, not a direction, so it must not flip in Hebrew. The child run is indented with `ms-[1.3125rem]` against a `border-s` rail aligned to the parent's icon; both move to the right in Hebrew with everything else.
 
 Each group's `<ul>` is now `aria-labelledby` its heading, the section button carries `aria-expanded` and `aria-controls`, and `aria-current="page"` stays on the leaf link — never on the section, which is not a destination.
+
+---
+
+## 10. Fleet, drivers and dispatch
+
+The transfer module gained its operational half: physical cars, driver profiles with their own login, a dispatch board, a schedule, ratings and a mobile-first driver panel. Front-end decisions worth knowing:
+
+- **Three panels, three guards.** `requireAdminSession` now admits `DISPATCHER` as well as the two admin roles (`TRANSFER_OPS_ROLES` in `types/auth.ts`); `requireDriverSession` guards the new `(driver)/driver` route group; `homePathFor(session)` is the one place that decides where a signed-in account belongs, used by every sign-in and activation redirect. `Session.driver` carries the driver's own profile, null for everyone else.
+- **The driver panel is a phone first.** `components/driver/DriverShell` is a thin top bar plus a fixed, safe-area-padded bottom tab bar (Today / Upcoming / History / Me) that becomes a top nav at `md`. Every action is one large button; `AssignmentControls` sends `expectedFrom` with each milestone so a double tap on a bad connection cannot skip a step, and a `STALE_STATE` 409 simply refreshes.
+- **The dispatch board lists legs, not bookings** (`/admin/transfers/dispatch`): a return is two jobs on two days. Row actions come from `allowedTransitions`, the same table the API enforces. `AssignDriverModal` mounts its form only while open, so every open starts clean without resetting state in an effect; candidates arrive ranked with their conflicts shown rather than hidden, and a 422 `OVERRIDE_REQUIRED` from the server surfaces the exact checkbox it needs.
+- **Private files never get a URL.** `DocumentsPanel` (shared by `FleetDocuments` and `DriverDocuments`) opens a document by asking for a short-lived signed link; the facts (type, label, expiry) are all the page ever holds. Function props reach it through thin client wrappers, since a Server Component cannot hand a function down.
+- **The sidebar renamed "Fleet" to "Vehicle classes"** and added Fleet, Drivers, Schedule and Ratings under Transfers, and Dispatch (badged with undriven legs) under Operations. A dispatcher's layout skips the partner and hotel queue counts it cannot read. The eight Transfers screens are split into two captioned sub-groups with a divider between them — see §9, "Sub-groups inside a long section".
+- **What a partner sees of a driver** is `DriverCard` on the portal transfer booking: photo, name, verification, rating, languages, the car, and the phone number only once the server has released it. `RateDriverForm` appears on a completed leg until it has been rated; `/portal/drivers/[id]` is the profile with cars and published reviews.
+- **The passenger's rating page** (`/transfers/rate/[token]`) is a site page and therefore translated — `transfers.rating.*` in all four dictionaries.
+- **Still English:** the driver panel chrome and the admin dispatch screens, as with the rest of the admin panel (§6). A Georgian and Russian driver panel is the obvious next i18n step.
+- **A partner picks the driver at checkout.** `components/transfers/DriverChoice` sits in the transfer booking form for an approved partner (or an admin) and asks `POST /api/partner/drivers/available` with the offer's quote token: verified drivers with a car of the booked class that is free across every leg, each with photo, rating, languages, bio and the car's photographs. "Let us assign a driver" stays the default. The choice travels as `preferredDriverId` / `preferredFleetVehicleId`; a `409 DRIVER_UNAVAILABLE` or `422 DRIVER_NOT_ELIGIBLE` clears it and remounts the list (`key` bump) rather than failing the booking. The confirmation page shows the requested driver through `RequestedDriver` — translated, `transfers.booking.driver*` in all four dictionaries — as "awaiting confirmation" until they accept; the portal's `DriverCard` does the same with `awaitingDriver`. Language names come from `Intl.DisplayNames`, not a dictionary.
+- **Admins can delete a car or a driver** from the danger zone on its page (`canDelete` is decided by the page from the session; the server refuses non-admins regardless). Only while the record has never been on a job — the server answers 409 `HAS_ASSIGNMENTS` otherwise, and the panel shows that message with archive/deactivate as the way forward. The plate, or the surname, has to be typed back first.
 
 ---
 

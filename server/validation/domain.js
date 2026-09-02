@@ -48,10 +48,48 @@ const hotelPolicyFields = {
 export const completeHotelPoliciesSchema = z.object(hotelPolicyFields);
 export const hotelPoliciesSchema = completeHotelPoliciesSchema.partial();
 
+/**
+ * A place worth knowing about near a property.
+ *
+ * `name`, `type` and `distance` are the original three and are still the only
+ * required fields, so every row written before this comment existed still
+ * validates. The rest were added for religious facilities — an observant
+ * traveller needs to know *which* synagogue and how far it is on foot, not that
+ * one exists — and are optional because no existing row has them.
+ *
+ * Deliberately still Json rather than a table. Nearby places are read whole
+ * with the hotel and never queried on their own, which is exactly the rule the
+ * schema states. The *filterable* half of the same fact lives elsewhere and
+ * already works: `synagogueNearby` and `mikvehNearby` are amenity codes, so
+ * "properties with a mikveh nearby" is an indexed filter while "which mikveh,
+ * and how far" is display data. When "within 800 m" becomes a filter, this
+ * becomes a table with a PostGIS point — the extension and `Hotel.geo` are
+ * already there — and that is a migration, not a redesign.
+ */
 export const nearbyPlaceSchema = z.object({
     name: z.string().min(1),
     type: z.string().min(1),
-    distance: z.string().min(1)
+    distance: z.string().min(1),
+    /// A machine-readable kind, so the hotel page can group and icon these.
+    /// `type` stays as it was: it is the operator's own wording.
+    kind: z
+        .enum([
+            'SYNAGOGUE',
+            'MIKVEH',
+            'KOSHER_RESTAURANT',
+            'KOSHER_SHOP',
+            'ERUV',
+            'AIRPORT',
+            'STATION',
+            'LANDMARK',
+            'OTHER'
+        ])
+        .optional(),
+    latitude: z.number().min(-90).max(90).optional(),
+    longitude: z.number().min(-180).max(180).optional(),
+    /// Minutes on foot. The number that actually matters on a Shabbat, where a
+    /// straight-line distance in kilometres does not.
+    walkingMinutes: z.number().int().min(0).max(600).optional()
 });
 
 export const expectationStepSchema = z.object({
@@ -78,6 +116,15 @@ const openObjectSchema = z.record(z.string(), z.unknown());
 // Which Json field on which model is validated by which schema. The Prisma
 // extension in db/index.js walks this map on every write.
 export const jsonFieldSchemas = {
+    // Deep-link data and event payloads: an object, shaped by whichever
+    // handler wrote it. Constrained so a stray string cannot land in a column
+    // the drain reads keys from.
+    Notification: {
+        payload: openObjectSchema
+    },
+    OutboxEvent: {
+        payload: openObjectSchema
+    },
     Destination: {
         gallery: gallerySchema,
         attractions: z.array(attractionSchema),
@@ -97,6 +144,13 @@ export const jsonFieldSchemas = {
     },
     HotelTranslation: {
         policies: hotelPoliciesSchema.nullable()
+    },
+    HotelKosherProfile: {
+        // A supplier payload that could not be applied because the record is
+        // locked. Shapeless by nature — one channel manager's kosher fields are
+        // not another's — so it is constrained to an object and no further,
+        // exactly like Hotel.externalRef.
+        pendingSupplierData: openObjectSchema.nullable()
     },
     Tour: {
         gallery: gallerySchema

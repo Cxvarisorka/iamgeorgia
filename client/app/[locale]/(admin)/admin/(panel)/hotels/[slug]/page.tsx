@@ -1,7 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { ArrowRight, BedDouble, CalendarDays, FileText, ImageIcon, MapPin } from "lucide-react";
+import {
+  ArrowRight,
+  BadgeCheck,
+  BedDouble,
+  CalendarDays,
+  FileText,
+  ImageIcon,
+  MapPin,
+  Star,
+} from "lucide-react";
 
 import {
   AdminBreadcrumbs,
@@ -15,6 +24,7 @@ import { HotelActions } from "@/components/admin/HotelActions";
 import { HotelStatusBadge } from "@/components/admin/HotelStatusBadge";
 import { BookingStatusBadge } from "@/components/admin/StatusBadge";
 import { getHotel } from "@/lib/api/hotels";
+import type { HotelWithChecklist } from "@/types/catalogue";
 import { ApiError } from "@/lib/api/client";
 import { bookingsForHotel } from "@/lib/admin/metrics";
 import { formatStay } from "@/lib/admin/bookings";
@@ -23,6 +33,27 @@ import { formatMoney } from "@/lib/money";
 import { getI18n } from "@/lib/i18n/server";
 
 export const metadata: Metadata = { title: "Property" };
+
+/**
+ * One line for the hub tile.
+ *
+ * Reads `certified` and `certificationState` straight off the server, which
+ * derives both. Nothing here compares a date, so a certificate that lapsed
+ * overnight reads as lapsed on the next render rather than on the next deploy.
+ */
+function kosherSummary(kosher: HotelWithChecklist["kosher"]): string {
+  if (!kosher?.offersKosher) return "Not offered";
+  if (kosher.certified) return `Certified · ${kosher.certification?.authorityName ?? "verified"}`;
+
+  switch (kosher.certificationState) {
+    case "EXPIRED":
+      return "Certificate expired";
+    case "PENDING_VERIFICATION":
+      return "Certificate awaiting review";
+    default:
+      return "Offered, not certified";
+  }
+}
 
 /**
  * One property: the hub its sub-screens hang off.
@@ -83,6 +114,18 @@ export default async function AdminHotelPage({
       title: "Location",
       description:
         hotel.latitude !== null ? (hotel.address ?? "On the map, no address") : "Not placed on the map yet",
+    },
+    {
+      // Always present, unlike the panel it leads to. An operator has to be
+      // able to *reach* the switch on a property that does not yet offer kosher
+      // services, so the tile is the entry point and the screen behind it is
+      // what is empty until somebody turns it on.
+      href: `/admin/hotels/${hotel.id}/kosher`,
+      // Certified gets the verified mark; anything else gets a neutral one, and
+      // the tile never says "certified" from anything but the derived flag.
+      icon: hotel.kosher?.certified ? BadgeCheck : Star,
+      title: "Kosher",
+      description: kosherSummary(hotel.kosher),
     },
   ];
 

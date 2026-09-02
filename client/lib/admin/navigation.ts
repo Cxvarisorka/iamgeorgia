@@ -2,6 +2,8 @@ import {
   BedDouble,
   Bus,
   CalendarCheck,
+  CalendarRange,
+  Car,
   CarFront,
   Coins,
   ClipboardCheck,
@@ -11,25 +13,31 @@ import {
   Map,
   MapPin,
   Route,
+  Radio,
+  Star,
+  UserRound,
   type LucideIcon,
 } from "lucide-react";
 
 /**
  * Admin navigation.
  *
- * Three levels, and each one earns its place. **Groups** split the operator's
+ * Four levels, and each one earns its place. **Groups** split the operator's
  * day into things that need a decision (bookings, partner applications) and
  * things that are catalogue maintenance. **Sections** collect the screens of a
- * single vertical that is too big to sit flat — transfers alone owns four
- * catalogue screens, and left unnested they crowded out every other kind of
- * inventory in the sidebar. **Items** are the screens themselves.
+ * single vertical that is too big to sit flat — transfers alone owns eight
+ * screens, and left unnested they crowded out every other kind of inventory
+ * in the sidebar. **Sub-groups** split a long section along a line the reader
+ * already knows (the catalogue versus the fleet), each run captioned and set
+ * off by a divider so eight rows read as two short lists rather than one long
+ * one. **Items** are the screens themselves.
  *
  * A vertical stays flat until it has more than one catalogue screen: hotels,
  * destinations and tours each have exactly one way in, and wrapping a single
  * link in a disclosure would be a control that hides one thing.
  */
 
-export type AdminBadgeKey = "pendingBookings" | "pendingPartners";
+export type AdminBadgeKey = "pendingBookings" | "pendingPartners" | "unassignedLegs";
 
 export type AdminBadges = Record<AdminBadgeKey, number>;
 
@@ -39,13 +47,62 @@ export interface AdminNavItem {
   icon: LucideIcon;
   /** Shown as a count pill — the number of records awaiting a decision. */
   badgeKey?: AdminBadgeKey;
+  /** Reachable by transfer operations staff (a dispatcher), not only admins. */
+  ops?: boolean;
 }
 
-/** A collapsible run of items belonging to one vertical. */
+/**
+ * A labelled run of items inside a section, separated from its neighbours by
+ * a divider. The split is by what the screens are *about*: the catalogue a
+ * traveller sees versus the fleet that fulfils it. A section with one
+ * sub-group renders no caption — a divider with nothing on the other side of
+ * it is a line for its own sake.
+ */
+export interface AdminNavSubgroup {
+  label: string;
+  items: AdminNavItem[];
+}
+
+/** A collapsible run of sub-groups belonging to one vertical. */
 export interface AdminNavSection {
   label: string;
   icon: LucideIcon;
-  items: AdminNavItem[];
+  groups: AdminNavSubgroup[];
+}
+
+/** Every screen a section holds, in reading order, sub-group boundaries dropped. */
+export function adminSectionItems(section: AdminNavSection): AdminNavItem[] {
+  return section.groups.flatMap((group) => group.items);
+}
+
+/**
+ * The navigation as one role sees it. Admins see everything; a dispatcher
+ * sees the transfer operations screens and nothing that would answer 403.
+ * The server enforces the same split on every endpoint — this only keeps
+ * the sidebar honest.
+ */
+export function navigationFor(role: string): AdminNavGroup[] {
+  if (role !== "DISPATCHER") return adminNavigation;
+
+  return adminNavigation
+    .map((group) => ({
+      ...group,
+      entries: group.entries
+        .map((entry) =>
+          isAdminNavSection(entry)
+            ? {
+                ...entry,
+                // A sub-group that loses every item goes with them, so no
+                // caption is left standing over an empty run.
+                groups: entry.groups
+                  .map((sub) => ({ ...sub, items: sub.items.filter((item) => item.ops) }))
+                  .filter((sub) => sub.items.length > 0),
+              }
+            : entry,
+        )
+        .filter((entry) => (isAdminNavSection(entry) ? entry.groups.length > 0 : entry.ops)),
+    }))
+    .filter((group) => group.entries.length > 0);
 }
 
 export type AdminNavEntry = AdminNavItem | AdminNavSection;
@@ -56,7 +113,7 @@ export interface AdminNavGroup {
 }
 
 export function isAdminNavSection(entry: AdminNavEntry): entry is AdminNavSection {
-  return "items" in entry;
+  return "groups" in entry;
 }
 
 export const adminNavigation: AdminNavGroup[] = [
@@ -74,7 +131,15 @@ export const adminNavigation: AdminNavGroup[] = [
         icon: CalendarCheck,
         badgeKey: "pendingBookings",
       },
-      { label: "Transfer bookings", href: "/admin/transfers/bookings", icon: CarFront },
+      { label: "Transfer bookings", href: "/admin/transfers/bookings", icon: CarFront, ops: true },
+      // Legs, not bookings, and badged with the ones nobody is driving yet.
+      {
+        label: "Dispatch",
+        href: "/admin/transfers/dispatch",
+        icon: Radio,
+        badgeKey: "unassignedLegs",
+        ops: true,
+      },
     ],
   },
   {
@@ -95,11 +160,35 @@ export const adminNavigation: AdminNavGroup[] = [
         // too and must not light up the catalogue section.
         label: "Transfers",
         icon: CarFront,
-        items: [
-          { label: "Routes", href: "/admin/transfers/routes", icon: Route },
-          { label: "Fleet", href: "/admin/transfers/vehicles", icon: Bus },
-          { label: "Pick-up points", href: "/admin/transfers/points", icon: MapPin },
-          { label: "Extras", href: "/admin/transfers/extras", icon: Coins },
+        // Eight screens, split down the line the product itself draws: what a
+        // traveller buys versus what turns up to drive them. The catalogue is
+        // an admin's job and changes rarely; the fleet is worked every day and
+        // is the half a dispatcher is allowed to see.
+        groups: [
+          {
+            label: "Catalogue",
+            items: [
+              { label: "Routes", href: "/admin/transfers/routes", icon: Route },
+              // Where a route starts and ends — filed right after the routes
+              // that reference it.
+              { label: "Pick-up points", href: "/admin/transfers/points", icon: MapPin },
+              // The classes are what a traveller buys; the fleet is what turns
+              // up. Two screens, because a class outlives any one car.
+              { label: "Vehicle classes", href: "/admin/transfers/vehicles", icon: Bus },
+              { label: "Extras", href: "/admin/transfers/extras", icon: Coins },
+            ],
+          },
+          {
+            label: "Fleet & drivers",
+            items: [
+              { label: "Fleet", href: "/admin/transfers/fleet", icon: Car, ops: true },
+              { label: "Drivers", href: "/admin/transfers/drivers", icon: UserRound, ops: true },
+              { label: "Schedule", href: "/admin/transfers/schedule", icon: CalendarRange, ops: true },
+              // Ratings are about drivers, so they live beside them rather
+              // than with the catalogue a traveller sees.
+              { label: "Ratings", href: "/admin/transfers/ratings", icon: Star, ops: true },
+            ],
+          },
         ],
       },
       { label: "Tours", href: "/admin/tours", icon: Map },
@@ -141,7 +230,7 @@ export function isAdminPathActive(pathname: string, href: string): boolean {
  * transfer *bookings* register was open.
  */
 export function isAdminSectionActive(pathname: string, section: AdminNavSection): boolean {
-  return section.items.some((item) => isAdminPathActive(pathname, item.href));
+  return adminSectionItems(section).some((item) => isAdminPathActive(pathname, item.href));
 }
 
 /**
@@ -153,7 +242,7 @@ export function adminSectionBadgeCount(
   section: AdminNavSection,
   badges: AdminBadges,
 ): number {
-  return section.items.reduce(
+  return adminSectionItems(section).reduce(
     (total, item) => total + (item.badgeKey ? badges[item.badgeKey] : 0),
     0,
   );

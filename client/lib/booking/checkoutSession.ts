@@ -31,6 +31,18 @@ export interface CheckoutDraft {
   hotelName: string;
   stay: StayQuery;
   /**
+   * The kosher facility codes this property offers.
+   *
+   * Carried in the draft rather than re-fetched at checkout: the hotel page has
+   * already loaded them, checkout has only a hold token to go on, and a second
+   * request for a list that cannot have changed in the ninety seconds since
+   * would be a request for nothing.
+   *
+   * Optional because a draft written before this existed is still a valid
+   * draft — an in-flight checkout must not break on deploy.
+   */
+  requestableCodes?: string[];
+  /**
    * Minted once per hold, not per submit.
    *
    * This is what makes a double-clicked confirm button return the first

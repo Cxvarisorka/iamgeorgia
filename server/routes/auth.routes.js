@@ -20,6 +20,8 @@ import {
 import { toUser } from '../serializers/user.js';
 import { toPartnerDetail } from '../serializers/partner.js';
 import { findPartnerOr404 } from '../services/partner.service.js';
+import { findDriverByUserId } from '../services/transfer/driver.service.js';
+import { toDriverSelf } from '../serializers/driver.js';
 import { sendMailQuietly, passwordResetUrl } from '../lib/mailer/index.js';
 import {
     login,
@@ -44,7 +46,10 @@ authRoutes.use(noStoreResponses);
 /** The one place the client learns who it is signed in as. */
 const identity = async (user) => ({
     user: toUser(user),
-    partner: user.partnerId ? toPartnerDetail(await findPartnerOr404(user.partnerId, user), user) : null
+    partner: user.partnerId ? toPartnerDetail(await findPartnerOr404(user.partnerId, user), user) : null,
+    // Null for everyone but a driver, and null for a driver whose account has
+    // not been linked to a profile yet — the panel shows that as its own state.
+    driver: user.role === 'DRIVER' ? toDriverSelf(await findDriverByUserId(user.id)) : null
 });
 
 authRoutes.post('/login', authLimiter, validate({ body: loginSchema }), async (req, res) => {

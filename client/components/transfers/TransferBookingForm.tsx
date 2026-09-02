@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { AlertCircle, Info } from "lucide-react";
 import { useState } from "react";
 
+import { DriverChoice } from "@/components/transfers/DriverChoice";
 import { Button } from "@/components/ui/Button";
 import { fill } from "@/lib/i18n/dictionaries";
 import { useI18n, useLocalePath } from "@/lib/i18n/provider";
@@ -12,6 +13,7 @@ import { ApiError } from "@/lib/api/client";
 import { confirmTransferBooking } from "@/lib/api/transfers";
 import { type TransferQuery } from "@/lib/transfers/query";
 import { cn } from "@/lib/utils";
+import type { DriverChoiceValue } from "@/types/driver";
 import type { TransferOffer, TransferPoint } from "@/types/transfer";
 
 interface FormValues {
@@ -59,6 +61,8 @@ interface TransferBookingFormProps {
   query: TransferQuery;
   from?: TransferPoint | null;
   to?: TransferPoint | null;
+  /** Partners may ask for a particular driver; the server enforces the same rule. */
+  canChooseDriver?: boolean;
 }
 
 /**
@@ -71,9 +75,12 @@ interface TransferBookingFormProps {
  *
  * Two server answers are not failures and are handled as conversations:
  * `409 PRICE_CHANGED` means the fare moved while the traveller was typing, and
- * `410` means the quote went stale. Both ask rather than apologise.
+ * `410` means the quote went stale. Both ask rather than apologise. A partner
+ * who asked for a driver gets two more of the same kind — `409
+ * DRIVER_UNAVAILABLE` and `422 DRIVER_NOT_ELIGIBLE` — which clear the choice
+ * and reload the list rather than failing the booking.
  */
-export function TransferBookingForm({ offer, query, from, to }: TransferBookingFormProps) {
+export function TransferBookingForm({ offer, query, from, to, canChooseDriver = false }: TransferBookingFormProps) {
   const router = useRouter();
   const path = useLocalePath();
   const { t } = useI18n();
@@ -82,6 +89,10 @@ export function TransferBookingForm({ offer, query, from, to }: TransferBookingF
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [idempotencyKey] = useState(newIdempotencyKey);
+  const [driverChoice, setDriverChoice] = useState<DriverChoiceValue | null>(null);
+  // Bumped to remount the picker with a fresh list after the server says the
+  // chosen driver is gone.
+  const [driverListKey, setDriverListKey] = useState(0);
 
   const fromAirport = from?.kind === "AIRPORT";
 
@@ -139,6 +150,8 @@ export function TransferBookingForm({ offer, query, from, to }: TransferBookingF
         pickupAddress: values.pickupNote.trim() || undefined,
         specialRequests: values.specialRequests.trim() || undefined,
         idempotencyKey,
+        preferredDriverId: driverChoice?.driverId,
+        preferredFleetVehicleId: driverChoice?.fleetVehicleId,
       });
 
       // The email is in the URL because the reference alone is not a
@@ -162,6 +175,17 @@ export function TransferBookingForm({ offer, query, from, to }: TransferBookingF
 
         if (error.status === 410) {
           setSubmitError(t.transfers.booking.quoteExpired);
+          return;
+        }
+
+        if (reason === "DRIVER_UNAVAILABLE" || reason === "DRIVER_NOT_ELIGIBLE") {
+          setSubmitError(
+            reason === "DRIVER_UNAVAILABLE"
+              ? t.transfers.booking.driverUnavailable
+              : t.transfers.booking.driverNotEligible,
+          );
+          setDriverChoice(null);
+          setDriverListKey((key) => key + 1);
           return;
         }
 
@@ -284,6 +308,10 @@ export function TransferBookingForm({ offer, query, from, to }: TransferBookingF
           </Field>
         </div>
       </section>
+
+      {canChooseDriver && (
+        <DriverChoice key={driverListKey} token={offer.token} value={driverChoice} onChange={setDriverChoice} />
+      )}
 
       <section aria-labelledby="pickup-details" className="mt-12 border-t border-line pt-10">
         <h2 id="pickup-details" className="type-h3">

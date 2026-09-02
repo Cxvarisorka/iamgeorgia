@@ -19,7 +19,44 @@ const constraintStatus = {
     P2025: { status: 404, message: 'Record not found' },
     23505: { status: 409, message: 'A record with these unique values already exists' },
     23503: { status: 409, message: 'Related record constraint failed' },
-    23514: { status: 409, message: 'The request conflicts with current availability' }
+    23514: { status: 409, message: 'The request conflicts with current availability' },
+    // exclusion_violation: the driver or vehicle no-overlap constraints on
+    // transfer_assignments. Losing that race is a normal outcome too.
+    '23P01': { status: 409, message: 'That driver or vehicle is already scheduled in this window' }
+};
+
+/**
+ * The Postgres SQLSTATE behind an error, wherever the driver adapter put it.
+ *
+ * A raw statement surfaces it as `err.code`. A statement Prisma built itself
+ * wraps it: the code Prisma knows about becomes a P-code, the ones it does
+ * not (an exclusion constraint, say) are left on the cause. Checked in that
+ * order so a P2002 keeps its own mapping.
+ */
+export const sqlStateOf = (err) => {
+    const candidates = [
+        err?.code,
+        err?.meta?.code,
+        err?.cause?.code,
+        err?.meta?.driverAdapterError?.cause?.code,
+        err?.meta?.driverAdapterError?.cause?.originalCode
+    ];
+
+    // A SQLSTATE is five alphanumerics. So is a Prisma code, which is why the
+    // P-and-four-digits shape is excluded: P2002 is Prisma's *reading* of the
+    // error, and for an exclusion constraint that reading is "unique
+    // violation", which is close but names the wrong message.
+    const isSqlState = (code) => typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) && !/^P[1-9]\d{3}$/.test(code);
+
+    const direct = candidates.find(isSqlState);
+
+    if (direct) {
+        return direct;
+    }
+
+    // Prisma 7 with a driver adapter quotes the SQLSTATE in the message of
+    // the error it wraps it in ("Database error. Code: `23P01`. …").
+    return /\bCode: `?([0-9A-Z]{5})`?/.exec(err?.message ?? '')?.[1] ?? null;
 };
 
 // Express 5 forwards rejected promises from handlers here, so routes do not
@@ -36,8 +73,15 @@ const multerStatus = {
 };
 
 export const errorHandler = (err, req, res, next) => {
+    // The Postgres SQLSTATE is consulted before Prisma's own code: Prisma
+    // reports an exclusion-constraint violation as P2002, and the message for
+    // that would tell a dispatcher about "unique values" when the truth is
+    // "that driver is busy".
+    const sqlState = sqlStateOf(err);
     const mapped =
-        (err?.name === 'MulterError' && multerStatus[err.code]) || (err?.code && constraintStatus[err.code]);
+        (err?.name === 'MulterError' && multerStatus[err.code]) ||
+        (sqlState && constraintStatus[sqlState]) ||
+        (err?.code && constraintStatus[err.code]);
 
     // Express middleware (body-parser, cors) throws http-errors objects that
     // already carry a status and an `expose` flag saying whether the message

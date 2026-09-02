@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
-const sections = [
+import { useI18n } from "@/lib/i18n/provider";
+
+const baseSections = [
   { id: "overview", label: "Overview" },
   { id: "amenities", label: "Facilities" },
   { id: "location", label: "Location" },
@@ -16,8 +18,32 @@ const sections = [
 /**
  * Sticky in-page navigation, the pattern travellers expect on a long property
  * page. The active state follows the scroll position via IntersectionObserver.
+ *
+ * The kosher entry appears only for a property that offers kosher services —
+ * a tab that scrolls to nothing is worse than a shorter nav, and every other
+ * section here is always present.
  */
-export function HotelSectionNav() {
+export function HotelSectionNav({ hasKosher = false }: { hasKosher?: boolean }) {
+  const { t } = useI18n();
+
+  // Between Facilities and Location: the kosher block is a facility section,
+  // and it reads out of place after the map.
+  //
+  // Memoised because the observer effect below depends on it, and a fresh array
+  // every render would tear down and rebuild every IntersectionObserver on each
+  // scroll-driven state change.
+  const sections = useMemo(
+    () =>
+      hasKosher
+        ? [
+            ...baseSections.slice(0, 2),
+            { id: "kosher", label: t.hotels.kosher.navLabel },
+            ...baseSections.slice(2),
+          ]
+        : baseSections,
+    [hasKosher, t.hotels.kosher.navLabel],
+  );
+
   const [active, setActive] = useState(sections[0].id);
 
   useEffect(() => {
@@ -37,7 +63,9 @@ export function HotelSectionNav() {
       if (element) observer.observe(element);
     }
     return () => observer.disconnect();
-  }, []);
+    // Re-observed when the section list changes, which it does exactly once —
+    // when a kosher property renders its extra anchor.
+  }, [sections]);
 
   return (
     <nav

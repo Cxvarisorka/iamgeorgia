@@ -2,12 +2,15 @@ import { createHash } from 'node:crypto';
 
 import { prisma } from '../../db/index.js';
 import { AUDIT_ENTITY, recordAudit } from '../../lib/audit.js';
-import { ConflictError, NotFoundError } from '../../lib/errors.js';
+import { BadRequestError, ConflictError, NotFoundError, UnprocessableEntityError } from '../../lib/errors.js';
+import { sqlStateOf } from '../../middleware/errors.js';
 import { nextTransferBookingReference } from '../../lib/reference.js';
 import { dateOnlyToUtc } from '../../lib/time.js';
-import { isAdmin } from '../../middleware/auth.js';
+import { isTransferOps } from '../../middleware/auth.js';
 import { buildCancellationSchedule, calculateRefund, freeCancellationUntil } from '../hotel/policy.service.js';
 import { revalidateQuote } from './quote.service.js';
+import { ACTIVE_ASSIGNMENT_STATUSES } from '../../lib/transfer/machines.js';
+import { assignDriverInTx, cascadeBookingCancellation } from './dispatch.service.js';
 
 /**
  * Confirming, reading, amending and cancelling a transfer.
@@ -29,7 +32,26 @@ import { revalidateQuote } from './quote.service.js';
  */
 
 const bookingInclude = {
-    legs: { orderBy: { legIndex: 'asc' } },
+    legs: {
+        orderBy: { legIndex: 'asc' },
+        include: {
+            fromPoint: { select: { id: true, kind: true, timezone: true } },
+            rating: { select: { id: true, score: true, status: true } },
+            assignments: {
+                where: { status: { in: ACTIVE_ASSIGNMENT_STATUSES } },
+                include: {
+                    driver: {
+                        include: {
+                            photo: { include: { variants: true } },
+                            provider: { select: { id: true, slug: true, name: true } }
+                        }
+                    },
+                    fleetVehicle: { include: { mainImage: { include: { variants: true } } } },
+                    assignedByUser: { select: { id: true, email: true, firstName: true, lastName: true, partnerId: true } }
+                }
+            }
+        }
+    },
     extras: true,
     vehicle: { select: { id: true, slug: true, name: true, partnerId: true } },
     route: { select: { id: true, slug: true } },
@@ -90,13 +112,87 @@ const snapshotVehicle = (vehicle) => ({
     excluded: vehicle.excluded ?? []
 });
 
+/** Who may ask for a particular driver: a partner, or operations booking for one. */
+const mayChooseDriver = (actor) => Boolean(actor?.partnerId) || isTransferOps(actor);
+
+const notEligible = (message, field) =>
+    new UnprocessableEntityError(message, { reason: 'DRIVER_NOT_ELIGIBLE', field });
+
+/**
+ * The driver a partner asked for, checked before a single leg is offered.
+ *
+ * The same bar `availableDriversForQuote` set when it drew up the list —
+ * active, verified, in a car on the road that is sold as the booked class,
+ * linked to them, and big enough for the party — so a list entry and a
+ * confirmation agree. The car defaults to the driver's primary one of that
+ * class. Availability is not checked here: the offer itself does that,
+ * under the driver's row lock.
+ */
+const resolvePreferredDriver = async (tx, input, { vehicle, booking }) => {
+    const driver = await tx.transferDriver.findUnique({
+        where: { id: input.preferredDriverId },
+        include: {
+            vehicles: {
+                orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+                include: { fleetVehicle: true }
+            }
+        }
+    });
+
+    if (!driver || !driver.isActive || driver.verificationStatus !== 'VERIFIED') {
+        throw notEligible('That driver cannot be requested for this journey', 'preferredDriverId');
+    }
+
+    const passengers = booking.adults + booking.children;
+    const eligible = driver.vehicles
+        .map((link) => link.fleetVehicle)
+        .filter(
+            (car) =>
+                car.status === 'ACTIVE' &&
+                car.vehicleClassId === vehicle.id &&
+                car.passengerCapacity >= passengers &&
+                car.luggageCapacity >= booking.luggage
+        );
+
+    const car = input.preferredFleetVehicleId
+        ? eligible.find((candidate) => candidate.id === input.preferredFleetVehicleId)
+        : eligible[0];
+
+    if (!car) {
+        throw notEligible(
+            'That driver has no suitable car for this journey',
+            input.preferredFleetVehicleId ? 'preferredFleetVehicleId' : 'preferredDriverId'
+        );
+    }
+
+    return { driverId: driver.id, fleetVehicleId: car.id };
+};
+
+/** What a partner is told when the driver they chose was taken while they typed. */
+const driverUnavailable = (conflicts = []) =>
+    new ConflictError('That driver is no longer free for this journey — choose another, or let us assign one', {
+        reason: 'DRIVER_UNAVAILABLE',
+        conflicts
+    });
+
 /**
  * Confirms a transfer.
  *
  * Idempotent: a repeated `Idempotency-Key` returns the original booking with a
  * 200 rather than making a second one with a 201.
+ *
+ * A partner may name a driver. The offer is written in the same transaction
+ * as the booking, so a driver who is no longer free rolls the whole thing
+ * back and the partner chooses again; the driver still has to say yes, as
+ * with any other offer.
  */
 export const confirmTransferBooking = async (input, actor, req) => {
+    if (input.preferredDriverId && !mayChooseDriver(actor)) {
+        throw new BadRequestError('Choosing a driver is available to partner accounts', {
+            field: 'preferredDriverId'
+        });
+    }
+
     const idempotencyKey = deriveIdempotencyKey(input);
 
     // Answered first, before anything is written, so a retry can never produce
@@ -202,7 +298,23 @@ export const confirmTransferBooking = async (input, actor, req) => {
                 req
             });
 
-            return created;
+            if (!input.preferredDriverId) {
+                return created;
+            }
+
+            const chosen = await resolvePreferredDriver(tx, input, { vehicle, booking: created });
+
+            for (const leg of created.legs) {
+                await assignDriverInTx(
+                    tx,
+                    leg.id,
+                    { ...chosen, acceptOnBehalf: false, requestedByPartner: true, note: 'Requested by the partner at booking' },
+                    actor,
+                    req
+                );
+            }
+
+            return tx.transferBooking.findUnique({ where: { id: created.id }, include: bookingInclude });
         });
 
         return { booking, replayed: false };
@@ -217,6 +329,19 @@ export const confirmTransferBooking = async (input, actor, req) => {
 
             if (raced) {
                 return { booking: raced, replayed: true };
+            }
+        }
+
+        // The chosen driver was taken between the list and the confirmation:
+        // the service's pre-check under the row lock, or the exclusion
+        // constraint behind it. Either way the booking rolled back with it.
+        if (input.preferredDriverId) {
+            if (sqlStateOf(err) === '23P01') {
+                throw driverUnavailable();
+            }
+
+            if (err instanceof ConflictError && err.details?.reason === 'SCHEDULE_CONFLICT') {
+                throw driverUnavailable(err.details.conflicts);
             }
         }
 
@@ -255,7 +380,7 @@ const aggregateExtras = (legs) => {
  * turn this endpoint into a way of discovering which ones exist.
  */
 const assertMayRead = (booking, viewer, { email } = {}) => {
-    if (isAdmin(viewer)) {
+    if (isTransferOps(viewer)) {
         return;
     }
 
@@ -300,7 +425,7 @@ export const listTransferBookings = async (query, viewer) => {
     const where = {
         // Scoped in the query rather than filtered after, so there is no path
         // by which one partner reads another's.
-        ...(isAdmin(viewer) ? {} : { partnerId: viewer?.partnerId ?? '__none__' }),
+        ...(isTransferOps(viewer) ? {} : { partnerId: viewer?.partnerId ?? '__none__' }),
         ...(status ? { status: Array.isArray(status) ? { in: status } : status } : {}),
         ...(from || to
             ? {
@@ -369,6 +494,10 @@ export const cancelTransferBooking = async (reference, { reason, email } = {}, a
     const quote = quoteTransferCancellation(booking);
 
     const updated = await prisma.$transaction(async (tx) => {
+        // The legs first: this is what refuses a cancellation once a passenger
+        // is in the car, and what tells the driver of one on the way.
+        await cascadeBookingCancellation(tx, booking.id, actor, req);
+
         const result = await tx.transferBooking.update({
             where: { id: booking.id },
             data: {

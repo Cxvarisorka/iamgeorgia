@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { serverFetchOptional } from "@/lib/api/client";
 import { localePath } from "@/lib/i18n/config";
 import { getLocale } from "@/lib/i18n/server";
-import { ADMIN_ROLES, type Session } from "@/types/auth";
+import { TRANSFER_OPS_ROLES, homePathFor, type Session } from "@/types/auth";
 
 /**
  * Who the viewer is, during a server render.
@@ -33,9 +33,10 @@ export async function requireAdminSession(): Promise<Session> {
     redirect(localePath(locale, "/admin/sign-in"));
   }
 
-  if (!ADMIN_ROLES.includes(session.user.role)) {
-    // Signed in, but as a partner. Their own portal is where they belong.
-    redirect(localePath(locale, "/portal"));
+  if (!TRANSFER_OPS_ROLES.includes(session.user.role)) {
+    // Signed in, but as a partner or a driver. Their own panel is where they
+    // belong.
+    redirect(localePath(locale, homePathFor(session)));
   }
 
   return session;
@@ -51,7 +52,29 @@ export async function requirePartnerSession(): Promise<Session> {
   }
 
   if (!session.partner) {
-    redirect(localePath(locale, ADMIN_ROLES.includes(session.user.role) ? "/admin" : "/"));
+    redirect(localePath(locale, homePathFor(session)));
+  }
+
+  return session;
+}
+
+/**
+ * Guards the driver panel.
+ *
+ * A DRIVER account whose profile has not been linked yet still passes: the
+ * panel renders that as its own explanation rather than bouncing the driver
+ * to a sign-in screen they have just come from.
+ */
+export async function requireDriverSession(): Promise<Session> {
+  const session = await getSession();
+  const locale = await getLocale();
+
+  if (!session) {
+    redirect(localePath(locale, "/driver/sign-in"));
+  }
+
+  if (session.user.role !== "DRIVER") {
+    redirect(localePath(locale, homePathFor(session)));
   }
 
   return session;

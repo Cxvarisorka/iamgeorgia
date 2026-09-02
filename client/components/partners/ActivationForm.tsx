@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { describeError } from "@/lib/api/client";
 import { setPasswordFromActivation } from "@/lib/api/partners";
+import { homePathFor } from "@/types/auth";
 import { useLocalePath } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
 
@@ -44,7 +45,7 @@ export function ActivationForm({ token }: { token: string }) {
 
     try {
       const session = await setPasswordFromActivation(token, password);
-      router.replace(path(session.partner ? "/portal" : "/admin"));
+      router.replace(path(homePathFor(session)));
       router.refresh();
     } catch (caught) {
       setError(describeError(caught));

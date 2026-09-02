@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
  * application" only generates a support call. Nothing behind the gate opens —
  * the server enforces that separately, on every request.
  */
-export function PortalSignInForm() {
+export function PortalSignInForm({ redirectTo = "/portal" }: { redirectTo?: string } = {}) {
   const router = useRouter();
   const path = useLocalePath();
   const [email, setEmail] = useState("");
@@ -42,7 +42,7 @@ export function PortalSignInForm() {
     try {
       await signIn(email.trim(), password);
       forgetViewer();
-      router.replace(path("/portal"));
+      router.replace(path(redirectTo));
       router.refresh();
     } catch (caught) {
       setError(describeError(caught));

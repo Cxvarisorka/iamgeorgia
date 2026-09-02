@@ -1,7 +1,12 @@
 import { apiFetch, serverFetch } from "./client";
 import { toQueryString, type QueryValue } from "./query";
 import type { HotelAvailability, Offer, SearchResponse, StayQuery } from "@/types/booking";
-import type { DestinationNode, Hotel, HotelSummary } from "@/types/catalogue";
+import type {
+  DestinationNode,
+  Hotel,
+  HotelSummary,
+  KosherServiceLevel,
+} from "@/types/catalogue";
 import type { Paginated } from "@/types/partner";
 
 /**
@@ -21,6 +26,17 @@ export interface SearchQuery extends StayQuery, Record<string, QueryValue> {
   amenity?: string | string[];
   mealPlan?: string | string[];
   refundableOnly?: boolean;
+  /**
+   * The two kosher filters, and only two.
+   *
+   * Every kosher *facility* — a kosher restaurant, a Shabbat elevator, a
+   * synagogue, a mikveh — is an amenity, so it travels on `amenity` above and
+   * costs the search nothing new. What is left is the pair amenities cannot
+   * express: a minimum level of kosher service, and whether a certificate that
+   * is verified AND still valid today AND covers the property exists.
+   */
+  kosher?: Exclude<KosherServiceLevel, "NONE">;
+  kosherCertified?: boolean;
   locale?: string;
   page?: number;
   pageSize?: number;

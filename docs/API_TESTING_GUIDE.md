@@ -1329,7 +1329,121 @@ field name → `400`.
 
 ---
 
-## Part 9 — A suggested test run
+## Part 9 — Kosher
+
+Kosher support is three separate claims, trusted differently, and most of what is
+worth testing is the boundary between them.
+
+| The claim | Where it lives | Who backs it |
+| --- | --- | --- |
+| "There is a Shabbat elevator" | An ordinary amenity, in the `Shabbat` category | The property |
+| "This property is fully kosher" | `kosher.serviceLevel` | Staff, as a declaration |
+| "Kosher certified" | A verified, unexpired, property-scoped certificate | Us, having checked |
+
+### 9.1 The one rule to try to break
+
+**No request can mark a hotel kosher certified except the verify transition.**
+`certified` is computed from certificates and today's date; there is no column
+behind it. Things worth trying, all of which should fail:
+
+```http
+PATCH /api/admin/hotels/:id            { "certified": true }        → 400
+PATCH /api/admin/hotels/:id            { "serviceLevel": "FULL" }   → 400
+PUT   /api/admin/hotels/:id/kosher     { "serviceLevel": "FULL",
+                                         "verification": "VERIFIED" } → 400
+POST  …/kosher/certifications          { "authorityName": "Self",
+                                         "verification": "VERIFIED" } → 400
+```
+
+And the thing that *should* succeed, and is the only one that does:
+
+```http
+POST /api/admin/hotels/:id/kosher/certifications/:certId/verify
+{ "decision": "VERIFIED" }                                          → 200
+```
+
+Declaring `serviceLevel: "FULL"` must come back `certified: false`. So must a
+property with every kosher facility ticked. Both are the feature working.
+
+### 9.2 The switch
+
+`PUT /api/admin/hotels/:id/kosher` creates the record, and **creating it is the
+switch** — a hotel with no kosher row shows no kosher block anywhere and matches
+no kosher filter. `GET` answers `200` with `null` for such a hotel, not `404`.
+
+`DELETE` is a **409** while a live certificate exists: removing the record would
+cascade its certification history away with it.
+
+### 9.3 Expiry, which nothing has to run
+
+Set a certificate's `expiresOn` to yesterday and verify it. Then read the hotel:
+
+```jsonc
+{ "certified": false, "certificationState": "EXPIRED" }
+```
+
+No job ran. Expiry is derived from the date on every read, which is why the
+answer is right at 00:01 rather than after the next sweep. The nightly job
+writes `KOSHER_CERTIFICATION_EXPIRING` audit rows and changes no state at all.
+
+A certificate expiring **today** is still valid today — worth checking, because
+getting it wrong costs a property a day of its badge.
+
+### 9.4 Scope
+
+A `RESTAURANT` or `PASSOVER` certificate is a real certificate and is shown as
+one, but it does not certify the property: `certified` stays false and
+`kosherCertified=true` does not return the hotel. Only `PROPERTY` and `KITCHEN`
+do.
+
+### 9.5 Filtering
+
+```http
+GET /api/search?checkIn=…&checkOut=…&adults=2&kosher=PARTIAL
+GET /api/search?checkIn=…&checkOut=…&adults=2&kosherCertified=true
+GET /api/search?checkIn=…&checkOut=…&adults=2&amenity=shabbatElevator
+```
+
+Two parameters, because the other eight things people filter on are *facilities*
+and facilities are amenities. `kosher` is a **minimum** level; `NONE` is a `400`.
+Amenity codes are **case-sensitive** — `shabbatElevator`, not `shabbatelevator`.
+
+A search sending neither kosher parameter must be completely unaffected.
+
+### 9.6 Booking requirements
+
+A requirement is not the reservation. Asking for something the property does not
+offer is a **422** naming it, and claims no inventory:
+
+```jsonc
+POST /api/bookings
+{ "offerToken": "…", "leadGuest": {…}, "requests": [{ "code": "mikvehOnSite" }] }
+
+→ 422 { "error": { "details": { "unsupported": ["mikvehOnSite"] } } }
+```
+
+A supported one is accepted, and the booking comes back **`CONFIRMED`** with
+`requestsPending: 1`. That pairing is the design: the rooms were claimed and
+priced, and a meal still being arranged does not put them back in doubt. Watch
+`requestsPending` fall while `status` never moves.
+
+`POST /api/admin/bookings/:reference/requests/:requestId` is admin-only — a
+partner answering its own request is a `403`. Declining needs a `responseNote`.
+
+On a `PATCH`, `requests` is the whole set: leaving one out withdraws it (it is
+not deleted), and re-asking for something already declined cannot undo the
+refusal.
+
+### 9.7 Certificate files
+
+Uploaded as `KOSHER_CERTIFICATE`: PDF or an image, stored **private**, no gallery
+renditions, and no URL anywhere in a response. `documentAvailable` says one
+exists; reaching the bytes is `GET /api/admin/media/:id/url`, which is authorized
+and audited. Detaching a document a verified certificate points at is a `409`.
+
+---
+
+## Part 10 — A suggested test run
 
 Roughly 45 minutes, covering the paths that carry money.
 
@@ -1346,6 +1460,16 @@ Roughly 45 minutes, covering the paths that carry money.
 8. `GET /api/auth/me` with the cookie removed → `401`
 9. `POST /api/auth/logout` → `204`; then `/me` → `401`
 10. 11 failed logins in a row → `429` on the last
+
+**Kosher (8 min)**
+K1. `PATCH /api/admin/hotels/:id` with `{"certified": true}` → **400**
+K2. `PUT /api/admin/hotels/:id/kosher` with `FULL` → `certified: false`
+K3. Add a certificate → still `certified: false`
+K4. Verify it → `certified: true`
+K5. Edit its reference → back to `PENDING_VERIFICATION`, `certified: false`
+K6. Set `expiresOn` to yesterday and re-verify → `certificationState: EXPIRED`
+K7. `GET /api/search?…&kosherCertified=true` → that hotel is absent
+K8. Book with `requests: [{"code": "mikvehOnSite"}]` → **422**, no hold taken
 
 **Hotel booking (15 min)**
 11. `GET /api/search` with valid dates → `200`, capture `cheapestOffer.token`
@@ -1380,7 +1504,7 @@ Roughly 45 minutes, covering the paths that carry money.
 
 ---
 
-## Part 10 — Enum reference
+## Part 11 — Enum reference
 
 Every value the API will accept or return.
 
@@ -1401,6 +1525,14 @@ BookingStatus     PENDING CONFIRMED CANCELLED COMPLETED NO_SHOW
 GuestType         ADULT CHILD INFANT
 ImageCategory     Exterior Lobby Restaurant Pool Spa Room Bathroom View Facilities
 AmenityCategory   General FoodDrink Wellness Parking Business Family Ski Accessibility Transportation
+                  KosherFood Shabbat Religious
+
+KosherServiceLevel        NONE ON_REQUEST KOSHER_FRIENDLY PARTIAL FULL   (weakest first)
+KosherCertificationScope  PROPERTY KITCHEN RESTAURANT PASSOVER
+KosherCertificationState  NONE UNVERIFIED PENDING_VERIFICATION VERIFIED EXPIRED
+                          REJECTED ARCHIVED   (EXPIRED and ARCHIVED are derived)
+KosherDataSource          ADMIN HOTEL SUPPLIER IMPORT
+BookingRequestStatus      REQUESTED CONFIRMED DECLINED WITHDRAWN
 
 TransferPointKind     AIRPORT CITY RESORT HOTEL LANDMARK STATION
 TransferVehicleClass  ECONOMY COMFORT MINIVAN VAN GROUP JEEP_4X4 VIP
@@ -1419,13 +1551,14 @@ UserRole              SUPER_ADMIN ADMIN PARTNER_OWNER PARTNER_ADMIN
                       PARTNER_AGENT PARTNER_FINANCE
 PartnerStatus         PENDING_APPROVAL APPROVED REJECTED SUSPENDED
 MediaCategory         HOTEL_IMAGE ROOM_IMAGE AMENITY_ICON        (public)
-                      CONTRACT RATE_SHEET INVOICE VOUCHER IMPORT OTHER  (private)
+                      CONTRACT RATE_SHEET INVOICE VOUCHER IMPORT
+                      KOSHER_CERTIFICATE OTHER                   (private)
 Locale                en ka ru he
 ```
 
 ---
 
-## Part 11 — How to report a bug
+## Part 12 — How to report a bug
 
 Include all of these; without them a report usually cannot be acted on.
 

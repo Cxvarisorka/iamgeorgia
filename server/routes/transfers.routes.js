@@ -17,6 +17,9 @@ import { findVehicleOr404, listVehicles } from '../services/transfer/vehicle.ser
 import { quotesForJourney, revalidateQuote } from '../services/transfer/quote.service.js';
 import { listExtras } from '../services/transfer/extra.service.js';
 import { toExtra, toOffer, toPoint, toQuoteResult, toRoute, toVehicle } from '../serializers/transfer.js';
+import { submitGuestRating } from '../services/transfer/rating.service.js';
+import { guestRatingSchema } from '../validation/rating.js';
+import { toRatingPublic } from '../serializers/rating.js';
 
 /**
  * The public transfer catalogue and its quote engine.
@@ -103,3 +106,15 @@ transferRoutes.post('/quotes/revalidate', validate({ body: quoteTokenSchema }), 
 });
 
 export default transferRoutes;
+
+/**
+ * A passenger rates their driver, from the link emailed after the transfer.
+ * The token names the leg and the address it was sent to; one rating per
+ * leg, first submission wins.
+ */
+transferRoutes.post('/ratings', validate({ body: guestRatingSchema }), async (req, res) => {
+    const { token, ...body } = req.valid.body;
+    const rating = await submitGuestRating(token, body, req);
+
+    res.status(201).json(toRatingPublic(rating));
+});

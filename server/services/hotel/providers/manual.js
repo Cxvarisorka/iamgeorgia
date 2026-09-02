@@ -27,6 +27,11 @@ import { dateOnlyToUtc, eachNight, nightsBetween, toDateOnly, todayInTimezone } 
  * offer falls out. Restrictions about the stay as a whole — minimum stay,
  * advance booking, closed to arrival or departure — are NOT EXISTS clauses,
  * because they are properties of the booking rather than of a night.
+ *
+ * The kosher filters are two clauses and one LEFT JOIN, and that is all they
+ * needed to be: every *facility* an observant traveller searches for — a kosher
+ * restaurant, a Shabbat elevator, a synagogue, a mikveh — is an amenity, so it
+ * goes through the amenity block below and adds nothing here.
  */
 export const searchCandidates = async ({
     checkIn,
@@ -44,6 +49,8 @@ export const searchCandidates = async ({
     amenityCodes = null,
     mealPlanCodes = null,
     refundableOnly = false,
+    kosherMinLevel = null,
+    kosherCertified = false,
     includePartnerOnly = false,
     b2cOnly = false,
     today
@@ -87,6 +94,12 @@ export const searchCandidates = async ({
           JOIN room_types rt ON rt.id = rp.room_type_id AND rt.status = 'ACTIVE'
           JOIN hotels     h  ON h.id = rt.hotel_id AND h.status = 'ACTIVE'
           JOIN destinations d ON d.id = h.destination_id
+          -- Optional by construction: almost no property has a kosher profile,
+          -- and a LEFT JOIN onto a unique foreign key is one index probe per
+          -- hotel that survived destination, stars, dates and availability. The
+          -- join is unconditional and the predicates below are not, which is
+          -- the same shape every other filter in this query already has.
+          LEFT JOIN hotel_kosher_profiles kp ON kp.hotel_id = h.id
           CROSS JOIN nights n
           -- A night with no rate, or a closed one, simply does not join, and
           -- the HAVING below turns that into "this offer is unavailable".
@@ -138,6 +151,37 @@ export const searchCandidates = async ({
                            AND cr.charge_value > 0),
                        0
                    ) < ${hoursUntilCheckIn})
+           -- A minimum level of kosher *service*. Ordered by position in the
+           -- enum's own declaration, which is why the type is declared
+           -- weakest-first: atLeastServiceLevel() on the Prisma side reads
+           -- its ordering from the same place, so there is one definition of
+           -- what "at least PARTIAL" means.
+           --
+           -- NONE never matches: it records "we checked, and the answer is no".
+           AND (${kosherMinLevel}::text IS NULL
+                OR (kp.id IS NOT NULL
+                    AND kp.service_level <> 'NONE'
+                    AND array_position(
+                            enum_range(NULL::kosher_service_level), kp.service_level)
+                        >= array_position(
+                            enum_range(NULL::kosher_service_level),
+                            ${kosherMinLevel}::kosher_service_level)))
+           -- "Certified" means a certificate that is verified, still valid
+           -- today, not archived, and about the property rather than only its
+           -- restaurant.
+           --
+           -- Deliberately not a cached boolean on the hotel: a cache would go
+           -- stale silently at midnight, which is the exact failure this filter
+           -- exists to prevent. CURRENT_DATE here is the database's, and a
+           -- certificate expiring today is still valid today.
+           AND (${kosherCertified}::boolean = false
+                OR EXISTS (SELECT 1
+                             FROM hotel_kosher_certifications c
+                            WHERE c.profile_id = kp.id
+                              AND c.verification = 'VERIFIED'
+                              AND c.archived_at IS NULL
+                              AND c.scope IN ('PROPERTY', 'KITCHEN')
+                              AND (c.expires_on IS NULL OR c.expires_on >= CURRENT_DATE)))
            -- Every requested amenity must be present, so this is an AND of
            -- EXISTS rather than one IN: asking for pool and parking must not
            -- match a hotel that only has parking.

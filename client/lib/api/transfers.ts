@@ -1,5 +1,6 @@
 import { apiFetch, serverFetch } from "./client";
 import { toQueryString } from "./query";
+import type { AvailableDrivers } from "@/types/driver";
 import type { Paginated } from "@/types/partner";
 import type {
   AmendTransferInput,
@@ -469,3 +470,23 @@ export const updateTransferExtra = (code: string, body: Partial<TransferExtraInp
 /** Retires an extra. Reversible through `updateTransferExtra(code, { isActive: true })`. */
 export const retireTransferExtra = (code: string) =>
   apiFetch<TransferExtra>(`/api/admin/transfers/extras/${code}`, { method: "DELETE" });
+
+// --- Partner --------------------------------------------------------------
+
+/** A partner's own transfer bookings, scoped on the server by the session. */
+export const listPartnerTransferBookings = (query: AdminTransferBookingQuery = {}) =>
+  serverFetch<Paginated<TransferBookingSummary>>(
+    `/api/partner/transfers/bookings${toQueryString(query)}`,
+  );
+
+/** One of them, with the accepted driver on each leg once there is one. */
+export const getPartnerTransferBooking = (reference: string) =>
+  serverFetch<TransferBooking>(`/api/partner/transfers/bookings/${encodeURIComponent(reference)}`);
+
+/**
+ * Who a partner may ask for at checkout, for the journey a quote token
+ * describes. Called from the browser as the form loads; a POST because the
+ * token is long, not because anything is written.
+ */
+export const listAvailableDrivers = (token: string) =>
+  apiFetch<AvailableDrivers>("/api/partner/drivers/available", { method: "POST", body: { token } });

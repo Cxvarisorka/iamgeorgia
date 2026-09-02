@@ -11,6 +11,7 @@ import { HotelCard } from "@/components/hotels/HotelCard";
 import { HotelPolicies } from "@/components/hotels/HotelPolicies";
 import { HotelReviews } from "@/components/hotels/HotelReviews";
 import { HotelSectionNav } from "@/components/hotels/HotelSectionNav";
+import { KosherPanel } from "@/components/hotels/KosherPanel";
 import { Reveal } from "@/components/motion/Reveal";
 import { Badge } from "@/components/ui/Badge";
 import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
@@ -28,6 +29,7 @@ import {
   stayFromParams,
   stayToParams,
 } from "@/lib/booking/stay";
+import { getSession } from "@/lib/auth/session";
 import { getI18n } from "@/lib/i18n/server";
 import { plural } from "@/lib/i18n/plural";
 import { formatMoney } from "@/lib/money";
@@ -125,11 +127,32 @@ export default async function HotelDetailPage(props: PageProps<"/[locale]/hotels
   // response, so the two requests run in parallel; a missing property answers
   // "empty" on the availability side and 404s here regardless.
   const stay = stayFromParams(searchParams);
-  const [api, result] = await Promise.all([
+  // `getSession` is React-cached, so the layout and this page share one call.
+  // It decides one thing here: whether a certificate scan is offered at all.
+  // The certification *facts* are shown to everyone, because they are what the
+  // traveller is deciding on.
+  const [api, result, session] = await Promise.all([
     loadHotel(slug),
     stay ? loadAvailability(slug, stay, locale) : null,
+    getSession(),
   ]);
   if (!api) notFound();
+
+  const isTrade = Boolean(session?.partner) || Boolean(session?.user?.role);
+
+  /**
+   * What an agency may ask this property for at checkout.
+   *
+   * Its own kosher facilities, plus a kosher meal — which the server accepts
+   * for any property that offers kosher services at all, because one that
+   * serves kosher food can be asked for a kosher meal whether or not anybody
+   * remembered to tick the box.
+   *
+   * Empty for a property with no kosher profile, so the picker never appears.
+   */
+  const requestableCodes = api.kosher?.offersKosher
+    ? [...new Set([...(api.kosher.features ?? []), "kosherMealOnRequest"])]
+    : [];
 
   const hotel = adaptHotelDetail(api);
   const destination = api.destination
@@ -213,7 +236,7 @@ export default async function HotelDetailPage(props: PageProps<"/[locale]/hotels
       </Container>
 
       <Container className="pt-8">
-        <HotelSectionNav />
+        <HotelSectionNav hasKosher={Boolean(api.kosher?.offersKosher)} />
       </Container>
 
       <Container className="pt-12 pb-28 lg:pb-32">
@@ -246,6 +269,28 @@ export default async function HotelDetailPage(props: PageProps<"/[locale]/hotels
                 <HotelAmenities amenities={hotel.amenities} />
               </div>
             </section>
+
+            {/*
+             * Kosher, between the facilities and the map.
+             *
+             * Rendered from `api` rather than from the adapted fixture shape:
+             * this section is new, so there is nothing to adapt it to, and the
+             * adapter exists to keep *old* components working rather than to
+             * flatten new data on the way to new ones.
+             *
+             * `isTrade` decides only whether a certificate scan is offered. The
+             * certification *facts* — authority, scope, validity — are shown to
+             * everyone, because they are what the traveller is deciding on.
+             */}
+            {api.kosher?.offersKosher && (
+              <section id="kosher" className="mt-16 scroll-mt-36 border-t border-line pt-12">
+                <KosherPanel
+                  kosher={api.kosher}
+                  nearby={api.nearby}
+                  isTrade={isTrade}
+                />
+              </section>
+            )}
 
             <section id="location" className="mt-16 scroll-mt-36 border-t border-line pt-12">
               <h2 className="type-h2">{t.hotels.location}</h2>
@@ -298,6 +343,7 @@ export default async function HotelDetailPage(props: PageProps<"/[locale]/hotels
                         hotelSlug={hotel.slug}
                         hotelName={hotel.name}
                         stay={stay}
+                        requestableCodes={requestableCodes}
                         roomTypes={bookableRooms}
                       />
                     ) : (

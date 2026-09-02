@@ -5,7 +5,7 @@ import request from 'supertest';
 import { prisma } from '../../db/index.js';
 import { hashPassword } from '../../lib/password.js';
 import { createToken, hashToken, expiresIn } from '../../lib/tokens.js';
-import { nextPartnerReference } from '../../lib/reference.js';
+import { nextPartnerReference, nextTransferBookingReference } from '../../lib/reference.js';
 
 /**
  * Shared fixtures for the auth and partner suites.
@@ -63,6 +63,9 @@ export const createTracker = () => {
     const transferVehicleIds = new Set();
     const transferRouteIds = new Set();
     const transferExtraCodes = new Set();
+    const transferDriverIds = new Set();
+    const transferFleetVehicleIds = new Set();
+    const transferBookingIds = new Set();
 
     return {
         partner(partner) {
@@ -109,6 +112,18 @@ export const createTracker = () => {
             transferExtraCodes.add(extra.code);
             return extra;
         },
+        transferDriver(driver) {
+            transferDriverIds.add(driver.id);
+            return driver;
+        },
+        transferFleetVehicle(vehicle) {
+            transferFleetVehicleIds.add(vehicle.id);
+            return vehicle;
+        },
+        transferBooking(booking) {
+            transferBookingIds.add(booking.id);
+            return booking;
+        },
         async cleanup() {
             // Invitations are cleaned by id, never by an email pattern. The
             // runner gives each file its own process but they share one
@@ -131,7 +146,10 @@ export const createTracker = () => {
                 ...transferPointIds,
                 ...transferProviderIds,
                 ...transferVehicleIds,
-                ...transferRouteIds
+                ...transferRouteIds,
+                ...transferDriverIds,
+                ...transferFleetVehicleIds,
+                ...transferBookingIds
             ];
 
             if (entityIds.length > 0) {
@@ -163,6 +181,35 @@ export const createTracker = () => {
                 }
 
                 await prisma.hotel.deleteMany({ where: { id: { in: [...hotelIds] } } });
+            }
+
+            // Fleet and drivers. An assignment holds its driver and its car
+            // with Restrict, so assignments go before either of them; ratings
+            // and blocks cascade from the driver. Bookings written directly by
+            // a factory (rather than through the API) are removed here too,
+            // and their legs and assignments cascade with them.
+            if (transferDriverIds.size > 0 || transferFleetVehicleIds.size > 0 || transferBookingIds.size > 0) {
+                await prisma.transferAssignment.deleteMany({
+                    where: {
+                        OR: [
+                            { driverId: { in: [...transferDriverIds] } },
+                            { fleetVehicleId: { in: [...transferFleetVehicleIds] } },
+                            { bookingId: { in: [...transferBookingIds] } }
+                        ]
+                    }
+                });
+            }
+
+            if (transferDriverIds.size > 0) {
+                await prisma.transferDriver.deleteMany({ where: { id: { in: [...transferDriverIds] } } });
+            }
+
+            if (transferFleetVehicleIds.size > 0) {
+                await prisma.transferFleetVehicle.deleteMany({ where: { id: { in: [...transferFleetVehicleIds] } } });
+            }
+
+            if (transferBookingIds.size > 0) {
+                await prisma.transferBooking.deleteMany({ where: { id: { in: [...transferBookingIds] } } });
             }
 
             // Transfers, child-first for the same reason hotels are:
@@ -249,6 +296,9 @@ export const createTracker = () => {
             transferVehicleIds.clear();
             transferRouteIds.clear();
             transferExtraCodes.clear();
+            transferDriverIds.clear();
+            transferFleetVehicleIds.clear();
+            transferBookingIds.clear();
         }
     };
 };
@@ -610,3 +660,160 @@ export const makeTransferPrice = (routeId, vehicleId, overrides = {}) =>
  */
 export const futureDate = (daysAhead = 30) =>
     new Date(Date.now() + daysAhead * 86_400_000).toISOString().slice(0, 10);
+
+
+/* ==========================================================================
+   Fleet, drivers and dispatch
+   ========================================================================== */
+
+/** A physical car, ACTIVE, sold as the given class. */
+export const makeFleetVehicle = async (tracker, { providerId, vehicleClassId, ...overrides } = {}) => {
+    // Short enough for a plate, unique enough for a partial unique index.
+    const plate = overrides.plateNumber ?? `TT${randomBytes(4).toString('hex').toUpperCase()}`;
+
+    return tracker.transferFleetVehicle(
+        await prisma.transferFleetVehicle.create({
+            data: {
+                providerId,
+                vehicleClassId,
+                make: 'Toyota',
+                model: 'Camry',
+                year: 2022,
+                colour: 'Black',
+                body: 'sedan',
+                plateNumber: plate,
+                plateNormalized: plate.replace(/[^A-Z0-9]/g, ''),
+                passengerCapacity: 3,
+                luggageCapacity: 2,
+                cabinBagCapacity: 2,
+                features: ['airConditioning'],
+                status: 'ACTIVE',
+                ...overrides
+            }
+        })
+    );
+};
+
+/** A driver profile, VERIFIED and active, with no login yet. */
+export const makeDriver = async (tracker, { providerId, ...overrides } = {}) =>
+    tracker.transferDriver(
+        await prisma.transferDriver.create({
+            data: {
+                providerId,
+                firstName: 'Levan',
+                lastName: 'Gogoladze',
+                phone: '+995555000111',
+                languages: ['ka', 'en'],
+                yearsExperience: 7,
+                verificationStatus: 'VERIFIED',
+                verifiedAt: new Date(),
+                isActive: true,
+                ...overrides
+            }
+        })
+    );
+
+/** A DRIVER login linked to a profile. Platform-side: no partnerId, by the CHECK. */
+export const makeDriverUser = async (tracker, driver, { withPassword = true, ...overrides } = {}) => {
+    const user = tracker.user(
+        await prisma.user.create({
+            data: {
+                email: testEmail('driver'),
+                firstName: driver.firstName,
+                lastName: driver.lastName,
+                role: 'DRIVER',
+                passwordHash: withPassword ? await testPasswordHash() : null,
+                ...overrides
+            }
+        })
+    );
+
+    await prisma.transferDriver.update({ where: { id: driver.id }, data: { userId: user.id } });
+
+    return user;
+};
+
+/**
+ * A confirmed booking with one leg, written directly rather than through the
+ * quote-and-confirm flow. For suites that test what happens *after* a booking
+ * exists — dispatch, ratings — and do not need the fare engine in the way.
+ */
+export const makeTransferBooking = async (
+    tracker,
+    { vehicleId, from, to, pickupAt = new Date(Date.now() + 7 * 86_400_000), durationMinutes = 90, ...overrides } = {}
+) =>
+    tracker.transferBooking(
+        await prisma.transferBooking.create({
+            data: {
+                reference: await nextTransferBookingReference(prisma),
+                status: 'CONFIRMED',
+                vehicleId,
+                tripType: 'ONE_WAY',
+                pickupAt,
+                adults: 2,
+                children: 0,
+                childAges: [],
+                luggage: 2,
+                cabinBags: 0,
+                currency: 'GEL',
+                netTotalCents: 17000,
+                sellTotalCents: 20000,
+                markupBps: 1500,
+                leadPassengerName: 'Test Passenger',
+                leadPassengerEmail: testEmail('passenger'),
+                leadPassengerPhone: '+995555999888',
+                routeSnapshot: {
+                    fromSlug: from.slug,
+                    fromName: from.name,
+                    fromTimezone: from.timezone,
+                    toSlug: to.slug,
+                    toName: to.name
+                },
+                vehicleSnapshot: {},
+                // The shape `buildCancellationSchedule` produces for a policy
+                // with no rules: one open-ended free window.
+                cancellationSchedule: {
+                    currency: 'GEL',
+                    totalCents: 20000,
+                    checkInAt: pickupAt.toISOString(),
+                    windows: [{ fromAt: null, toAt: null, chargeCents: 0, basis: 'FREE', description: 'Free cancellation' }]
+                },
+                confirmedAt: new Date(),
+                source: 'admin',
+                legs: {
+                    create: {
+                        legIndex: 0,
+                        direction: 'OUTBOUND',
+                        fromPointId: from.id,
+                        toPointId: to.id,
+                        fromPointName: from.name,
+                        toPointName: to.name,
+                        pickupAt,
+                        distanceKm: 100,
+                        durationMinutes,
+                        netCents: 17000,
+                        sellCents: 20000
+                    }
+                },
+                ...overrides
+            },
+            include: { legs: true }
+        })
+    );
+
+/** An assignment row written directly, for exercising the database constraints. */
+export const makeAssignment = (leg, { driverId, fleetVehicleId = null, windowStart, windowEnd, ...overrides }) =>
+    prisma.transferAssignment.create({
+        data: {
+            legId: leg.id,
+            bookingId: leg.bookingId,
+            driverId,
+            fleetVehicleId,
+            status: 'OFFERED',
+            windowStart,
+            windowEnd,
+            preBufferMinutes: 45,
+            postBufferMinutes: 30,
+            ...overrides
+        }
+    });

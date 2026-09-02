@@ -36,6 +36,9 @@ export const AUDIT_ENTITY = {
     booking: 'HotelBooking',
     pricingRule: 'PricingRule',
     amenity: 'Amenity',
+    kosherCertification: 'HotelKosherCertification',
+    hotelDocument: 'HotelDocument',
+    bookingRequest: 'HotelBookingRequest',
     fileAsset: 'FileAsset',
     transferPoint: 'TransferPoint',
     transferProvider: 'TransferProvider',
@@ -43,5 +46,11 @@ export const AUDIT_ENTITY = {
     transferRoute: 'TransferRoute',
     transferExtra: 'TransferExtra',
     transferBlackout: 'TransferBlackout',
-    transferBooking: 'TransferBooking'
+    transferBooking: 'TransferBooking',
+    transferBookingLeg: 'TransferBookingLeg',
+    transferFleetVehicle: 'TransferFleetVehicle',
+    transferDriver: 'TransferDriver',
+    transferAssignment: 'TransferAssignment',
+    transferResourceBlock: 'TransferResourceBlock',
+    transferRating: 'TransferDriverRating'
 };

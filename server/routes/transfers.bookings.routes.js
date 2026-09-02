@@ -1,6 +1,6 @@
 import { Router } from 'express';
 
-import { authenticate, optionalAuthenticate, requireAdmin } from '../middleware/auth.js';
+import { authenticate, optionalAuthenticate, requirePartner, requireTransferOps } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import {
     amendTransferSchema,
@@ -24,6 +24,9 @@ import {
     toTransferBookingSummary
 } from '../serializers/transfer.js';
 import { sendTransferVoucher } from '../services/transfer/notify.service.js';
+import { submitRatingForBookingLeg } from '../services/transfer/rating.service.js';
+import { legIndexParamSchema, submitRatingSchema } from '../validation/rating.js';
+import { toRatingPublic } from '../serializers/rating.js';
 
 /**
  * Transfer bookings.
@@ -135,7 +138,7 @@ transferBookingRoutes.post(
 /** A partner's own transfer bookings, scoped in the query rather than after. */
 export const partnerTransferBookingRoutes = Router();
 
-partnerTransferBookingRoutes.use(authenticate);
+partnerTransferBookingRoutes.use(authenticate, requirePartner);
 
 partnerTransferBookingRoutes.get(
     '/',
@@ -150,10 +153,50 @@ partnerTransferBookingRoutes.get(
     }
 );
 
-/** Every transfer booking on the platform. */
+/**
+ * One of the partner's bookings, with the driver on each leg once the driver
+ * has accepted — and the driver's phone number once the pick-up is close.
+ */
+partnerTransferBookingRoutes.get(
+    '/:reference',
+    validate({ params: referenceParamSchema }),
+    async (req, res) => {
+        const booking = await findTransferBookingOr404(req.valid.params.reference, req.user);
+
+        res.json(toTransferBooking(booking, req.user));
+    }
+);
+
+/**
+ * A partner's word on the driver of one leg. One per leg; a second is a 409.
+ * Published straight away without a comment, held for a look with one.
+ */
+partnerTransferBookingRoutes.post(
+    '/:reference/legs/:legIndex/rating',
+    validate({ params: legIndexParamSchema, body: submitRatingSchema }),
+    async (req, res) => {
+        const { reference, legIndex } = req.valid.params;
+        const rating = await submitRatingForBookingLeg(
+            reference,
+            legIndex,
+            req.valid.body,
+            { source: 'PARTNER', submittedByUserId: req.user.id, viewer: req.user },
+            req.user,
+            req
+        );
+
+        res.status(201).json(toRatingPublic(rating));
+    }
+);
+
+/**
+ * Every transfer booking on the platform, for operations staff. A dispatcher
+ * reads the same list an admin does; the serializer withholds the net figures
+ * from anyone who is not an admin.
+ */
 export const adminTransferBookingRoutes = Router();
 
-adminTransferBookingRoutes.use(authenticate, requireAdmin);
+adminTransferBookingRoutes.use(authenticate, requireTransferOps);
 
 adminTransferBookingRoutes.get(
     '/',

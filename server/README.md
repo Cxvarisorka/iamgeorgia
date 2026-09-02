@@ -59,6 +59,8 @@ which collects messages into an in-memory outbox the tests assert on.
 | `node scripts/seed-reference.js` | Load the reference tables (amenities, bed types, meal plans, policy templates). Idempotent; re-run after editing `db/seed/*` |
 | `node scripts/check-media-storage.js` | Round-trip an object through the configured storage driver. Run after setting the R2 credentials — `npm test` only ever exercises the local driver |
 | `node scripts/seed-catalogue.js` | Seed the real catalogue from `client/data/*.ts`: destination tree, nine hotels with rooms, rate plans, a year of seasonal rates and inventory, and images through the media pipeline. Idempotent by slug; removes `smoke-*` test fixtures first |
+| `node scripts/seed-kosher.js` | Overlay kosher data on the seeded catalogue: profiles, certificates in every state, facilities, nearby religious places and booking requirements. Idempotent, and it never overwrites a property somebody has edited by hand |
+| `node scripts/seed-fleet.js [--no-assign] [--no-images] [--password …] [--clear]` | Demo drivers (with `@demo.iamgeorgia.test` logins and generated avatar photos) and `DM-` cars (two generated photographs each) under a house provider, pushed through the real media pipeline, then dispatches upcoming demo transfer legs through the real dispatch service. Idempotent; `--clear` removes them |
 | `node scripts/benchmark-search.js [hotels] [days]` | Seed a realistic dataset, measure search latency and print a stage breakdown, then clean up. `KEEP_DATA=1` leaves the data for `EXPLAIN` |
 
 ## Layout
@@ -86,10 +88,11 @@ serializers/           What each role is allowed to see of a record
 serializers/localise.js Merges a translation over its English base record
 validation/domain.js   zod schemas for every Json column
 validation/            Request schemas and shared field normalizers
-db/seed/                Amenity, bed-type and meal-plan vocabularies
+db/seed/                Amenity, bed-type, meal-plan and kosher vocabularies
 lib/time.js            Calendar dates, wall-clock times and the instants between
 scripts/create-admin.js Bootstraps the first administrator
 scripts/seed-reference.js Loads the reference tables (idempotent)
+scripts/seed-kosher.js  Kosher profiles and certificates over the catalogue
 scripts/check-media-storage.js Round-trips an object through the storage driver
 prisma/schema.prisma   Data model (mirrors client/types)
 prisma/migrations/     Migration history
@@ -305,8 +308,21 @@ Two conventions worth stating because they will matter later:
 `User` is one table for everyone who can sign in, with a `Role` enum and a
 nullable `partnerId`: one login endpoint, one session mechanism, one unique
 email, and room for several employees per partner without a redesign. A
-`CHECK` constraint enforces that admins carry no `partnerId` and partner roles
-always do.
+`CHECK` constraint enforces that platform-side roles carry no `partnerId` and
+partner roles always do. The platform side is `SUPER_ADMIN`, `ADMIN`,
+`DISPATCHER` and `DRIVER`; the constraint lists every role on one side or the
+other, so a role added without a decision fails on its first write.
+
+`DISPATCHER` runs transfer operations — cars, drivers, assignments — and is
+deliberately *not* an admin: `middleware/auth.js` exposes `TRANSFER_OPS_ROLES`
+and `requireTransferOps` beside `ADMIN_ROLES`, and anything gated on `isAdmin`
+(fares, partners, net figures) stays closed to it. `DRIVER` is affiliated to a
+supplier through its `TransferDriver` profile rather than through
+`User.partnerId`, which is what keeps every partner-scoped query on the
+platform closed to drivers by construction; the partner routers also name
+their audience with `requirePartner` rather than relying on that alone.
+`requireDriver` loads the profile onto `req.driver` and refuses an unlinked or
+deactivated one.
 
 A partner's bank details live in their own table, `partner_financial_details`,
 so the queries the admin panel runs cannot return an IBAN by accident —
@@ -329,6 +345,53 @@ partner's own reference, so an irreversible endpoint cannot be fired by a URL
 alone — a request naming the wrong record fails instead of destroying it. The
 audit row is written inside the same transaction, before the delete, and
 survives it.
+
+### The fleet and dispatch module
+
+The transfer catalogue sells a *class* of car (`TransferVehicle`). The fleet
+block at the end of the schema is what turns up at the kerb: a physical car
+(`TransferFleetVehicle`, sold as one class, owned by a `TransferProvider`), a
+driver (`TransferDriver`, a profile that may exist before a `DRIVER` login is
+linked to it), and the record of who was sent where (`TransferAssignment`).
+
+Two state machines, defined as data in `lib/transfer/machines.js` on top of
+`lib/stateMachine.js`. `TransferBooking.status` stays commercial and is what
+money and cancellation read. `TransferBookingLeg.status` is operational —
+`UNASSIGNED → ASSIGNED → ACCEPTED → EN_ROUTE → ARRIVED → ON_BOARD → COMPLETED`,
+with `NO_SHOW_REPORTED`/`NO_SHOW` and `CANCELLED` beside it — because a return
+booking is two jobs on two days with, quite possibly, two drivers. An
+assignment is one offer of one driver for one leg and is append-only: a
+reassignment revokes the old row and inserts a new one.
+
+Double-booking is refused by Postgres, not only by the service. Each
+assignment stores the window it occupies (pick-up minus a buffer, to the end
+of the journey plus a buffer; the buffers are stored on the row), and two
+`EXCLUDE USING gist` constraints — one over `(driver_id, window)`, one over
+`(fleet_vehicle_id, window)`, both limited to `OFFERED`/`ACCEPTED` rows —
+make an overlap a `23P01` that `middleware/errors.js` reports as a 409. A
+partial unique index allows one live offer per leg. Manual unavailability is
+`TransferResourceBlock`; the `transfer_occupancy` view unions both sources
+for the schedule screen and the dispatcher's pre-check. `btree_gist` is
+enabled by the migration.
+
+Ratings are individual rows (`TransferDriverRating`, one per completed leg,
+1–5) and the averages on the driver and the provider are recomputed from the
+published rows in the same transaction, never incremented. A rating with a
+comment waits for a look (`PENDING`) before it counts.
+
+Notifications go through a transactional outbox: every dispatch write
+enqueues an `OutboxEvent` in its own transaction, and
+`services/notifications/outbox.service.js` drains it on an interval from
+`server.js` — under a transaction-scoped advisory lock, claiming a batch with
+a lease and processing it *outside* the transaction so an SMTP conversation
+never holds a connection. Handlers write `Notification` rows (the in-app
+channel) and send email through `sendMailQuietly`; a failed handler retries
+with backoff. `services/transfer/reminder.service.js` is the second sweeper:
+the driver's reminder, the passenger's driver details and the "still no
+driver" alert, each stamped on the leg in the statement that selects it so it
+fires once. Dispatch settings live under `config.transfer.dispatch`
+(`TRANSFER_DISPATCH_*`, `TRANSFER_RATING_*`, `TRANSFER_OPS_EMAIL`,
+`TRANSFER_OUTBOX_DRAIN_INTERVAL_MS`, `TRANSFER_REMINDER_SWEEP_INTERVAL_MS`).
 
 ### What a partner may change about itself
 

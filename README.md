@@ -133,6 +133,7 @@ when CORS allows credentials.
 ```bash
 cd server
 node scripts/seed-catalogue.js   # destinations, hotels, rooms, rate plans, a year of rates & inventory
+node scripts/seed-kosher.js      # kosher profiles and certificates over those hotels
 ```
 
 ## Tests

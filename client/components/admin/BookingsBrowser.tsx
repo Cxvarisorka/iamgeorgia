@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import { Search } from "lucide-react";
+import { Clock, Search } from "lucide-react";
 
 import { BookingStatusBadge } from "./StatusBadge";
 import { Cell, DataTable, EmptyRow, Row, type Column } from "./DataTable";
@@ -180,6 +180,16 @@ export function BookingsBrowser({
                   </Cell>
                   <Cell>
                     <BookingStatusBadge status={booking.status} />
+                    {/* Beside the status, never instead of it. The booking is
+                        confirmed; it is a requirement that is outstanding, and
+                        conflating the two would put a perfectly good
+                        reservation in doubt. */}
+                    {booking.requestsPending > 0 && (
+                      <span className="ms-2 inline-flex items-center gap-1 text-[0.75rem] text-muted">
+                        <Clock size={12} aria-hidden />
+                        {booking.requestsPending}
+                      </span>
+                    )}
                   </Cell>
                   <Cell align="end" className="tabular-nums">
                     {formatMoney(booking.totalCents, booking.currency)}
@@ -201,7 +211,15 @@ export function BookingsBrowser({
                 >
                   {booking.reference}
                 </Link>
-                <BookingStatusBadge status={booking.status} />
+                <div className="flex shrink-0 items-center gap-2">
+                  <BookingStatusBadge status={booking.status} />
+                  {booking.requestsPending > 0 && (
+                    <span className="inline-flex items-center gap-1 text-[0.75rem] text-muted">
+                      <Clock size={12} aria-hidden />
+                      {booking.requestsPending}
+                    </span>
+                  )}
+                </div>
               </div>
               <p className="mt-2 text-[0.875rem] text-body">{booking.leadGuestName}</p>
               <p className="text-[0.8125rem] text-muted">{booking.hotel.name}</p>

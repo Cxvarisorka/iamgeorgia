@@ -11,7 +11,7 @@ import { vehicleClassLabels } from "@/lib/admin/transfers";
 import { getI18n } from "@/lib/i18n/server";
 import { formatMoney } from "@/lib/money";
 
-export const metadata: Metadata = { title: "Transfer fleet" };
+export const metadata: Metadata = { title: "Vehicle classes" };
 
 /**
  * The vehicle classes.
@@ -34,7 +34,7 @@ export default async function AdminTransferVehiclesPage() {
   return (
     <AdminContainer>
       <AdminPageHeader
-        title="Transfer fleet"
+        title="Vehicle classes"
         description="The vehicle classes on sale, and the fares that apply where a route has no price of its own."
         actions={
           <Link

@@ -3,6 +3,7 @@
 import { Check, Copy, Mail, Phone } from "lucide-react";
 import { useState } from "react";
 
+import { RequestedDriver } from "./RequestedDriver";
 import { TransferSteps } from "./TransferSteps";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -13,6 +14,7 @@ import { plural } from "@/lib/i18n/plural";
 import { useI18n, useLocalePath } from "@/lib/i18n/provider";
 import { formatMoney } from "@/lib/money";
 import { formatDuration } from "@/lib/transfers/query";
+import type { AssignmentForPartner } from "@/types/driver";
 import type { TransferBooking } from "@/types/transfer";
 
 /**
@@ -121,6 +123,26 @@ export function TransferConfirmation({ booking }: { booking: TransferBooking }) 
               )}
             </dl>
           </section>
+
+          {/* The driver a partner asked for: shown while the offer waits and
+              once it is taken. A guest booking never carries one. */}
+          {booking.legs.some((leg) => leg.assignment) && (
+            <section className="mt-10">
+              <h2 className="type-h3">{t.transfers.booking.driverRequested}</h2>
+              <div className="mt-5 space-y-4">
+                {booking.legs.map(
+                  (leg) =>
+                    leg.assignment && (
+                      <RequestedDriver
+                        key={leg.id}
+                        assignment={leg.assignment as AssignmentForPartner}
+                        label={back ? `${leg.from} → ${leg.to}` : undefined}
+                      />
+                    ),
+                )}
+              </div>
+            </section>
+          )}
 
           <section className="mt-10">
             <h2 className="type-h3">{t.transfers.confirmation.whatNext}</h2>

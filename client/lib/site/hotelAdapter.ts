@@ -113,6 +113,11 @@ export function adaptHotelSummary(api: ApiHotelSummary): Hotel {
     image: imageUrl(api.coverImage),
     gallery: [],
     amenities: toKnownAmenities(api.amenityCodes ?? []),
+    // The unfiltered list, alongside the narrowed one. Kosher facilities have
+    // no entry in the prototype's icon map and would otherwise vanish here —
+    // which would make them unfilterable on the catalogue page.
+    amenityCodes: api.amenityCodes ?? [],
+    kosher: api.kosher ?? null,
     highlights: [],
     rooms: [],
     categoryScores: [],
@@ -147,6 +152,10 @@ export function adaptHotelDetail(api: ApiHotel): Hotel {
       alt: image.altText ?? image.caption ?? api.name,
     })),
     amenities: toKnownAmenities(api.amenities.map((amenity) => amenity.code)),
+    amenityCodes: api.amenities.map((amenity) => amenity.code),
+    // The detail response carries the full profile; the card fields it shares
+    // with the summary are the ones a list row reads.
+    kosher: api.kosher ?? null,
     rooms: api.roomTypes
       .filter((roomType) => roomType.status === "ACTIVE")
       .map((roomType) => toRoom(roomType, cover)),

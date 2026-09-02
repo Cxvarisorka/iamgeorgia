@@ -10,7 +10,9 @@ import { Container } from "@/components/ui/Container";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ApiError } from "@/lib/api/client";
 import { quoteTransfers } from "@/lib/api/transfers";
+import { getSession } from "@/lib/auth/session";
 import { getI18n } from "@/lib/i18n/server";
+import { isAdmin } from "@/types/auth";
 import {
   paramsFromSearchParams,
   parseTransferQuery,
@@ -39,10 +41,16 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function TransferBookingPage(
   props: PageProps<"/[locale]/transfers/booking">,
 ) {
-  const [searchParams, { t, path, locale, intlLocale }] = await Promise.all([
+  const [searchParams, { t, path, locale, intlLocale }, session] = await Promise.all([
     props.searchParams,
     getI18n(),
+    getSession(),
   ]);
+
+  // Only a partner (or an admin booking for one) may ask for a particular
+  // driver; the server enforces the same rule, this just decides whether to
+  // show the section.
+  const canChooseDriver = isAdmin(session) || session?.partner?.status === "APPROVED";
 
   const params = paramsFromSearchParams(searchParams);
   const query = parseTransferQuery(params);
@@ -141,6 +149,7 @@ export default async function TransferBookingPage(
             query={query}
             from={result?.from}
             to={result?.to}
+            canChooseDriver={canChooseDriver}
           />
 
           <Button href={detailHref} variant="ghost" className="mt-6">

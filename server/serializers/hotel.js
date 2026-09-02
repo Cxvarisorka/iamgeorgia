@@ -3,6 +3,7 @@ import { toDestinationSummary } from './destination.js';
 import { toHotelAmenity } from './amenity.js';
 import { toHotelImage, toImageAsset } from './media.js';
 import { toChildPolicy, toRoomTypeDetail } from './roomType.js';
+import { toKosher, toKosherSummary } from './kosher.js';
 import { canViewNetRates } from '../middleware/auth.js';
 
 /**
@@ -12,6 +13,11 @@ import { canViewNetRates } from '../middleware/auth.js';
  * allow-list discipline as `serializers/partner.js`, and for the same reason:
  * a field added to the model must not appear in a public response merely
  * because nobody remembered to strip it.
+ *
+ * `kosher` is present only when the property has a kosher profile at all. Its
+ * own provenance and lock fields follow the same staff-only rule as everything
+ * below, and its `certified` flag is computed rather than stored — see
+ * `serializers/kosher.js`.
  *
  * Three things are visible only to platform staff and to the supplier that owns
  * the property, and are *absent* rather than null for anyone else, so a client
@@ -69,6 +75,11 @@ export const toHotelSummary = (hotel, locale, viewer) => {
         ...(hotel.amenities
             ? { amenityCodes: hotel.amenities.map((entry) => entry.amenity?.code).filter(Boolean) }
             : {}),
+        // Present only for a property that offers kosher services at all, so
+        // "this hotel does not do kosher" and "this response carries no kosher
+        // information" are the same absence — which is the truth. Enough for
+        // one honest line on a card and no more.
+        ...(hotel.kosher ? { kosher: toKosherSummary(hotel) } : {}),
         // A "from" price with no dates is not an offer and is never used to
         // quote or to book — it exists so an un-dated browse page can sort.
         priceFrom:
@@ -128,6 +139,11 @@ export const toHotelDetail = (hotel, locale, viewer) => {
         // applies and the client reads that from its own config rather than
         // this pretending the hotel picked it.
         childPolicy: toChildPolicy(hotel.childPolicy),
+        // The full kosher block, overwriting the card-sized summary the shared
+        // summary put there. `certified` inside it is derived from a live,
+        // unexpired, property-scoped certificate — never from anything an admin
+        // can type, and never from an amenity somebody ticked.
+        ...(hotel.kosher ? { kosher: toKosher(hotel, viewer) } : {}),
         createdAt: value.createdAt,
         updatedAt: value.updatedAt
     };

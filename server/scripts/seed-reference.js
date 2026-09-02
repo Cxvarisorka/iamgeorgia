@@ -1,5 +1,7 @@
 import { prisma, disconnect } from '../db/index.js';
 import { AMENITIES } from '../db/seed/amenities.js';
+import { KOSHER_AMENITIES } from '../db/seed/kosherAmenities.js';
+import { KOSHER_AMENITY_TRANSLATIONS } from '../db/seed/kosherAmenityTranslations.js';
 import { BED_TYPES } from '../db/seed/bedTypes.js';
 import { MEAL_PLANS } from '../db/seed/mealPlans.js';
 import { seedPolicyTemplates } from '../services/hotel/policyCatalog.service.js';
@@ -43,12 +45,56 @@ const seed = async (label, rows, { model, key, editable }) => {
     );
 };
 
+/**
+ * Facility names in the non-default locales.
+ *
+ * Upserted on (amenityId, locale) like every other translation, and only for
+ * codes that exist — a translation for an amenity nobody seeded is skipped
+ * rather than failing the run, so removing a code from a seed file does not
+ * break this script.
+ */
+const seedTranslations = async (label, translations) => {
+    let written = 0;
+
+    for (const [code, byLocale] of Object.entries(translations)) {
+        const amenity = await prisma.amenity.findUnique({ where: { code }, select: { id: true } });
+
+        if (!amenity) {
+            continue;
+        }
+
+        for (const [locale, name] of Object.entries(byLocale)) {
+            await prisma.amenityTranslation.upsert({
+                where: { amenityId_locale: { amenityId: amenity.id, locale } },
+                create: { amenityId: amenity.id, locale, name },
+                update: { name }
+            });
+
+            written += 1;
+        }
+    }
+
+    console.log(`${label.padEnd(12)} ${String(written).padStart(3)} translations written`);
+};
+
 const run = async () => {
     await seed('Amenities', AMENITIES, {
         model: 'amenity',
         key: 'code',
         editable: ['name', 'category', 'scope', 'icon', 'sortOrder']
     });
+
+    // Kosher facilities are amenities like any other — the same table, the same
+    // join, the same filters. They are seeded separately only because their
+    // sort order continues past the general vocabulary rather than being
+    // interleaved with it.
+    await seed('Kosher', KOSHER_AMENITIES, {
+        model: 'amenity',
+        key: 'code',
+        editable: ['name', 'category', 'scope', 'icon', 'sortOrder']
+    });
+
+    await seedTranslations('Kosher i18n', KOSHER_AMENITY_TRANSLATIONS);
 
     await seed('Bed types', BED_TYPES, {
         model: 'bedType',

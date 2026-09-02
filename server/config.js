@@ -40,6 +40,9 @@ const requiredInProduction = [
     // Same again for transfer quotes, which carry their own secret so the two
     // can be rotated independently.
     'TRANSFER_QUOTE_TOKEN_SECRET',
+    // And for the rating links emailed after a transfer: a guessable secret
+    // would let anyone rate any driver.
+    'TRANSFER_RATING_TOKEN_SECRET',
     // Without these every image upload fails at the point an admin tries to
     // publish a hotel, which is a bad place to discover missing configuration.
     'MEDIA_S3_ENDPOINT',
@@ -212,6 +215,18 @@ export const config = {
         // still blocks inventory — this interval is the worst-case delay.
         holdSweepIntervalMs: numberEnv('HOTEL_HOLD_SWEEP_INTERVAL_MS', 30 * 1000),
 
+        // How often to look for kosher certificates that are about to lapse.
+        //
+        // Daily, and deliberately unhurried, because unlike the hold sweep this
+        // one changes no state: expiry is derived on every read, so the platform
+        // is already correct the moment a certificate runs out. The job exists
+        // only so a human hears about it before an agency does — which is why
+        // its failure is a missing notice rather than wrong data.
+        certificationSweepIntervalMs: numberEnv(
+            'HOTEL_CERTIFICATION_SWEEP_INTERVAL_MS',
+            24 * 60 * 60 * 1000
+        ),
+
         // Signs the offer tokens search hands out, so a client can carry an
         // offer into checkout without being able to edit its price. The token
         // prevents tampering; the server re-quotes regardless.
@@ -265,7 +280,53 @@ export const config = {
         minimumNoticeMinutes: numberEnv('TRANSFER_MINIMUM_NOTICE_MINUTES', 180),
 
         // A party larger than this is a coach charter, quoted by a human.
-        maxPassengers: numberEnv('TRANSFER_MAX_PASSENGERS', 50)
+        maxPassengers: numberEnv('TRANSFER_MAX_PASSENGERS', 50),
+
+        // Dispatch: how a driver's and a car's time is claimed by a leg, and
+        // what a driver may do when.
+        dispatch: {
+            // A driver is busy from this long before the pick-up: getting
+            // there, parking, and standing in arrivals with a sign.
+            preBufferMinutes: numberEnv('TRANSFER_DISPATCH_PRE_BUFFER_MINUTES', 45),
+            // ...until this long after the drop-off: unloading and getting clear.
+            postBufferMinutes: numberEnv('TRANSFER_DISPATCH_POST_BUFFER_MINUTES', 30),
+
+            // Whether an offered leg waits for the driver to say yes. When
+            // false, assigning is accepting.
+            requireDriverAcceptance: (process.env.TRANSFER_DISPATCH_REQUIRE_ACCEPTANCE ?? 'true') !== 'false',
+
+            // How early a driver may go "en route", and how late a driver may
+            // still back out of an accepted job without phoning dispatch.
+            maxEarlyStartMinutes: numberEnv('TRANSFER_DISPATCH_MAX_EARLY_START_MINUTES', 240),
+            lateDeclineHours: numberEnv('TRANSFER_DISPATCH_LATE_DECLINE_HOURS', 12),
+
+            // How long a driver waits at the kerb before a no-show can be
+            // reported. Airports get longer: baggage reclaim is not the
+            // passenger's fault.
+            noShowWaitMinutes: numberEnv('TRANSFER_DISPATCH_NO_SHOW_WAIT_MINUTES', 30),
+            noShowWaitMinutesAirport: numberEnv('TRANSFER_DISPATCH_NO_SHOW_WAIT_MINUTES_AIRPORT', 60),
+            noShowRequiresConfirmation:
+                (process.env.TRANSFER_DISPATCH_NO_SHOW_REQUIRES_CONFIRMATION ?? 'true') !== 'false',
+
+            // When the driver's phone number becomes visible to the partner
+            // and the passenger, in hours before pick-up.
+            contactRevealHours: numberEnv('TRANSFER_DISPATCH_CONTACT_REVEAL_HOURS', 24),
+
+            // How long after a completed leg a rating may still be left.
+            ratingWindowDays: numberEnv('TRANSFER_RATING_WINDOW_DAYS', 30),
+
+            // Signs the rating links emailed to passengers. Its own secret, so it
+            // can be rotated without invalidating quotes in flight.
+            ratingTokenSecret: process.env.TRANSFER_RATING_TOKEN_SECRET || 'development-rating-secret',
+
+            // Where the "still no driver" alert goes, beside the in-app notice.
+            opsEmail: process.env.TRANSFER_OPS_EMAIL || null,
+
+            // How often the outbox is drained into emails and in-app notices,
+            // and how often the time-driven events are looked for.
+            outboxDrainIntervalMs: numberEnv('TRANSFER_OUTBOX_DRAIN_INTERVAL_MS', 5 * 1000),
+            reminderSweepIntervalMs: numberEnv('TRANSFER_REMINDER_SWEEP_INTERVAL_MS', 60 * 1000)
+        }
     },
 
     media: {

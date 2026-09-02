@@ -3,13 +3,20 @@
 import { SlidersHorizontal } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { defaultFilters, HotelFilters, type HotelFilterState } from "./HotelFilters";
+import { HotelFilters } from "./HotelFilters";
 import { HotelListItem } from "./HotelListItem";
 import { Button } from "@/components/ui/Button";
 import { Container } from "@/components/ui/Container";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
 import { hotelSortOptions, type HotelSort } from "@/data/hotels";
+import {
+  buildFacets,
+  countActiveFilters,
+  defaultFilters,
+  matchesFilters,
+  type HotelFilterState,
+} from "@/lib/hotels/filters";
 import { fill } from "@/lib/i18n/dictionaries";
 import { plural } from "@/lib/i18n/plural";
 import { useI18n } from "@/lib/i18n/provider";
@@ -31,10 +38,15 @@ interface HotelExplorerProps {
 /**
  * Catalogue browsing: what exists, at indicative prices.
  *
- * Dates and destination are deliberately not here. They belong to the search
- * form above, which puts them in the URL and turns the page into a real dated
- * search — a second, cosmetic date picker beside a working one is worse than
- * none, because only one of them affects what is on screen.
+ * Dates are deliberately not here. They belong to the search form above, which
+ * puts them in the URL and turns the page into a real dated search — a second,
+ * cosmetic date picker beside a working one is worse than none, because only
+ * one of them affects what is on screen.
+ *
+ * Destination is in both places, and they do different jobs: the form picks one
+ * and narrows what the server sends, the panel narrows within what came back
+ * and takes several at once. When the form has already chosen, one destination
+ * comes back, and the panel's row drops out rather than echoing it.
  */
 export function HotelExplorer({ hotels }: HotelExplorerProps) {
   const { t, locale } = useI18n();
@@ -42,21 +54,12 @@ export function HotelExplorer({ hotels }: HotelExplorerProps) {
   const [sort, setSort] = useState<HotelSort>("recommended");
   const [filtersOpen, setFiltersOpen] = useState(false);
 
+  // Derived from the whole list, never from the filtered one: options that
+  // vanished as you used them would make the panel impossible to walk back.
+  const facets = useMemo(() => buildFacets(hotels), [hotels]);
+
   const results = useMemo(() => {
-    const filtered = hotels.filter((hotel) => {
-      if (filters.propertyTypes.length && !filters.propertyTypes.includes(hotel.propertyType)) {
-        return false;
-      }
-      if (filters.minScore && hotel.guestScore < filters.minScore) return false;
-      if (filters.maxPrice < 1500 && hotel.priceFrom > filters.maxPrice) return false;
-      if (
-        filters.amenities.length &&
-        !filters.amenities.every((amenity) => hotel.amenities.includes(amenity))
-      ) {
-        return false;
-      }
-      return true;
-    });
+    const filtered = hotels.filter((hotel) => matchesFilters(hotel, filters));
 
     const sorted = [...filtered];
     if (sort === "price-low") sorted.sort((a, b) => a.priceFrom - b.priceFrom);
@@ -67,39 +70,41 @@ export function HotelExplorer({ hotels }: HotelExplorerProps) {
 
   const reset = () => setFilters(defaultFilters);
 
-  const activeFilterCount =
-    filters.propertyTypes.length +
-    filters.amenities.length +
-    (filters.minScore ? 1 : 0) +
-    (filters.maxPrice < 400 ? 1 : 0);
+  const activeFilterCount = countActiveFilters(filters);
 
   return (
     <>
       <Container className="pt-12 pb-24 lg:pt-16 lg:pb-32">
         <div className="grid gap-10 lg:grid-cols-12 lg:gap-12">
           <aside className="hidden lg:col-span-3 lg:block">
-            <div className="sticky top-28">
-              <div className="flex items-baseline justify-between">
+            {/*
+             * The panel is taller than a laptop viewport once a catalogue has
+             * destinations, stars and facilities in it, and a sticky column
+             * that cannot scroll simply cuts the last rows off. Its own scroll
+             * region keeps the bottom of the list reachable.
+             */}
+            <div className="sticky top-28 max-h-[calc(100vh-8rem)] overflow-y-auto pr-1 pb-2">
+              <div className="flex items-baseline justify-between gap-3">
                 <h2 className="type-h4">{t.actions.filters}</h2>
                 {activeFilterCount > 0 && (
                   <button
                     type="button"
                     onClick={reset}
-                    className="type-caption text-brand-text underline-offset-4 hover:underline"
+                    className="type-caption shrink-0 text-brand-text underline-offset-4 hover:underline"
                   >
                     {t.actions.clearAll}
                   </button>
                 )}
               </div>
               <div className="mt-6">
-                <HotelFilters value={filters} onChange={setFilters} />
+                <HotelFilters value={filters} onChange={setFilters} facets={facets} />
               </div>
             </div>
           </aside>
 
-          <div className="lg:col-span-9">
+          <div className="min-w-0 lg:col-span-9">
             <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-5">
-              <p className="type-body-sm text-muted">
+              <p className="type-body-sm text-muted" aria-live="polite">
                 <span className="font-medium text-ink">
                   {plural(locale, results.length, t.units.property)}
                 </span>
@@ -156,10 +161,24 @@ export function HotelExplorer({ hotels }: HotelExplorerProps) {
         </div>
       </Container>
 
-      <Modal open={filtersOpen} onClose={() => setFiltersOpen(false)} title={t.actions.filters} size="md">
-        <div className="px-6 pt-4 pb-6">
-          <HotelFilters value={filters} onChange={setFilters} />
-          <div className="mt-8 flex gap-3">
+      <Modal
+        open={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        title={t.actions.filters}
+        size="md"
+      >
+        <div className="pt-4">
+          <div className="px-6 pb-6">
+            <HotelFilters value={filters} onChange={setFilters} facets={facets} />
+          </div>
+          {/*
+           * Pinned to the foot of the dialog's scroll area rather than parked
+           * after the last fieldset. Sitting in the flow, "Show 6 properties"
+           * scrolled out of reach the moment anyone opened the facilities —
+           * and on a phone that is the one control that has to stay under the
+           * thumb while the list behind it changes.
+           */}
+          <div className="sticky bottom-0 flex gap-3 border-t border-line bg-background px-6 py-4">
             <Button variant="outline" fullWidth onClick={reset}>
               {t.actions.clearAll}
             </Button>

@@ -18,7 +18,21 @@ import { recordAudit, AUDIT_ENTITY } from '../../lib/audit.js';
  * carries `onDelete: Restrict` to the file: detaching is editorial, deleting
  * the file is not, and they should not be the same request.
  */
-export const createGallery = ({ imageDelegate, ownerDelegate, ownerField, ownerLabel, auditEntity }) => {
+export const createGallery = ({
+    imageDelegate,
+    ownerDelegate,
+    ownerField,
+    ownerLabel,
+    auditEntity,
+    /** The audit action a gallery edit is recorded as. Defaults for the two hotel galleries. */
+    auditAction = auditEntity === AUDIT_ENTITY.hotel ? 'HOTEL_UPDATED' : 'ROOM_TYPE_UPDATED',
+    /** How the owner is named in an audit summary. */
+    ownerName = (owner) => owner.name,
+    /** The owner column that points at a headline asset, nulled when that asset is detached. */
+    mainImageField = 'featuredImageId',
+    /** Keep `mainImageField` equal to the cover image's asset on every change. */
+    syncMainImage = false
+}) => {
     const findOwner = async (tx, ownerId) => {
         const owner = await tx[ownerDelegate].findUnique({ where: { id: ownerId } });
 
@@ -48,7 +62,7 @@ export const createGallery = ({ imageDelegate, ownerDelegate, ownerField, ownerL
 
     const auditOwner = (tx, owner, actor, req, summary, metadata) =>
         recordAudit(tx, {
-            action: auditEntity === AUDIT_ENTITY.hotel ? 'HOTEL_UPDATED' : 'ROOM_TYPE_UPDATED',
+            action: auditAction,
             actor,
             entityType: auditEntity,
             entityId: owner.id,
@@ -56,6 +70,26 @@ export const createGallery = ({ imageDelegate, ownerDelegate, ownerField, ownerL
             metadata,
             req
         });
+
+    /**
+     * Mirrors the cover onto the owner's headline column, for owners whose
+     * "main image" *is* the cover rather than a separately chosen asset.
+     */
+    const syncCover = async (tx, ownerId) => {
+        if (!syncMainImage || !mainImageField) {
+            return;
+        }
+
+        const cover = await tx[imageDelegate].findFirst({
+            where: { [ownerField]: ownerId, isCover: true },
+            select: { fileAssetId: true }
+        });
+
+        await tx[ownerDelegate].update({
+            where: { id: ownerId },
+            data: { [mainImageField]: cover?.fileAssetId ?? null }
+        });
+    };
 
     const attach = (ownerId, input, actor, req) =>
         prisma.$transaction(async (tx) => {
@@ -103,7 +137,9 @@ export const createGallery = ({ imageDelegate, ownerDelegate, ownerField, ownerL
                 include: { fileAsset: { include: { variants: true } } }
             });
 
-            await auditOwner(tx, owner, actor, req, `Added an image to ${owner.name}`, {
+            await syncCover(tx, ownerId);
+
+            await auditOwner(tx, owner, actor, req, `Added an image to ${ownerName(owner)}`, {
                 fileAssetId: asset.id,
                 isCover
             });
@@ -144,7 +180,9 @@ export const createGallery = ({ imageDelegate, ownerDelegate, ownerField, ownerL
                 include: { fileAsset: { include: { variants: true } } }
             });
 
-            await auditOwner(tx, owner, actor, req, `Updated an image on ${owner.name}`, {
+            await syncCover(tx, ownerId);
+
+            await auditOwner(tx, owner, actor, req, `Updated an image on ${ownerName(owner)}`, {
                 imageId,
                 fields: Object.keys(input)
             });
@@ -180,11 +218,13 @@ export const createGallery = ({ imageDelegate, ownerDelegate, ownerField, ownerL
 
             // A hotel may also point at this asset explicitly as its featured
             // image; room types have no such field.
-            if (owner.featuredImageId && owner.featuredImageId === image.fileAssetId) {
-                await tx[ownerDelegate].update({ where: { id: ownerId }, data: { featuredImageId: null } });
+            if (mainImageField && owner[mainImageField] && owner[mainImageField] === image.fileAssetId) {
+                await tx[ownerDelegate].update({ where: { id: ownerId }, data: { [mainImageField]: null } });
             }
 
-            await auditOwner(tx, owner, actor, req, `Removed an image from ${owner.name}`, {
+            await syncCover(tx, ownerId);
+
+            await auditOwner(tx, owner, actor, req, `Removed an image from ${ownerName(owner)}`, {
                 imageId,
                 wasCover: image.isCover
             });
@@ -220,7 +260,7 @@ export const createGallery = ({ imageDelegate, ownerDelegate, ownerField, ownerL
                 )
             );
 
-            await auditOwner(tx, owner, actor, req, `Reordered the gallery on ${owner.name}`, {
+            await auditOwner(tx, owner, actor, req, `Reordered the gallery on ${ownerName(owner)}`, {
                 count: order.length
             });
 

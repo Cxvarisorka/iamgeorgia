@@ -2,11 +2,13 @@ import { Router } from 'express';
 import multer from 'multer';
 
 import { config } from '../config.js';
-import { authenticate, requireAdmin } from '../middleware/auth.js';
+import { authenticate, isAdmin, requireAdmin, requireTransferOps } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
+import { ForbiddenError, NotFoundError } from '../lib/errors.js';
 import { idParamSchema, mediaQuerySchema, uploadSchema } from '../validation/media.js';
 import {
     findFileOr404,
+    isOpsCategory,
     issueSignedUrl,
     softDeleteFile,
     uploadFile
@@ -33,14 +35,35 @@ const upload = multer({
 
 export const adminMediaRoutes = Router();
 
-adminMediaRoutes.use(authenticate, requireAdmin);
+/**
+ * Admins reach the whole library. Transfer operations staff reach the four
+ * fleet and driver categories and nothing else — a dispatcher uploads the new
+ * minivan's photographs and reads a licence scan, and never sees a contract.
+ * The narrowing is applied per route below; the service applies it again for
+ * signed links, so this router is not the only thing standing in the way.
+ */
+adminMediaRoutes.use(authenticate, requireTransferOps);
 
 adminMediaRoutes.get('/', validate({ query: mediaQuerySchema }), async (req, res) => {
     const { category, partnerId, page, pageSize } = req.valid.query;
+    const requested = category ? (Array.isArray(category) ? category : [category]) : null;
+
+    let categories = requested;
+
+    if (!isAdmin(req.user)) {
+        categories = (requested ?? [...['FLEET_IMAGE', 'DRIVER_PHOTO', 'DRIVER_DOCUMENT', 'VEHICLE_DOCUMENT']]).filter(
+            isOpsCategory
+        );
+
+        if (categories.length === 0) {
+            throw new ForbiddenError('Operations staff may browse fleet and driver files only');
+        }
+    }
+
     const where = {
         deletedAt: null,
         ...(partnerId ? { partnerId } : {}),
-        ...(category ? { category: { in: Array.isArray(category) ? category : [category] } } : {})
+        ...(categories ? { category: { in: categories } } : {})
     };
 
     const [total, files] = await Promise.all([
@@ -66,6 +89,12 @@ adminMediaRoutes.get('/', validate({ query: mediaQuerySchema }), async (req, res
 });
 
 adminMediaRoutes.post('/', upload.single('file'), validate({ body: uploadSchema }), async (req, res) => {
+    if (!isAdmin(req.user) && !isOpsCategory(req.valid.body.category)) {
+        throw new ForbiddenError('Operations staff may upload fleet and driver files only', {
+            category: req.valid.body.category
+        });
+    }
+
     const asset = await uploadFile(
         {
             buffer: req.file?.buffer,
@@ -83,6 +112,12 @@ adminMediaRoutes.post('/', upload.single('file'), validate({ body: uploadSchema 
 adminMediaRoutes.get('/:id', validate({ params: idParamSchema }), async (req, res) => {
     const asset = await findFileOr404(req.valid.params.id);
 
+    // A 404 rather than a 403: a dispatcher probing ids must not learn which
+    // of a partner's contracts exist.
+    if (!isAdmin(req.user) && !isOpsCategory(asset.category)) {
+        throw new NotFoundError('File not found');
+    }
+
     res.json(asset.visibility === 'PUBLIC' ? toImageAsset(asset) : toPrivateFile(asset));
 });
 
@@ -98,7 +133,7 @@ adminMediaRoutes.get('/:id/url', validate({ params: idParamSchema }), async (req
     res.json({ url, expiresAt });
 });
 
-adminMediaRoutes.delete('/:id', validate({ params: idParamSchema }), async (req, res) => {
+adminMediaRoutes.delete('/:id', requireAdmin, validate({ params: idParamSchema }), async (req, res) => {
     await softDeleteFile(req.valid.params.id, req.user, req);
 
     res.status(204).end();

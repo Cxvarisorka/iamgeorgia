@@ -28,9 +28,11 @@ import {
   subscribeCheckoutDraft,
 } from "@/lib/booking/checkoutSession";
 import { nightsBetween } from "@/lib/booking/stay";
+import { KosherRequests } from "./KosherRequests";
+import { featureLabel } from "@/lib/hotels/kosher";
 import { fill } from "@/lib/i18n/dictionaries";
 import { useI18n, useLocalePath } from "@/lib/i18n/provider";
-import type { BookingGuestInput, BookingGuestType } from "@/types/booking";
+import type { BookingGuestInput, BookingGuestType, BookingRequestInput } from "@/types/booking";
 import { cn } from "@/lib/utils";
 
 interface CheckoutFormProps {
@@ -84,7 +86,17 @@ export function CheckoutForm({ holdToken }: CheckoutFormProps) {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [specialRequests, setSpecialRequests] = useState("");
+  const [requests, setRequests] = useState<BookingRequestInput[]>([]);
   const [guests, setGuests] = useState<BookingGuestInput[]>([]);
+  /**
+   * Codes the server refused, so the failure lands on the rows that caused it.
+   *
+   * It should be unreachable — the picker only offers what the property already
+   * told us it does — but a property that dropped a facility between the hotel
+   * page loading and the form being submitted would produce exactly this, and
+   * "something went wrong" is a poor way to say "they stopped doing mikveh".
+   */
+  const [unsupported, setUnsupported] = useState<string[]>([]);
 
   const [submitting, setSubmitting] = useState(false);
   const [errorKey, setErrorKey] = useState<keyof typeof t.booking.errors | null>(null);
@@ -161,6 +173,10 @@ export function CheckoutForm({ holdToken }: CheckoutFormProps) {
         },
         guests: guests.length > 0 ? guests : undefined,
         specialRequests: specialRequests.trim() || undefined,
+        // Structured requirements alongside the prose. The server checks each
+        // against what the property actually offers and answers 422 naming any
+        // it cannot meet, rather than accepting a promise it cannot keep.
+        requests: requests.length > 0 ? requests : undefined,
         source: "web",
         idempotencyKey: draft?.idempotencyKey ?? fallbackKey,
       });
@@ -177,6 +193,16 @@ export function CheckoutForm({ holdToken }: CheckoutFormProps) {
       if (error instanceof ApiError && error.status === 400) {
         setFieldErrors(error.fieldErrors());
       }
+
+      // 422 with a list of codes: the property does not offer some of what was
+      // asked for. Marked on the rows themselves, so the fix is obvious.
+      if (error instanceof ApiError && error.status === 422) {
+        const details = error.details as { unsupported?: unknown } | undefined;
+        const codes = Array.isArray(details?.unsupported) ? details.unsupported : [];
+
+        setUnsupported(codes.filter((code): code is string => typeof code === "string"));
+      }
+
       setErrorKey(bookingErrorKey(error));
       setSubmitting(false);
     }
@@ -420,6 +446,32 @@ export function CheckoutForm({ holdToken }: CheckoutFormProps) {
                   ))}
                 </div>
               </section>
+
+              {/*
+               * Before the free text, not after it.
+               *
+               * An agency that has already ticked "kosher meals" and "Shabbat
+               * elevator" writes a shorter, more useful note — and the
+               * structured half is the half the property can actually answer
+               * one by one.
+               */}
+              <KosherRequests
+                available={draft?.requestableCodes ?? []}
+                value={requests}
+                onChange={(next) => {
+                  setRequests(next);
+                  setUnsupported([]);
+                }}
+                unsupported={unsupported}
+              />
+
+              {unsupported.length > 0 && (
+                <p role="alert" className="mt-3 text-sm text-error-text">
+                  {fill(t.booking.requirements.unsupported, {
+                    items: unsupported.map((code) => featureLabel(t, code)).join(", "),
+                  })}
+                </p>
+              )}
 
               <section className="mt-12 border-t border-line pt-10">
                 <h2 className="type-h3">{t.booking.checkout.specialRequests}</h2>

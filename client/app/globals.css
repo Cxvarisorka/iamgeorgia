@@ -343,6 +343,29 @@
   }
 }
 
+/*
+ * A quiet scrollbar for dark surfaces (the admin sidebar). Thin, no arrows,
+ * a translucent thumb on a transparent track, so the native light-grey bar
+ * does not cut a bright stripe down the edge of a charcoal panel.
+ */
+@utility scrollbar-dark {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-on-dark) 18%, transparent) transparent;
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: color-mix(in srgb, var(--color-on-dark) 18%, transparent);
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--color-on-dark) 30%, transparent);
+  }
+}
+
 /* Clamp helpers for card copy. */
 @utility line-clamp-2 {
   display: -webkit-box;

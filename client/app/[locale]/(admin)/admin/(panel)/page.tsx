@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ArrowRight, CalendarCheck, CheckCircle2, Handshake, Wallet } from "lucide-react";
 
 import { AdminContainer, AdminPageHeader, AdminPanel } from "@/components/admin/AdminPage";
@@ -17,7 +18,8 @@ import {
   upcomingArrivals,
 } from "@/lib/admin/metrics";
 import { formatMoney } from "@/lib/money";
-import { getI18n } from "@/lib/i18n/server";
+import { localePath } from "@/lib/i18n/config";
+import { getI18n, getLocale } from "@/lib/i18n/server";
 
 /**
  * The overview.
@@ -31,8 +33,15 @@ import { getI18n } from "@/lib/i18n/server";
  * an empty chart over three days of real data would be worse than none.
  */
 export default async function AdminOverviewPage() {
-  const { path } = await getI18n();
+  // Dispatchers have no business here: every figure on this screen is one
+  // they cannot read. Their day starts on the board.
   const session = await getSession();
+
+  if (session?.user.role === "DISPATCHER") {
+    redirect(localePath(await getLocale(), "/admin/transfers/dispatch"));
+  }
+
+  const { path } = await getI18n();
 
   const [applications, approved, active, monthValue, arrivals, recent] = await Promise.all([
     listPartners({ status: APPLICATION_STATUSES, pageSize: 4 }),

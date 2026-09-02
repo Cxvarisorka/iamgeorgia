@@ -13,6 +13,7 @@ import type {
   HotelStatus,
   HotelSummary,
   HotelWithChecklist,
+  KosherServiceLevel,
   PaymentPolicy,
   PropertyType,
   RatePlan,
@@ -42,6 +43,9 @@ export interface HotelQuery extends Record<string, QueryValue> {
   propertyType?: PropertyType | PropertyType[];
   countryCode?: string;
   featured?: boolean;
+  /** Facility filters go through `amenity`; these two cannot. */
+  kosher?: Exclude<KosherServiceLevel, "NONE">;
+  kosherCertified?: boolean;
   locale?: string;
   page?: number;
   pageSize?: number;

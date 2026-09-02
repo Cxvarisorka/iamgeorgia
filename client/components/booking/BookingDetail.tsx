@@ -1,5 +1,17 @@
-import { BedDouble, Mail, MapPin, Phone, ShieldCheck, Users, XCircle } from "lucide-react";
+import {
+  BedDouble,
+  Check,
+  Clock,
+  Mail,
+  MapPin,
+  Phone,
+  ShieldCheck,
+  Users,
+  X,
+  XCircle,
+} from "lucide-react";
 
+import { featureLabel } from "@/lib/hotels/kosher";
 import { formatInstant, formatStayDate } from "@/lib/booking/stay";
 import { plural } from "@/lib/i18n/plural";
 import { getI18n } from "@/lib/i18n/server";
@@ -10,6 +22,24 @@ import { cn } from "@/lib/utils";
 interface BookingDetailProps {
   booking: Booking;
 }
+
+/**
+ * How each requirement status reads.
+ *
+ * `REQUESTED` is deliberately neutral rather than a warning colour: waiting for
+ * a property to answer a meal request is the normal state of a perfectly good
+ * booking, and colouring it amber would make every kosher reservation look like
+ * a problem.
+ */
+const REQUEST_TONES: Record<
+  Booking["requests"][number]["status"],
+  { icon: typeof Check; tone: string }
+> = {
+  REQUESTED: { icon: Clock, tone: "text-muted" },
+  CONFIRMED: { icon: Check, tone: "text-success" },
+  DECLINED: { icon: X, tone: "text-error-text" },
+  WITHDRAWN: { icon: X, tone: "text-subtle" },
+};
 
 /**
  * A booking as the guest's own record of it.
@@ -126,6 +156,58 @@ export async function BookingDetail({ booking }: BookingDetailProps) {
           </div>
         </div>
       </section>
+
+      {/*
+       * The structured requirements, and where each one stands.
+       *
+       * Its own section rather than a line inside the record above, because a
+       * requirement has a *status* and the record does not — an agency needs to
+       * see at a glance what the property has agreed to and what it has not.
+       *
+       * The booking itself is confirmed regardless: the rooms were claimed and
+       * priced at confirmation, and a meal still being arranged does not put
+       * them back in doubt. The heading says "awaiting the property", never
+       * "awaiting confirmation".
+       */}
+      {booking.requests.length > 0 && (
+        <section className="border border-line bg-surface">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 border-b border-line px-6 py-4">
+            <h2 className="type-h3">{t.booking.requirements.heading}</h2>
+            <p className="type-body-sm text-muted">
+              {booking.requestsPending > 0
+                ? fill(t.booking.requirements.pending, { count: booking.requestsPending })
+                : t.booking.requirements.allConfirmed}
+            </p>
+          </div>
+
+          <ul className="divide-y divide-line">
+            {booking.requests.map((request) => {
+              const { icon: Icon, tone } = REQUEST_TONES[request.status];
+
+              return (
+                <li key={request.id} className="flex items-start gap-3 px-6 py-4">
+                  <Icon size={16} className={cn("mt-0.5 shrink-0", tone)} aria-hidden />
+                  <div className="min-w-0 flex-1">
+                    <p className="type-body-sm text-ink">{featureLabel(t, request.code)}</p>
+                    {request.note && (
+                      <p className="type-body-sm mt-1 text-muted">{request.note}</p>
+                    )}
+                    {/* The property's own words, when it gave any. A refusal
+                        without a reason is the one thing an agency cannot pass
+                        on to a guest. */}
+                    {request.responseNote && (
+                      <p className="type-caption mt-1.5 text-subtle">{request.responseNote}</p>
+                    )}
+                  </div>
+                  <span className={cn("type-caption shrink-0", tone)}>
+                    {t.booking.requirements.status[request.status]}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       {/* --- what was bought, room by room -------------------------------- */}
       <section>

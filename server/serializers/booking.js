@@ -1,5 +1,6 @@
 import { toDateOnly } from '../lib/time.js';
 import { canViewNetRates } from '../middleware/auth.js';
+import { toBookingRequest } from './kosher.js';
 import { freeCancellationUntil } from '../services/hotel/policy.service.js';
 
 /**
@@ -74,7 +75,14 @@ export const toBookingSummary = (booking, viewer) => {
         payableAtPropertyCents: booking.payableAtPropertyCents,
         createdAt: booking.createdAt,
         confirmedAt: booking.confirmedAt ?? null,
-        cancelledAt: booking.cancelledAt ?? null
+        cancelledAt: booking.cancelledAt ?? null,
+        // A count, not the rows: a register needs to show which reservations
+        // are still waiting on the property without a detail page's worth of
+        // data per line. Zero when the booking carries no requirements at all,
+        // which is every booking made before this existed.
+        requestsPending: (booking.requests ?? []).filter(
+            (request) => request.status === 'REQUESTED'
+        ).length
     };
 
     // The hotel record carries `supplierId`, so the property's own owner sees
@@ -100,6 +108,15 @@ export const toBookingDetail = (booking, viewer) => ({
     cancellationChargeCents: booking.cancellationChargeCents ?? null,
     cancellationReason: booking.cancellationReason ?? null,
     source: booking.source,
+    /**
+     * The structured requirements and their answers.
+     *
+     * Alongside `specialRequests`, not instead of it. These carry a code the
+     * client renders from its own dictionary and a status the property set, so
+     * an agency can see at a glance what has been agreed and what has not —
+     * which a paragraph of prose never could.
+     */
+    requests: (booking.requests ?? []).map(toBookingRequest),
     bookingRooms: (booking.rooms ?? []).map((room) => toBookingRoom(room, viewer, booking.hotel))
 });
 

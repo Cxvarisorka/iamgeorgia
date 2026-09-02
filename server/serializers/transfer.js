@@ -1,5 +1,6 @@
 import { toDateOnly } from '../lib/time.js';
 import { isAdmin } from '../middleware/auth.js';
+import { toLegAssignmentFor } from './dispatch.js';
 import { freeCancellationUntil } from '../services/hotel/policy.service.js';
 
 /**
@@ -215,7 +216,8 @@ export const toQuoteResult = (result, viewer) => ({
     offers: result.offers.map((offer) => toOffer(offer, viewer))
 });
 
-const toBookingLeg = (leg, viewer, vehicle) => ({
+const toBookingLeg = (leg, viewer, vehicle, { guest = false } = {}) => ({
+    id: leg.id,
     legIndex: leg.legIndex,
     direction: leg.direction,
     from: leg.fromPointName,
@@ -224,7 +226,14 @@ const toBookingLeg = (leg, viewer, vehicle) => ({
     distanceKm: leg.distanceKm,
     durationMinutes: leg.durationMinutes,
     sellCents: leg.sellCents,
-    ...(canViewNetFares(viewer, vehicle) ? { netCents: leg.netCents } : {})
+    ...(canViewNetFares(viewer, vehicle) ? { netCents: leg.netCents } : {}),
+    // Operational state, and who is coming — shaped for whoever is asking:
+    // everything for operations, the accepted driver for a partner, and the
+    // same with a surname initial for the passenger.
+    status: leg.status ?? 'UNASSIGNED',
+    assignment: leg.assignments ? toLegAssignmentFor(leg, viewer, { guest }) : null,
+    /** The score already left on this leg, if any — so a form knows not to ask twice. */
+    rating: leg.rating ? { score: leg.rating.score, status: leg.rating.status } : null
 });
 
 export const toTransferBookingSummary = (booking, viewer) => ({
@@ -244,6 +253,7 @@ export const toTransferBookingSummary = (booking, viewer) => ({
     currency: booking.currency,
     totalCents: booking.sellTotalCents,
     createdAt: booking.createdAt.toISOString(),
+    legStatuses: (booking.legs ?? []).map((leg) => leg.status ?? 'UNASSIGNED'),
     ...(isAdmin(viewer)
         ? {
               netTotalCents: booking.netTotalCents,
@@ -281,7 +291,9 @@ export const toTransferBooking = (booking, viewer) => ({
         chargeCents: booking.cancellationChargeCents ?? null,
         reason: booking.cancellationReason ?? null
     },
-    legs: (booking.legs ?? []).map((leg) => toBookingLeg(leg, viewer, booking.vehicle)),
+    legs: (booking.legs ?? []).map((leg) =>
+        toBookingLeg(leg, viewer, booking.vehicle, { guest: !viewer })
+    ),
     extras: (booking.extras ?? []).map((extra) => ({
         code: extra.code,
         name: extra.name,

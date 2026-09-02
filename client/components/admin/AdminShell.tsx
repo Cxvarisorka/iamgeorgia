@@ -19,6 +19,8 @@ interface AdminShellProps {
 }
 
 const ROLE_LABELS: Record<string, string> = {
+  DISPATCHER: "Dispatcher",
+  DRIVER: "Driver",
   SUPER_ADMIN: "Administrator",
   ADMIN: "Operations",
 };
@@ -111,7 +113,7 @@ export function AdminShell({ badges, user, children }: AdminShellProps) {
 
   return (
     <div className="flex min-h-svh w-full bg-background">
-      <AdminSidebar badges={badges} open={navOpen} onClose={() => setNavOpen(false)} />
+      <AdminSidebar role={user.role} badges={badges} open={navOpen} onClose={() => setNavOpen(false)} />
 
       <div className="flex min-w-0 flex-1 flex-col lg:ps-64">
         <header className="sticky top-0 z-60 flex h-16 shrink-0 items-center gap-3 border-b border-line bg-background/90 px-4 backdrop-blur-md sm:px-6">

@@ -9,7 +9,7 @@ import { Logo } from "@/components/layout/Logo";
 import { stripLocale } from "@/lib/i18n/config";
 import { useLocalePath } from "@/lib/i18n/provider";
 import {
-  adminNavigation,
+  navigationFor,
   adminSectionBadgeCount,
   isAdminNavSection,
   isAdminPathActive,
@@ -24,6 +24,8 @@ import { cn } from "@/lib/utils";
 interface AdminSidebarProps {
   /** Counts for the queue pills, resolved by the shell. */
   badges: AdminBadges;
+  /** Decides which screens are listed; a dispatcher sees the operations subset. */
+  role: string;
   /** Mobile drawer state. On `lg` the sidebar is always shown. */
   open: boolean;
   onClose: () => void;
@@ -163,24 +165,51 @@ function NavSection({
         Indented against a rail aligned with the parent's icon, so the run
         reads as belonging to it. Logical inset — in Hebrew the rail and the
         indent move to the right along with everything else.
+
+        Each sub-group is its own list under its own caption, with a hairline
+        between neighbours, so a long section reads as a few short lists. The
+        captions only appear when there is more than one sub-group to tell
+        apart — a dispatcher, who sees just the fleet half, gets a plain run.
       */}
-      <ul
+      <div
         id={panelId}
         hidden={collapsed}
-        className="mt-0.5 ms-[1.3125rem] space-y-0.5 border-s border-on-dark/12 ps-2"
+        className="mt-0.5 ms-[1.3125rem] border-s border-on-dark/12 ps-2"
       >
-        {section.items.map((item) => (
-          <li key={item.href}>
-            <NavLink
-              item={item}
-              nested
-              active={isAdminPathActive(canonical, item.href)}
-              count={item.badgeKey ? badges[item.badgeKey] : 0}
-              onNavigate={onNavigate}
-            />
-          </li>
-        ))}
-      </ul>
+        {section.groups.map((group, index) => {
+          const captioned = section.groups.length > 1;
+          const captionId = `${panelId}-${index}`;
+
+          return (
+            <div
+              key={group.label}
+              className={cn(index > 0 && "mt-2 border-t border-on-dark/10 pt-2")}
+            >
+              {captioned && (
+                <p
+                  id={captionId}
+                  className="px-2.5 pt-1 pb-1.5 text-[0.625rem] font-semibold tracking-[0.14em] text-on-dark/35 uppercase"
+                >
+                  {group.label}
+                </p>
+              )}
+              <ul aria-labelledby={captioned ? captionId : undefined} className="space-y-0.5">
+                {group.items.map((item) => (
+                  <li key={item.href}>
+                    <NavLink
+                      item={item}
+                      nested
+                      active={isAdminPathActive(canonical, item.href)}
+                      count={item.badgeKey ? badges[item.badgeKey] : 0}
+                      onNavigate={onNavigate}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
     </li>
   );
 }
@@ -244,7 +273,7 @@ function NavGroup({
  * can hold a queue, so an operator knows where the work is before clicking
  * anything.
  */
-export function AdminSidebar({ badges, open, onClose }: AdminSidebarProps) {
+export function AdminSidebar({ badges, open, onClose, role }: AdminSidebarProps) {
   const pathname = usePathname();
   const path = useLocalePath();
   const canonical = stripLocale(pathname);
@@ -294,8 +323,11 @@ export function AdminSidebar({ badges, open, onClose }: AdminSidebarProps) {
           </button>
         </div>
 
-        <nav aria-label="Admin sections" className="flex-1 overflow-y-auto px-3 py-5">
-          {adminNavigation.map((group) => (
+        <nav
+          aria-label="Admin sections"
+          className="scrollbar-dark flex-1 overflow-y-auto overscroll-contain px-3 py-5"
+        >
+          {navigationFor(role).map((group) => (
             <NavGroup
               key={group.title}
               title={group.title}

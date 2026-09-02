@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
-import { countryField, slugField } from './normalize.js';
+import { amenityCodeField, countryField, slugField } from './normalize.js';
 import { dateOnlyField } from './ratePlan.js';
+import { KOSHER_SERVICE_LEVELS } from './kosher.js';
 import { SUPPORTED_LOCALES } from '../lib/locales.js';
 
 const PROPERTY_TYPES = ['Hotel', 'Boutique', 'Resort', 'Guesthouse', 'Lodge', 'Apartment', 'Chalet', 'Hostel', 'Villa'];
@@ -22,6 +23,26 @@ const childAgesField = z
     ])
     .transform((value) => (Array.isArray(value) ? value : [value]))
     .optional();
+
+/**
+ * The kosher filters.
+ *
+ * Only two, and that is the point. Of the ten things an observant traveller
+ * wants to filter on, eight are *facilities* — a kosher restaurant, a Shabbat
+ * elevator, a synagogue, a mikveh — and those are amenities, so they already
+ * work through `amenity` and cost this query nothing new.
+ *
+ * What is left is the pair that amenities cannot express:
+ *   * `kosher` — a minimum level of kosher *service*, declared by staff.
+ *   * `kosherCertified` — whether a certificate that is verified AND still
+ *     valid today AND covers the property (not just its restaurant) exists.
+ */
+const kosherFilterFields = {
+    // NONE would ask for "properties we have confirmed are not kosher", which
+    // is not a thing anybody searches for, so it is not offered.
+    kosher: z.enum(KOSHER_SERVICE_LEVELS.filter((level) => level !== 'NONE')).optional(),
+    kosherCertified: z.stringbool().default(false)
+};
 
 const stayFields = {
     checkIn: dateOnlyField,
@@ -47,9 +68,11 @@ export const searchQuerySchema = stayOrdered(
 
         propertyType: z.union([z.enum(PROPERTY_TYPES), z.array(z.enum(PROPERTY_TYPES))]).optional(),
         minStars: z.coerce.number().int().min(1).max(5).optional(),
-        amenity: z.union([slugField, z.array(slugField)]).optional(),
+        amenity: z.union([amenityCodeField, z.array(amenityCodeField)]).optional(),
         mealPlan: z.union([z.enum(MEAL_PLAN_CODES), z.array(z.enum(MEAL_PLAN_CODES))]).optional(),
         refundableOnly: z.stringbool().default(false),
+
+        ...kosherFilterFields,
 
         locale: z.enum(SUPPORTED_LOCALES).default('en'),
         page: z.coerce.number().int().min(1).default(1),

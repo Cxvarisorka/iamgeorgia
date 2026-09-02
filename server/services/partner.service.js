@@ -5,7 +5,7 @@ import { nextPartnerReference } from '../lib/reference.js';
 import { NotFoundError, ConflictError, BadRequestError } from '../lib/errors.js';
 import { canViewFinancial } from '../serializers/partner.js';
 import { companyFullSchema } from '../validation/partner.js';
-import { issueAuthToken, revokePartnerSessions } from './auth.service.js';
+import { issueAuthToken, revokePartnerSessions, revokeUserSessions } from './auth.service.js';
 import { issueInvitation, revokeOpenInvitations } from './invitation.service.js';
 
 const CONTACT_ORDER = [{ isPrimaryContact: 'desc' }, { createdAt: 'asc' }];
@@ -370,6 +370,19 @@ export const transitionPartner = async (id, action, input, admin, req) => {
 
         if (rule.to === 'REJECTED' || rule.to === 'SUSPENDED') {
             await revokePartnerSessions(tx, id);
+
+            // Drivers are not members of the company — they carry no
+            // partnerId — so the revocation above misses them. Their
+            // affiliation runs through the transfer provider; `requireDriver`
+            // refuses them from here on, and this ends the sessions they hold.
+            const drivers = await tx.transferDriver.findMany({
+                where: { userId: { not: null }, provider: { partnerId: id } },
+                select: { userId: true }
+            });
+
+            for (const driver of drivers) {
+                await revokeUserSessions(tx, driver.userId);
+            }
         }
 
         await recordAudit(tx, {
