@@ -5,7 +5,7 @@ import { Check, Clock, Gauge, MapPin, Minus, Users } from "lucide-react";
 
 import { Reveal } from "@/components/motion/Reveal";
 import { TourCard } from "@/components/tours/TourCard";
-import { TourDepartures, cheapestTourOffer } from "@/components/tours/TourDepartures";
+import { TourDepartures } from "@/components/tours/TourDepartures";
 import { TourPanel } from "@/components/tours/TourPanel";
 import { TourSearchForm } from "@/components/tours/TourSearchForm";
 import { Accordion } from "@/components/ui/Accordion";
@@ -23,7 +23,7 @@ import { formatStayDate } from "@/lib/booking/stay";
 import { plural } from "@/lib/i18n/plural";
 import { getI18n } from "@/lib/i18n/server";
 import { formatMoney } from "@/lib/money";
-import { tourStayFromParams, tourWindowFor, type TourStay } from "@/lib/tours/query";
+import { cheapestTourOffer, tourStayFromParams, tourWindowFor, type TourStay } from "@/lib/tours/query";
 import type { GalleryImage } from "@/types/common";
 import type { Tour, TourAvailability, TourCategory, TourSummary } from "@/types/tour";
 

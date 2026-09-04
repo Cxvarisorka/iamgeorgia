@@ -1,5 +1,5 @@
 import { addDaysISO, todayISO } from "@/lib/booking/stay";
-import type { TourCategory } from "@/types/tour";
+import type { TourAvailability, TourCategory, TourOfferAvailable } from "@/types/tour";
 
 /**
  * The departure a visitor is shopping for: a date and a party.
@@ -138,3 +138,23 @@ export function tourImageUrl(tour: {
 
   return tour.image || null;
 }
+
+// --- offers -----------------------------------------------------------------
+
+/**
+ * The cheapest thing anyone could actually book in the window, for the
+ * sidebar and the mobile bar. Pure, and here rather than beside the client
+ * component that lists departures: a Server Component may not call a
+ * function exported from a "use client" module.
+ */
+export const cheapestTourOffer = (
+  availability: TourAvailability | null,
+): TourOfferAvailable | null =>
+  availability?.options
+    .flatMap((entry) => entry.dates)
+    .filter((offer): offer is TourOfferAvailable => offer.available)
+    .reduce<TourOfferAvailable | null>(
+      (best, offer) =>
+        best === null || offer.quote.totals.totalCents < best.quote.totals.totalCents ? offer : best,
+      null,
+    ) ?? null;

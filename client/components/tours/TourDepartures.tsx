@@ -26,7 +26,6 @@ import { formatMoney } from "@/lib/money";
 import type { TourStay } from "@/lib/tours/query";
 import type {
   TourAvailability,
-  TourOffer,
   TourOfferAvailable,
   TourOfferUnavailable,
   TourOption,
@@ -401,16 +400,3 @@ function UnavailableRow({ offer }: { offer: TourOfferUnavailable }) {
     </div>
   );
 }
-
-/** The cheapest thing anyone could actually book in the window, for the sidebar. */
-export const cheapestTourOffer = (availability: TourAvailability | null): TourOfferAvailable | null =>
-  availability?.options
-    .flatMap((entry) => entry.dates)
-    .filter((offer): offer is TourOfferAvailable => offer.available)
-    .reduce<TourOfferAvailable | null>(
-      (best, offer) =>
-        best === null || offer.quote.totals.totalCents < best.quote.totals.totalCents ? offer : best,
-      null,
-    ) ?? null;
-
-export type { TourOffer };
