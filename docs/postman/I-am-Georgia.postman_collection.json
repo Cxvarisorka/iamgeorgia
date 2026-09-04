@@ -31,7 +31,12 @@
           "// Transfers.",
           "pm.collectionVariables.set('transferDate', iso(now + 90 * DAY));",
           "pm.collectionVariables.set('transferReturnDate', iso(now + 94 * DAY));",
-          "pm.collectionVariables.set('beyondHorizonDate', iso(now + 900 * DAY));"
+          "pm.collectionVariables.set('beyondHorizonDate', iso(now + 900 * DAY));",
+          "",
+          "// Tours: a departure about a hundred days out, and a fortnight window",
+          "// wide enough to contain a Saturday for the weekly multi-day departures.",
+          "pm.collectionVariables.set('tourDate', iso(now + 100 * DAY));",
+          "pm.collectionVariables.set('tourWindowTo', iso(now + 114 * DAY));"
         ]
       }
     },
@@ -230,6 +235,84 @@
       "value": "",
       "type": "string",
       "description": "A requirement id from a booking detail response."
+    },
+    {
+      "key": "tourSlug",
+      "value": "tbilisi-in-depth",
+      "type": "string",
+      "description": "A published B2C day tour. Filled from the catalogue if empty."
+    },
+    {
+      "key": "tourDate",
+      "value": "",
+      "type": "string",
+      "description": "Generated: a departure date about 100 days out."
+    },
+    {
+      "key": "tourWindowTo",
+      "value": "",
+      "type": "string",
+      "description": "Generated: the end of a fortnight window."
+    },
+    {
+      "key": "tourOfferToken",
+      "value": "",
+      "type": "string",
+      "description": "Captured by \"Departures for a fortnight\"."
+    },
+    {
+      "key": "tourOfferDate",
+      "value": "",
+      "type": "string",
+      "description": "The date of the captured offer."
+    },
+    {
+      "key": "tourQuotedTotalCents",
+      "value": "",
+      "type": "string",
+      "description": "The captured offer total, for the hold and cancellation checks."
+    },
+    {
+      "key": "tourHoldToken",
+      "value": "",
+      "type": "string",
+      "description": "Captured by \"Create a hold\"."
+    },
+    {
+      "key": "tourReference",
+      "value": "",
+      "type": "string",
+      "description": "Captured by \"Confirm the booking\"."
+    },
+    {
+      "key": "tourIdempotencyKey",
+      "value": "",
+      "type": "string",
+      "description": "Minted by the confirm request, replayed by the next."
+    },
+    {
+      "key": "tourId",
+      "value": "",
+      "type": "string",
+      "description": "Captured from the tour detail."
+    },
+    {
+      "key": "tourOptionId",
+      "value": "",
+      "type": "string",
+      "description": "Captured from the admin detail."
+    },
+    {
+      "key": "tourSeasonId",
+      "value": "",
+      "type": "string",
+      "description": "Captured from the admin detail."
+    },
+    {
+      "key": "tourRequestReference",
+      "value": "",
+      "type": "string",
+      "description": "A PENDING TUR- reference, for the confirm request. Optional."
     }
   ],
   "item": [
@@ -3027,6 +3110,1333 @@
                   "pm.test('Status is now CANCELLED', () => {",
                   "    pm.expect(pm.response.json().status).to.equal('CANCELLED');",
                   "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04b · Tours",
+      "description": "Tours follow the hotel shape with departures in place of nights. A tour is sold through **options** — a shared seat or a private group, priced per person or per group — each with **price sheets** (seasons with party-size tiers) and **departures** (a capacity row per date). Availability is derived on read, `total − blocked − booked − held`, with a CHECK constraint beneath it; a multi-day tour claims its departure date only.\n\nEverything is B2B by default: anonymous callers see B2C tours and PUBLIC options only. An option with `confirmationMode: ON_REQUEST` is written `PENDING` with its seats already claimed, and the operator confirms or declines it from the admin register.\n\nSeed first: `node --env-file=.env.test scripts/seed-tours.js` (after `seed-reference.js` and `seed-catalogue.js`). Run the folder top to bottom: it signs out, books and cancels a tour as a guest, then signs in as admin.",
+      "item": [
+        {
+          "name": "Sign out first — run this folder anonymously",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "**Expected: 204**\n\nThis folder tests the *guest* path, where proof of ownership is the `?email=` query rather than a session. Leaving an admin session in the cookie jar would change the answers — an admin does not need to quote an email, and sees staff-only fields.\n\nAlways 204, whether or not there was a session to end."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Catalogue — list tours (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tours?locale={{locale}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tours"
+              ],
+              "query": [
+                {
+                  "key": "locale",
+                  "value": "{{locale}}"
+                },
+                {
+                  "key": "category",
+                  "value": "wine",
+                  "disabled": true
+                },
+                {
+                  "key": "destinationSlug",
+                  "value": "{{destinationSlug}}",
+                  "disabled": true
+                },
+                {
+                  "key": "minDays",
+                  "value": "2",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Browsing, not searching: no dates, no availability.\n\n**Expected: 200** — `{ \"data\": [{ \"slug\", \"title\", \"category\", \"difficulty\", \"durationDays\", \"priceFrom\": { \"amountCents\", \"currency\" }, \"destination\", \"coverImage\" }], \"total\", \"page\", \"pageSize\", \"totalPages\" }`\n\n`priceFrom` is indicative — the lowest adult price on any live price sheet, marked up at the platform default — and is never what you book at. An anonymous caller sees only tours switched on for B2C; a signed-in partner sees the whole ACTIVE catalogue. Nothing here carries `status` or the operator, even for staff — those belong to the admin register."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Seeded — run scripts/seed-tours.js if this fails', () => {",
+                  "    pm.expect(pm.response.json().data.length).to.be.above(0);",
+                  "});",
+                  "pm.test('Cards carry a slug, a duration and no lifecycle fields', () => {",
+                  "    const tour = pm.response.json().data[0];",
+                  "    pm.expect(tour).to.have.property('slug');",
+                  "    pm.expect(tour).to.have.property('durationDays');",
+                  "    pm.expect(tour).to.not.have.property('status');",
+                  "});",
+                  "",
+                  "if (!pm.collectionVariables.get('tourSlug')) {",
+                  "    pm.collectionVariables.set('tourSlug', pm.response.json().data[0].slug);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tour detail (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tours/{{tourSlug}}?locale={{locale}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tours",
+                "{{tourSlug}}"
+              ],
+              "query": [
+                {
+                  "key": "locale",
+                  "value": "{{locale}}"
+                }
+              ]
+            },
+            "description": "**Expected: 200** — the card fields plus `description`, `highlights`, `included`, `excluded`, `importantInfo`, `meetingPoint`, `ages`, `itinerary[]`, `images[]` and `options[]`.\n\nEach option carries its terms — `kind` (SHARED or PRIVATE), `pricingBasis`, `minPax`/`maxPax`, `confirmationMode`, `cancellation` — **but no price sheet**. Prices are quoted for a date and a party by the search endpoints below. A `PARTNER_ONLY` option is absent for an anonymous caller.\n\n| Scenario | Expected |\n| --- | --- |\n| A DRAFT or INACTIVE tour | 404 |\n| A B2B-only tour, anonymously | 404 — not 403, so the channel cannot be probed |\n| `?locale=ka` | Georgian prose where a translation exists, English where it does not |"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.expect(pm.response.code, \"run scripts/seed-tours.js, or set tourSlug to a published B2C tour\").to.equal(200));",
+                  "const tour = pm.response.json();",
+                  "pm.test('Has at least one option, with terms but without price sheets', () => {",
+                  "    pm.expect(tour.options.length).to.be.above(0);",
+                  "    pm.expect(tour.options[0]).to.have.property('cancellation');",
+                  "    pm.expect(tour.options[0]).to.not.have.property('seasons');",
+                  "});",
+                  "pm.test('Itinerary is present', () => pm.expect(tour.itinerary.length).to.be.above(0));",
+                  "pm.collectionVariables.set('tourId', tour.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tour detail in Georgian (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tours/{{tourSlug}}?locale=ka",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tours",
+                "{{tourSlug}}"
+              ],
+              "query": [
+                {
+                  "key": "locale",
+                  "value": "ka"
+                }
+              ]
+            },
+            "description": "The same record with the `ka` translation merged field by field. Anything untranslated falls back to English rather than blanking — ids, slugs, prices and dates never change with the locale."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Title is a string', () => pm.expect(pm.response.json().title).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Departures for a fortnight (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/search/tours/{{tourSlug}}?from={{tourDate}}&to={{tourWindowTo}}&adults=2&childAges=6&locale={{locale}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "search",
+                "tours",
+                "{{tourSlug}}"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "{{tourDate}}"
+                },
+                {
+                  "key": "to",
+                  "value": "{{tourWindowTo}}"
+                },
+                {
+                  "key": "adults",
+                  "value": "2"
+                },
+                {
+                  "key": "childAges",
+                  "value": "6"
+                },
+                {
+                  "key": "locale",
+                  "value": "{{locale}}"
+                }
+              ]
+            },
+            "description": "Every option of one tour, priced for every departure in the window (at most 62 days), for this exact party. `childAges` is one age per child — never a count — because the tour's own age bands decide who is a child.\n\n**Expected: 200**\n\n```json\n{ \"tour\": {…}, \"party\": { \"adults\": 2, \"children\": 1, \"infants\": 0, \"pax\": 3 },\n  \"options\": [{ \"option\": {…}, \"dates\": [\n    { \"available\": true, \"date\": \"…\", \"departureTime\": \"08:00\", \"availableUnits\": 9, \"units\": 3,\n      \"token\": \"…\", \"quote\": { \"lines\": [{ \"travellerType\": \"ADULT\", \"count\": 2, \"unitSellCents\": 11500 }, …],\n                              \"totals\": { \"totalCents\": 28750 } },\n      \"cancellation\": { \"freeUntil\": \"…\", \"windows\": [...] } },\n    { \"available\": false, \"date\": \"…\", \"reason\": \"SOLD_OUT\" } ] }] }\n```\n\n`units` is what this party takes from the departure: seats for a SHARED option, one group for a PRIVATE one. A date with no departure row is simply absent; a date that exists but cannot be sold says why: `SOLD_OUT`, `PARTY_SIZE`, `TOO_SOON`, `BEYOND_HORIZON`, `PAST`, `UNPRICED`.\n\n**Never present for a non-staff caller:** `netCents`, `markupBps`, `marginCents`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('Party was categorised', () => pm.expect(body.party.pax).to.equal(3));",
+                  "const offers = body.options.flatMap((entry) => entry.dates.filter((d) => d.available));",
+                  "pm.test('At least one bookable departure in the window (widen tourDate if the seed is old)', () => {",
+                  "    pm.expect(offers.length).to.be.above(0);",
+                  "});",
+                  "pm.test('No net figures for the public', () => {",
+                  "    pm.expect(offers[0].quote.totals).to.not.have.property('netCents');",
+                  "});",
+                  "pm.test('Lines sum to the total', () => {",
+                  "    const sum = offers[0].quote.lines.reduce((acc, line) => acc + line.sellCents, 0);",
+                  "    pm.expect(sum).to.equal(offers[0].quote.totals.totalCents);",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('tourOfferToken', offers[0].token);",
+                  "pm.collectionVariables.set('tourOfferDate', offers[0].date);",
+                  "pm.collectionVariables.set('tourQuotedTotalCents', String(offers[0].quote.totals.totalCents));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Dated search — tours running on a day (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/search/tours?date={{tourDate}}&adults=2&locale={{locale}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "search",
+                "tours"
+              ],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "{{tourDate}}"
+                },
+                {
+                  "key": "adults",
+                  "value": "2"
+                },
+                {
+                  "key": "locale",
+                  "value": "{{locale}}"
+                },
+                {
+                  "key": "category",
+                  "value": "city",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Every tour with at least one bookable departure on this date, cheapest first, each carrying its `cheapestOffer` (a full departure entry plus the option it belongs to). Without `date` this is the catalogue again.\n\n**Expected: 200** — `{ \"data\": [{ …card, \"cheapestOffer\": { \"available\": true, \"token\", \"quote\", \"option\": {…} } }], \"total\", … }`"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Every result has a bookable cheapest offer', () => {",
+                  "    const rows = pm.response.json().data;",
+                  "    pm.expect(rows.length).to.be.above(0);",
+                  "    rows.forEach((row) => pm.expect(row.cheapestOffer.available).to.equal(true));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Re-quote the offer (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"token\": \"{{tourOfferToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/search/tours/offers/quote",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "search",
+                "tours",
+                "offers",
+                "quote"
+              ]
+            },
+            "description": "Re-prices a token against live data without booking it. A moved price is **reported**, not refused: `priceChanged: true` with the fresh `quote`. The booking endpoint is the one that refuses.\n\n**Expected: 200** — a departure entry with `priceChanged`.\n\n| Scenario | Expected |\n| --- | --- |\n| Tampered token | 400 |\n| Token older than 30 minutes | 410 |\n| Departure since sold out | 409 `UNAVAILABLE` |"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('Same price as the search', () => {",
+                  "    pm.expect(body.priceChanged).to.equal(false);",
+                  "    pm.expect(body.quote.totals.totalCents).to.equal(Number(pm.collectionVariables.get('tourQuotedTotalCents')));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Re-quote — tampered token (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"token\": \"{{tourOfferToken}}x\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/search/tours/offers/quote",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "search",
+                "tours",
+                "offers",
+                "quote"
+              ]
+            },
+            "description": "One character appended to the signed token. The HMAC no longer verifies.\n\n**Expected: 400**"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create a hold (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"token\": \"{{tourOfferToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tours/bookings/holds",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tours",
+                "bookings",
+                "holds"
+              ]
+            },
+            "description": "Claims the seats (or the group) while the traveller fills in details.\n\n**Expected: 201** — `{ \"token\", \"expiresAt\", \"date\", \"units\", \"adults\", \"childAges\", \"currency\", \"totalCents\", \"tour\": { \"id\", \"slug\", \"title\" }, \"optionName\", \"confirmationMode\" }`\n\nHolds last 15 minutes (`TOUR_HOLD_TTL_MS`) and are swept back every 30 seconds.\n\n> **The oversell test.** Find a departure with `availableUnits: 2` and fire two holds for a party of two at once. Exactly one gets 201, the other 409. A conditional `UPDATE` whose `WHERE` clause *is* the availability check makes a double win impossible, and a CHECK constraint sits beneath it. **Two 201s is a severity-1 bug.**"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', () => pm.expect(pm.response.code, \"409 = sold out, 410 = the offer token expired\").to.equal(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('Returns a hold token with an expiry', () => {",
+                  "    pm.expect(body.token).to.be.a('string').and.have.length.above(10);",
+                  "    const minutes = (new Date(body.expiresAt).getTime() - Date.now()) / 60000;",
+                  "    pm.expect(minutes).to.be.above(0).and.below(20);",
+                  "});",
+                  "pm.test('Total matches the quoted offer', () => {",
+                  "    pm.expect(body.totalCents).to.equal(Number(pm.collectionVariables.get('tourQuotedTotalCents')));",
+                  "});",
+                  "pm.collectionVariables.set('tourHoldToken', body.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm the booking (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{tourIdempotencyKey}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"holdToken\": \"{{tourHoldToken}}\",\n    \"leadTraveller\": {\n        \"firstName\": \"Nino\",\n        \"lastName\": \"Beridze\",\n        \"email\": \"{{guestEmail}}\",\n        \"phone\": \"+995555123456\"\n    },\n    \"travellers\": [\n        {\n            \"type\": \"ADULT\",\n            \"firstName\": \"Giorgi\",\n            \"lastName\": \"Beridze\"\n        },\n        {\n            \"type\": \"CHILD\",\n            \"firstName\": \"Ana\",\n            \"lastName\": \"Beridze\",\n            \"age\": 6\n        }\n    ],\n    \"pickupNote\": \"Hotel Vera, lobby\",\n    \"specialRequests\": \"One vegetarian lunch\",\n    \"source\": \"web\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tours/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tours",
+                "bookings"
+              ]
+            },
+            "description": "Send **either** `holdToken` **or** `offerToken`, never both. **Always send an `Idempotency-Key`**; the pre-request script mints one and the next request replays it.\n\n**Expected: 201**\n\n```json\n{ \"reference\": \"TUR-000001\", \"status\": \"CONFIRMED\",\n  \"tour\": {…}, \"option\": {…}, \"date\": \"…\", \"endDate\": \"…\", \"startAt\": \"…\",\n  \"units\": 3, \"travellerCount\": 3, \"currency\": \"GEL\", \"totalCents\": 28750,\n  \"confirmationMode\": \"INSTANT\", \"tourSnapshot\": {…}, \"priceLines\": [...],\n  \"cancellation\": { \"freeUntil\": \"…\", \"windows\": [...] },\n  \"travellers\": [{ \"type\": \"ADULT\", \"isLead\": true, \"unitSellCents\": 11500 }, …] }\n```\n\nAn `ON_REQUEST` option answers `201` with `status: PENDING` and a `requestDeadlineAt`; the seats are already claimed and the operator confirms or declines from the admin register.\n\n**Staff-only:** `netTotalCents`, `markupBps`, `marginCents`, `partner`, per-line `unitNetCents`.\n\n| Scenario | Expected |\n| --- | --- |\n| Both tokens, or neither | 400 |\n| Any amount field | 400 (`.strict()`) |\n| Price moved since the offer | 409 `PRICE_CHANGED` with `quotedCents` / `currentCents` |\n| Hold expired | 410 |"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const key = 'pm-tour-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);",
+                  "pm.collectionVariables.set('tourIdempotencyKey', key);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', () => pm.expect(pm.response.code, \"409 PRICE_CHANGED = re-run the search; 410 = the hold expired\").to.equal(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('A TUR reference, confirmed or pending', () => {",
+                  "    pm.expect(body.reference).to.match(/^TUR-\\d{6}$/);",
+                  "    pm.expect(['CONFIRMED', 'PENDING']).to.include(body.status);",
+                  "});",
+                  "pm.test('The snapshot and the frozen schedule are there', () => {",
+                  "    pm.expect(body.tourSnapshot).to.have.property('title');",
+                  "    pm.expect(body.cancellation.windows).to.be.an('array');",
+                  "});",
+                  "pm.test('Three travellers, one lead', () => {",
+                  "    pm.expect(body.travellers.length).to.equal(3);",
+                  "    pm.expect(body.travellers.filter((t) => t.isLead).length).to.equal(1);",
+                  "});",
+                  "pm.collectionVariables.set('tourReference', body.reference);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm again, same key (200 — replay)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{tourIdempotencyKey}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"holdToken\": \"{{tourHoldToken}}\",\n    \"leadTraveller\": {\n        \"firstName\": \"Nino\",\n        \"lastName\": \"Beridze\",\n        \"email\": \"{{guestEmail}}\",\n        \"phone\": \"+995555123456\"\n    }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tours/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tours",
+                "bookings"
+              ]
+            },
+            "description": "The exact key the previous request used. The original booking comes back with **200**, not a second one with 201 — and not a 409 for the spent hold, because the replay is answered before anything is read."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Same reference as the first confirmation', () => {",
+                  "    pm.expect(pm.response.json().reference).to.equal(pm.collectionVariables.get('tourReference'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm with an amount in the body (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"offerToken\": \"{{tourOfferToken}}\",\n    \"leadTraveller\": {\n        \"firstName\": \"Nino\",\n        \"lastName\": \"Beridze\",\n        \"email\": \"{{guestEmail}}\"\n    },\n    \"totalCents\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tours/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tours",
+                "bookings"
+              ]
+            },
+            "description": "No endpoint accepts an amount. The schema is strict, so an unknown field is a 400 before anything is priced.\n\n**Expected: 400**"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read the booking as the guest (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tours/bookings/{{tourReference}}?email={{guestEmail}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tours",
+                "bookings",
+                "{{tourReference}}"
+              ],
+              "query": [
+                {
+                  "key": "email",
+                  "value": "{{guestEmail}}"
+                }
+              ]
+            },
+            "description": "An anonymous traveller proves it is theirs by quoting the lead email. References come from a sequence and are trivially enumerable, which is why the email is not decoration.\n\n**Expected: 200**"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Read from the snapshot, no net side', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.tour.title).to.be.a('string');",
+                  "    pm.expect(body).to.not.have.property('netTotalCents');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read the booking, wrong email (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tours/bookings/{{tourReference}}?email=somebody.else@example.com",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tours",
+                "bookings",
+                "{{tourReference}}"
+              ],
+              "query": [
+                {
+                  "key": "email",
+                  "value": "somebody.else@example.com"
+                }
+              ]
+            },
+            "description": "**Expected: 404** — not 403. A wrong email must not confirm the reference exists."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancellation quote (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tours/bookings/{{tourReference}}/cancellation-quote?email={{guestEmail}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tours",
+                "bookings",
+                "{{tourReference}}",
+                "cancellation-quote"
+              ],
+              "query": [
+                {
+                  "key": "email",
+                  "value": "{{guestEmail}}"
+                }
+              ]
+            },
+            "description": "Read entirely off the schedule frozen at confirmation; the option's current policy is never consulted.\n\n**Expected: 200** — `{ \"chargeCents\", \"refundCents\", \"currency\", \"refundable\" }`. A `PENDING` request quotes a zero charge: withdrawing an unanswered request costs nothing."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Charge and refund add up', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.chargeCents + body.refundCents).to.equal(Number(pm.collectionVariables.get('tourQuotedTotalCents')));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Amend the paperwork (200)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"pickupNote\": \"Hotel Vera, reception desk\",\n    \"leadTraveller\": {\n        \"phone\": \"+995555654321\"\n    },\n    \"email\": \"{{guestEmail}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tours/bookings/{{tourReference}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tours",
+                "bookings",
+                "{{tourReference}}"
+              ]
+            },
+            "description": "Only paperwork is reachable: the lead traveller, how to reach them, the pick-up note and special requests. Nothing that was priced — the date, the option, the party — because changing those is a cancellation and a fresh booking.\n\n**Expected: 200**\n\n| Scenario | Expected |\n| --- | --- |\n| `date` or `adults` in the body | 400 (`.strict()`) |\n| A cancelled or completed booking | 409 |"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Note updated', () => pm.expect(pm.response.json().pickupNote).to.equal('Hotel Vera, reception desk'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel the booking (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"reason\": \"Change of plans\",\n    \"email\": \"{{guestEmail}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tours/bookings/{{tourReference}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tours",
+                "bookings",
+                "{{tourReference}}",
+                "cancel"
+              ]
+            },
+            "description": "Gives the seats back and records the charge from the frozen schedule.\n\n**Expected: 200** — the summary with `status: CANCELLED` and `cancellation: { chargeCents, refundCents, refundable }`. Re-run the departures request afterwards: `availableUnits` on that date has gone back up."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Cancelled, with a cancellation block', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.status).to.equal('CANCELLED');",
+                  "    pm.expect(body.cancellation).to.have.property('chargeCents');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel again (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{guestEmail}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tours/bookings/{{tourReference}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tours",
+                "bookings",
+                "{{tourReference}}",
+                "cancel"
+              ]
+            },
+            "description": "**Expected: 409** — `NOT_CANCELLABLE`. A cancellation is not idempotent by design: the second one would be a different refund."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 409', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Release a hold (204, always)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tours/bookings/holds/{{tourHoldToken}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tours",
+                "bookings",
+                "holds",
+                "{{tourHoldToken}}"
+              ]
+            },
+            "description": "Abandoning checkout gives the seats back now rather than in thirty seconds. Always 204 — releasing a spent or unknown hold is not an error.\n\n**Expected: 204**"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login — admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{adminEmail}}\",\n    \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "**Expected: 200** with `role` of `ADMIN` or `SUPER_ADMIN`.\n\nThis replaces whatever session folder 05 left in the cookie jar."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Caller is staff', () => {",
+                  "    pm.expect(['SUPER_ADMIN', 'ADMIN']).to.include(pm.response.json().user.role);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tours — admin register (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/tours?status=ACTIVE&page=1&pageSize=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "tours"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "ACTIVE"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "25"
+                },
+                {
+                  "key": "search",
+                  "value": "kazbegi",
+                  "disabled": true
+                },
+                {
+                  "key": "supplierId",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Every tour on the platform, any status, with the lifecycle and channel fields the shop window hides: `status`, `b2cEnabled`, `supplier`.\n\n**Expected: 200**"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Register rows carry status and channel', () => {",
+                  "    const row = pm.response.json().data[0];",
+                  "    pm.expect(row).to.have.property('status');",
+                  "    pm.expect(row).to.have.property('b2cEnabled');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tour detail + publish checklist (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/tours/{{tourId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "tours",
+                "{{tourId}}"
+              ]
+            },
+            "description": "The full record plus `publishChecklist` — every line still missing before the tour could go on sale (empty for a published tour) — and, because the caller is staff, each option's **price sheets** with net figures.\n\n**Expected: 200** — `options[].seasons[].tiers[]` present, with `adultNetCents` / `groupNetCents`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const tour = pm.response.json();",
+                  "pm.test('Checklist is an array', () => pm.expect(tour.publishChecklist).to.be.an('array'));",
+                  "pm.test('Staff see the price sheets with net figures', () => {",
+                  "    pm.expect(tour.options[0].seasons).to.be.an('array').with.length.above(0);",
+                  "    const tier = tour.options[0].seasons[0].tiers[0];",
+                  "    pm.expect(tier).to.satisfy((t) => t.adultNetCents !== undefined || t.groupNetCents !== undefined);",
+                  "});",
+                  "pm.collectionVariables.set('tourOptionId', tour.options[0].id);",
+                  "pm.collectionVariables.set('tourSeasonId', tour.options[0].seasons[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Departure calendar (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/tours/{{tourId}}/options/{{tourOptionId}}/inventory/calendar?from={{tourDate}}&to={{tourWindowTo}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "tours",
+                "{{tourId}}",
+                "options",
+                "{{tourOptionId}}",
+                "inventory",
+                "calendar"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "{{tourDate}}"
+                },
+                {
+                  "key": "to",
+                  "value": "{{tourWindowTo}}"
+                }
+              ]
+            },
+            "description": "One row per departure: `totalUnits`, `blockedUnits`, `bookedUnits`, `heldUnits` and the derived `availableUnits` — never stored, always `total − blocked − booked − held`.\n\n**Expected: 200** — `{ \"option\": { \"id\", \"code\", \"name\", \"unitKind\" }, \"departures\": [...] }`"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('availableUnits is derived from the four counters', () => {",
+                  "    const row = pm.response.json().departures[0];",
+                  "    pm.expect(row.availableUnits).to.equal(Math.max(0, row.totalUnits - row.blockedUnits - row.bookedUnits - row.heldUnits));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Annotate a departure (200)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"from\": \"{{tourOfferDate}}\",\n    \"to\": \"{{tourOfferDate}}\",\n    \"note\": \"Postman was here\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/tours/{{tourId}}/options/{{tourOptionId}}/inventory",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "tours",
+                "{{tourId}}",
+                "options",
+                "{{tourOptionId}}",
+                "inventory"
+              ]
+            },
+            "description": "The range editor. Anything omitted keeps its value — this request only writes a note on the departure the search found, so it changes no capacity.\n\n**Expected: 200** — `{ \"departures\": 1, \"days\": 1 }`\n\nTo open departures: `{ \"from\", \"to\", \"weekdays\": [2, 6], \"totalUnits\": 12 }`. To close a range: `{ \"stopSell\": true }`. Reducing `totalUnits` below what is already booked or held answers **409 `OVERSELL`** naming the dates in the way — the CHECK constraint beneath it would refuse anyway, but a list of dates is a better answer than a constraint name."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Exactly one departure touched', () => pm.expect(pm.response.json().departures).to.equal(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create an option — largest party smaller than smallest (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"code\": \"postman-bad\",\n    \"name\": \"Impossible party\",\n    \"kind\": \"SHARED\",\n    \"pricingBasis\": \"PER_PERSON\",\n    \"minPax\": 4,\n    \"maxPax\": 2,\n    \"cancellationPolicyId\": \"any\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/tours/{{tourId}}/options",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "tours",
+                "{{tourId}}",
+                "options"
+              ]
+            },
+            "description": "Validation runs before anything is looked up. Also refused, with a 400 naming the field: a cancellation policy with per-night rules (the *Flexible* template), because a tour has no nights to charge for — use *Tiered*.\n\n**Expected: 400**"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Publish a published tour (409)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/tours/{{tourId}}/publish",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "tours",
+                "{{tourId}}",
+                "publish"
+              ]
+            },
+            "description": "Lifecycle has its own endpoints so an ordinary update can never publish. A tour that is already ACTIVE answers 409; a DRAFT with something missing answers **422** with `details.missing[]` — the whole checklist, not the first failure.\n\n**Expected: 409**"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 409', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tour bookings — admin register (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/tours/bookings?search={{tourReference}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "tours",
+                "bookings"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "{{tourReference}}"
+                },
+                {
+                  "key": "status",
+                  "value": "PENDING",
+                  "disabled": true
+                },
+                {
+                  "key": "tourId",
+                  "value": "{{tourId}}",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Every tour booking on the platform. Staff rows carry the net side: `netTotalCents`, `markupBps`, `marginCents`, `partner`. Filter `?status=PENDING` for the requests waiting on an operator, oldest deadline first is what the admin queue sorts by.\n\n**Expected: 200**"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Staff see the margin', () => {",
+                  "    const row = pm.response.json().data[0];",
+                  "    pm.expect(row).to.have.property('marginCents');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Booking detail as staff — net visible (200)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/tours/bookings/{{tourReference}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "tours",
+                "bookings",
+                "{{tourReference}}"
+              ]
+            },
+            "description": "**Expected: 200** with `netTotalCents` and per-line `unitNetCents` — the fields the guest read earlier did not have."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Net total is present for staff', () => pm.expect(pm.response.json()).to.have.property('netTotalCents'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm a request (200 / 409)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/tours/bookings/{{tourRequestReference}}/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "tours",
+                "bookings",
+                "{{tourRequestReference}}",
+                "confirm"
+              ]
+            },
+            "description": "The operator's answer to an `ON_REQUEST` booking. Set `tourRequestReference` to a `PENDING` reference first (book the *Private journey* option of any multi-day tour, or list `?status=PENDING`).\n\n**Expected: 200** with `status: CONFIRMED` — or **409** `NOT_PENDING` when it was already answered, which is what this asserts against so the folder runs green without a live request.\n\nThe other answer: `POST …/decline { \"reason\": \"Guide unavailable\" }` → `CANCELLED`, seats released, `cancellation.chargeCents: 0`, `declineReason` set. Unanswered requests past `requestDeadlineAt` raise an operations alert."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Confirmed, or already answered', () => pm.expect([200, 404, 409]).to.include(pm.response.code));"
                 ]
               }
             }

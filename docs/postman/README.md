@@ -4,7 +4,7 @@ Two files:
 
 | File | What it is |
 | --- | --- |
-| `I-am-Georgia.postman_collection.json` | The collection — 8 folders, ~60 requests, every one asserting its expected result |
+| `I-am-Georgia.postman_collection.json` | The collection — 9 folders, ~90 requests, every one asserting its expected result |
 | `I-am-Georgia.local.postman_environment.json` | The environment — base URL and credentials |
 
 Works in the Postman desktop app, the web app, and `newman` on the command line.
@@ -23,6 +23,7 @@ npm run prisma:migrate
 node scripts/seed-reference.js
 node scripts/seed-catalogue.js       # hotels — search returns nothing without this
 node scripts/seed-transfers.js       # transfer points, routes and prices
+node --env-file=.env.test scripts/seed-tours.js   # ten tours with options, price sheets and departures
 node scripts/create-admin.js you@example.com Your Name
 npm run dev
 ```
@@ -112,6 +113,7 @@ report, or `--folder "03 · Hotel search & booking"` to run one folder.
 | **02 · Public catalogue** | Destinations, hotels, amenities — no authentication, no dates |
 | **03 · Hotel search & booking** | The full money path: search → offer token → hold → booking → amend → cancel. Includes the idempotency replay and the "can I send my own price?" attacks |
 | **04 · Transfers** | Points, routes, vehicles, quotes, booking, cancellation — plus the window rules (`TOO_SOON`, `BEYOND_HORIZON`, `SAME_POINT`) |
+| **04b · Tours** | Catalogue, departures for a party, hold → confirm → replay → cancel as a guest, then the admin register, price sheets, the departure calendar and the on-request answer |
 | **05 · Partner portal** | The approval gate, role restrictions, and cross-tenant isolation. Skips itself if no partner account is configured |
 | **06 · Admin** | The staff surface, and the other half of the staff-only field test |
 | **07 · Security & error contract** | Requests that are *supposed* to fail: 401, 403, 404, 400, 413, 429, and the cross-site write check |
