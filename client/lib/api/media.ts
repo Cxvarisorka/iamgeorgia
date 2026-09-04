@@ -15,6 +15,7 @@ import type { Paginated } from "@/types/partner";
 export type MediaCategory =
   | "HOTEL_IMAGE"
   | "ROOM_IMAGE"
+  | "TOUR_IMAGE"
   | "AMENITY_ICON"
   | "CONTRACT"
   | "RATE_SHEET"

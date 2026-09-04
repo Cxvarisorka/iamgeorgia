@@ -6,10 +6,16 @@ import { CancelBooking } from "@/components/booking/CancelBooking";
 import { PrintButton } from "@/components/booking/PrintButton";
 import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
 import { Container } from "@/components/ui/Container";
+import { TourManageView } from "@/components/tours/TourManageView";
 import { getCancellationQuote, getGuestBooking } from "@/lib/api/bookings";
 import { ApiError } from "@/lib/api/client";
+import { getGuestTourBooking } from "@/lib/api/tours";
 import { getI18n } from "@/lib/i18n/server";
 import type { Booking, CancellationQuote } from "@/types/booking";
+import type { TourBooking } from "@/types/tour";
+
+/** A TUR reference is a tour booking: a separate record with its own page. */
+const isTourReference = (reference: string) => reference.toUpperCase().startsWith("TUR-");
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -27,6 +33,17 @@ const loadBooking = async (reference: string, email: string | null): Promise<Boo
 
   try {
     return await getGuestBooking(reference, email);
+  } catch (error) {
+    if (error instanceof ApiError && [400, 403, 404].includes(error.status)) return null;
+    throw error;
+  }
+};
+
+const loadTourBooking = async (reference: string, email: string | null): Promise<TourBooking | null> => {
+  if (!email) return null;
+
+  try {
+    return await getGuestTourBooking(reference, email);
   } catch (error) {
     if (error instanceof ApiError && [400, 403, 404].includes(error.status)) return null;
     throw error;
@@ -64,7 +81,16 @@ export default async function ManageBookingPage(
 
   const requested = searchParams.email;
   const email = (Array.isArray(requested) ? requested[0] : requested) ?? null;
-  const booking = await loadBooking(reference, email);
+
+  const tour = isTourReference(reference);
+  const [booking, tourBooking] = await Promise.all([
+    tour ? null : loadBooking(reference, email),
+    tour ? loadTourBooking(reference, email) : null,
+  ]);
+
+  if (tourBooking && email) {
+    return <TourManageView booking={tourBooking} email={email} />;
+  }
 
   if (!booking || !email) {
     return (

@@ -426,6 +426,13 @@ export const deleteTour = async (id, actor, req) =>
         return tour;
     });
 
+/** Every translation a tour has, for the editor; English lives on the tour itself. */
+export const listTourTranslations = async (id) => {
+    await findTourOr404(id, { statuses: null, includePartnerOnly: true });
+
+    return prisma.tourTranslation.findMany({ where: { tourId: id }, orderBy: { locale: 'asc' } });
+};
+
 export const upsertTourTranslation = async (id, locale, input, actor, req) =>
     prisma.$transaction(async (tx) => {
         const tour = await tx.tour.findUnique({ where: { id } });

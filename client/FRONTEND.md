@@ -19,6 +19,8 @@ Everything changed on the front end, why it changed, and what is still outstandi
 7. [File reference](#7-file-reference)
 8. [Error handling](#8-error-handling)
 9. [Admin navigation](#9-admin-navigation)
+10. [Fleet, drivers and dispatch](#10-fleet-drivers-and-dispatch)
+11. [Tours went live](#11-tours-went-live)
 
 ---
 
@@ -270,7 +272,7 @@ Against a running production build:
 
 **Transfers — complete, UI and content.** Landing, search results, detail, checkout, confirmation and the segment error boundary; TransferSearch, LocationSelector, PassengerSelector, TransferCard, TransferFilters, TransferResults, TransferJourneyBar, TransferGallery, TransferBookingForm, TransferBookingSummary, TransferConfirmation, TransferSteps, TrustRow. All 9 offers and all 19 pick-up points translated.
 
-**Tours — complete, UI and content.** Index, detail, TourCard, TourExplorer, TourPlanningCard. All 10 tours translated, including itineraries, highlights, inclusions and gallery alt text.
+**Tours — complete, UI and content.** Index, detail, TourCard, TourExplorer. All 10 tours translated, including itineraries, highlights, inclusions and gallery alt text — now served by the API from `server/db/seed/tours.js` (see §11).
 
 Both verticals were verified against a production build: all four locales prerender, and `/ka`, `/ru`, `/he` render translated route names, vehicle classes, itinerary days and prices in local number format.
 
@@ -390,7 +392,7 @@ Being explicit, because the site is **not** fully translated yet. The app is ful
 | About, Contact, RequestModal | ❌ | — |
 | Admin panel | ❌ | — |
 
-The merge layer is built and proven, in both forms: `data/i18n/tours.ts` for content the client still carries, and the `transfer_*_translations` tables for content that has moved to the database. Which one a vertical should use is decided by whether an operator needs to edit it — hotels are already live records, so they follow transfers; tours are still fixtures, so they follow tours.
+The merge layer is built and proven, in both forms: `data/i18n/tours.ts` for content the client still carries, and the `transfer_*_translations` tables for content that has moved to the database. Which one a vertical should use is decided by whether an operator needs to edit it — hotels are already live records, so they follow transfers; tours moved the same way in §11, and no vertical uses the client-side merge any more.
 
 ### Files that still hold hardcoded English UI text
 
@@ -576,6 +578,45 @@ The transfer module gained its operational half: physical cars, driver profiles 
 - **Still English:** the driver panel chrome and the admin dispatch screens, as with the rest of the admin panel (§6). A Georgian and Russian driver panel is the obvious next i18n step.
 - **A partner picks the driver at checkout.** `components/transfers/DriverChoice` sits in the transfer booking form for an approved partner (or an admin) and asks `POST /api/partner/drivers/available` with the offer's quote token: verified drivers with a car of the booked class that is free across every leg, each with photo, rating, languages, bio and the car's photographs. "Let us assign a driver" stays the default. The choice travels as `preferredDriverId` / `preferredFleetVehicleId`; a `409 DRIVER_UNAVAILABLE` or `422 DRIVER_NOT_ELIGIBLE` clears it and remounts the list (`key` bump) rather than failing the booking. The confirmation page shows the requested driver through `RequestedDriver` — translated, `transfers.booking.driver*` in all four dictionaries — as "awaiting confirmation" until they accept; the portal's `DriverCard` does the same with `awaitingDriver`. Language names come from `Intl.DisplayNames`, not a dictionary.
 - **Admins can delete a car or a driver** from the danger zone on its page (`canDelete` is decided by the page from the session; the server refuses non-admins regardless). Only while the record has never been on a job — the server answers 409 `HAS_ASSIGNMENTS` otherwise, and the panel shows that message with archive/deactivate as the way forward. The plate, or the surname, has to be typed back first.
+
+---
+
+## 11. Tours went live
+
+Tours were the last vertical on fixtures. `data/tours.ts` and `data/i18n/tours.ts` are gone, the merge layer in `data/i18n/merge.ts` with them, and every tour on the site, in the portal and in the panel is a live record from `/api/tours` and its neighbours. The editorial prose moved to the server with the seed that loads it (`server/db/seed/tours.js`), so nothing was lost — it just stopped being shipped to the browser.
+
+### The shape, in one paragraph
+
+A tour is sold through **options** (a shared seat or a private group, per person or per group, confirmed instantly or by the operator), each with **price sheets** by season and party size and **departures** — a capacity row per date. What the site asks for is a *date and a party*; what it gets back is every option priced for every departure in the two weeks after that date, each either bookable with a signed token or explained (`SOLD_OUT`, `PARTY_SIZE`, `TOO_SOON`…). Everything downstream mirrors the hotel flow: hold → checkout → `TUR-` reference.
+
+### What changed on the site
+
+- **`/tours`** is two pages behind one route, as `/hotels` is. Without a date it browses the catalogue through `TourExplorer` (client-side filters over a few dozen records — a round trip per keystroke would be slower and no more correct). With one it is a real search: `/api/search/tours?date&adults&childAges` returns only journeys with a departure that day for that party, rendered as `TourResultCard`s with a real total.
+- **`/tours/[slug]`** carries the `TourSearchForm` (date + party with child ages, `lib/tours/query.ts`) and a `TourDepartures` section: every option, every date in the window, with "Reserve" taking a hold *before* the traveller types a name. Unsellable dates stay on the page with their reason — a calendar with a sold-out Saturday on it is more useful than one with a gap. The sticky `TourPanel` says "from" per person, a real total for the party, or "nothing in that window", and never confuses the three.
+- **`/tours/checkout`** is its own route. A tour hold is a different record on a different endpoint and the form asks for different things — passports, nationality, dietary needs, a pick-up note — so it did not become a mode of the hotel checkout. The draft lives in its own `sessionStorage` key (`createDraftStore` in `lib/booking/checkoutSession.ts` now makes one store per product), so a hotel and a tour checkout in two tabs cannot clobber each other.
+- **On request is a first-class state.** An option with `confirmationMode: ON_REQUEST` ends in a *request*: the button says "Send request", the confirmation page says "Request sent" with what happens in the next 48 hours, `t.tours.status.PENDING` reads "Awaiting confirmation", and the cancel panel says a request the operator has not answered is cancelled at no charge. Telling a traveller they are booked when the guide has not said yes is the one thing these screens must never do.
+- **`/booking/confirmation/[ref]`** and **`/booking/manage/[ref]`** branch on the `TUR-` prefix (`TourConfirmationView`, `TourManageView`), so the lookup form and the confirmation email need no new URLs.
+- The homepage rail (`SignatureTours`) reads featured tours from the API, topped up from the programme when fewer than three are flagged, and is guarded — with `unstable_rethrow` first, because a catch that swallows Next's dynamic-usage signal leaves a static home page with no rail.
+
+### Dictionary
+
+`t.tours.planning.*` (the prototype "request this journey" card) is gone from all four languages; `t.tours.{search,results,availability,checkout,confirmation,manage,cancel,status,optionKinds}` and `units.seat` were added to all four. `BookingSteps` takes `labels` so the tour checkout can say "Choose a departure" where hotels say "Choose a room".
+
+### Portal
+
+`/portal/bookings` grew a product tab (`?product=tours`) backed by `/api/partner/tours/bookings`; the register component (`TourBookingsBrowser`) is shared with the panel and differs only in where a reference links. `/portal/bookings/TUR-…` shows the same frozen record the traveller sees, `PortalTourBookingEditor` for the paperwork (lead traveller, pick-up note, requests — never the departure, party or price), and cancellation priced off the frozen terms.
+
+### Panel
+
+- **Operations → Tour bookings** (`/admin/tours/bookings`), badged with `pendingTourRequests`: on-request bookings the operator has yet to answer. Their seats are already claimed, so a request left waiting is capacity nobody else can buy. The detail page carries `TourBookingActions`: confirm, decline with a required reason (the agency reads it word for word), or cancel with the frozen-terms charge shown first.
+- **Inventory → Tours** is a real register (`ToursBrowser`, `HotelStatusBadge` reused since `TourStatus` is a subset), a create wizard (`NewTourForm`) and a hub per tour with the publish checklist, `TourActions` (publish / off sale / archive / delete, plus the B2C and featured switches) and five sub-screens: details & itinerary (`TourDetailsEditor` — the itinerary is sent whole and renumbered), options & prices (`TourOptionsManager` — options, and price sheets as a tier grid in net minor units with an optional fixed sell), departures (`TourCalendarManager` — a 28-day grid and a range editor; a reduction below what is booked surfaces the server's 409 with the dates), images (`TourGalleryManager`, `TOUR_IMAGE`), translations (`TourTranslationsEditor`, one tab per language, blank fields fall back to English).
+- Two endpoints were added server-side for the panel: `GET /admin/tours/:id/translations` and `GET /admin/tours/policies/cancellation` (the platform templates a tour option may use — those priced against the whole total, since a tour has no first night).
+- `InventoryBrowser` and `ListingEditor`, the fixture-era prototypes, are deleted.
+
+### Gotchas
+
+- New routes need `npx next typegen` (or a build) before `PageProps<"/[locale]/…">` type-checks — the route union is generated.
+- `types/tour.ts` is now the live shape and `Tour` means the API record; the fixture `Tour` no longer exists anywhere.
 
 ---
 

@@ -8,13 +8,13 @@ import { Container } from "@/components/ui/Container";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { FilterChip } from "@/components/ui/FilterChip";
 import { SearchField } from "@/components/ui/SearchField";
-import { tourCategories, tourDurations } from "@/data/tours";
 import { plural } from "@/lib/i18n/plural";
 import { useI18n, useLocalePath } from "@/lib/i18n/provider";
-import type { Tour, TourCategory } from "@/types";
+import { matchesDuration, tourCategories, tourDurations } from "@/lib/tours/query";
+import type { TourCategory, TourSummary } from "@/types/tour";
 
 interface TourExplorerProps {
-  tours: Tour[];
+  tours: TourSummary[];
   regions: string[];
 }
 
@@ -28,17 +28,16 @@ const sortOptions = [
   { value: "duration", key: "duration" },
 ] as const;
 
-/** Matches a tour's day count against the duration filter buckets. */
-function matchesDuration(days: number, bucket: string): boolean {
-  if (bucket === "1") return days === 1;
-  if (bucket === "2-3") return days >= 2 && days <= 3;
-  if (bucket === "4-6") return days >= 4 && days <= 6;
-  return days >= 7;
-}
+const priceOf = (tour: TourSummary) => tour.priceFrom?.amountCents ?? Number.POSITIVE_INFINITY;
 
 /**
- * Client-side filtering over the local mock data — enough to show how discovery
- * would feel, deliberately not a real search system.
+ * Browsing the catalogue without a date.
+ *
+ * The whole ACTIVE catalogue is a few dozen records, so it is filtered in the
+ * browser: a search box that round-tripped to the server for ten tours would
+ * be slower and no more correct. The moment a date is involved the page above
+ * switches to the server's dated search instead, because availability is not
+ * something this component can know.
  */
 export function TourExplorer({ tours, regions }: TourExplorerProps) {
   const { t, locale } = useI18n();
@@ -68,8 +67,8 @@ export function TourExplorer({ tours, regions }: TourExplorerProps) {
     });
 
     const sorted = [...filtered];
-    if (sort === "price-low") sorted.sort((a, b) => a.priceFrom - b.priceFrom);
-    if (sort === "price-high") sorted.sort((a, b) => b.priceFrom - a.priceFrom);
+    if (sort === "price-low") sorted.sort((a, b) => priceOf(a) - priceOf(b));
+    if (sort === "price-high") sorted.sort((a, b) => priceOf(b) - priceOf(a));
     if (sort === "duration") sorted.sort((a, b) => a.durationDays - b.durationDays);
     return sorted;
   }, [tours, query, category, duration, region, sort]);

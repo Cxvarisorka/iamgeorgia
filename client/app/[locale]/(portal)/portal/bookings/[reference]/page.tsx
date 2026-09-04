@@ -7,7 +7,11 @@ import { BookingDetail } from "@/components/booking/BookingDetail";
 import { CancelBooking } from "@/components/booking/CancelBooking";
 import { PrintButton } from "@/components/booking/PrintButton";
 import { PortalBookingEditor } from "@/components/partners/PortalBookingEditor";
+import { PortalTourBookingEditor } from "@/components/partners/PortalTourBookingEditor";
 import { PortalTransferBooking } from "@/components/partners/PortalTransferBooking";
+import { CancelTourBooking } from "@/components/tours/CancelTourBooking";
+import { TourBookingDetail } from "@/components/tours/TourBookingDetail";
+import { getPartnerTourBooking, getTourCancellationQuote } from "@/lib/api/tours";
 import { getPartnerTransferBooking } from "@/lib/api/transfers";
 import { Container } from "@/components/ui/Container";
 import { getCancellationQuote, getPartnerBooking } from "@/lib/api/bookings";
@@ -17,6 +21,7 @@ import { localePath } from "@/lib/i18n/config";
 import { getI18n, getLocale } from "@/lib/i18n/server";
 import { ADMIN_ROLES } from "@/types/auth";
 import type { Booking, CancellationQuote } from "@/types/booking";
+import type { TourBooking, TourCancellationQuote } from "@/types/tour";
 import type { TransferBooking } from "@/types/transfer";
 
 export async function generateMetadata(
@@ -88,6 +93,66 @@ export default async function PortalBookingPage(
         <p className="mt-2 font-mono text-[0.8125rem] tracking-wide text-brand-text">{transfer.reference}</p>
         <div className="mt-10 max-w-3xl">
           <PortalTransferBooking booking={transfer} driverPath={(id) => path(`/portal/drivers/${id}`)} />
+        </div>
+      </Container>
+    );
+  }
+
+  // A TUR reference is a tour booking: the same frozen record the traveller
+  // sees, the paperwork editor, and cancellation priced off the frozen terms.
+  if (reference.toUpperCase().startsWith("TUR-")) {
+    let tour: TourBooking;
+
+    try {
+      tour = await getPartnerTourBooking(reference);
+    } catch (error) {
+      if (error instanceof ApiError && [400, 403, 404].includes(error.status)) notFound();
+      throw error;
+    }
+
+    let tourQuote: TourCancellationQuote | null = null;
+
+    if (tour.status === "CONFIRMED" || tour.status === "PENDING") {
+      try {
+        tourQuote = await getTourCancellationQuote(reference);
+      } catch {
+        tourQuote = null;
+      }
+    }
+
+    return (
+      <Container className="py-12 sm:py-16">
+        <Link
+          href={path("/portal/bookings?product=tours")}
+          className="inline-flex items-center gap-2 text-[0.8125rem] text-muted transition-colors hover:text-ink"
+        >
+          <ArrowLeft size={15} className="rtl:-scale-x-100" aria-hidden />
+          All bookings
+        </Link>
+        <h1 className="mt-5 font-display text-[2rem] leading-tight text-ink sm:text-[2.5rem]">
+          {tour.tourSnapshot.title}
+        </h1>
+        <p className="mt-2 font-mono text-[0.8125rem] tracking-wide text-brand-text">{tour.reference}</p>
+
+        <div className="mt-10 grid gap-8 lg:grid-cols-12 lg:gap-10">
+          <div className="min-w-0 lg:col-span-8">
+            <TourBookingDetail booking={tour} />
+            <div className="mt-8">
+              <PortalTourBookingEditor booking={tour} />
+            </div>
+          </div>
+
+          <aside className="lg:col-span-4">
+            <div className="flex flex-col gap-5 lg:sticky lg:top-8">
+              <CancelTourBooking
+                reference={tour.reference}
+                status={tour.status}
+                quote={tourQuote}
+                freeUntil={tour.cancellation.freeUntil}
+              />
+              <PrintButton label={t.booking.confirmation.print} />
+            </div>
+          </aside>
         </div>
       </Container>
     );

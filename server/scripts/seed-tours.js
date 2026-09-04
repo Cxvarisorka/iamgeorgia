@@ -1,26 +1,21 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import vm from 'node:vm';
-
 import { prisma, disconnect } from '../db/index.js';
+import { B2C_TOUR_SLUGS, TOURS, TOUR_CONTENT } from '../db/seed/tours.js';
 import { addDays, todayInTimezone } from '../lib/time.js';
 import { publishTour } from '../services/tour/tour.service.js';
 import { refreshTourPriceFrom } from '../services/tour/option.service.js';
 import { setTourInventoryRange } from '../services/tour/inventory.service.js';
 
 /**
- * Seeds the tour catalogue from the client's editorial fixtures.
+ * Seeds the tour catalogue from the editorial data in `db/seed/tours.js`.
  *
  *   node scripts/seed-tours.js
  *
- * The prose in `client/data/tours.ts` and its translations in
- * `client/data/i18n/tours.ts` are the platform's actual content — ten Georgian
- * journeys written for this product, in four languages. They are read here
- * rather than copied, so there is one source of truth until the client pages
- * move to the API and the fixtures are deleted.
+ * The prose and its translations are the platform's actual content — ten
+ * Georgian journeys written for this product, in four languages. They once
+ * lived in the client as fixtures; the site now reads tours from the API, so
+ * the data moved here with the seed that loads it.
  *
- * What the fixtures cannot say, this adds: a shared seat option and a private
+ * What the editorial data cannot say, this adds: a shared seat option and a private
  * group option per tour, a year of price sheets converted from the fixtures'
  * USD "from" price, and departures — weekly for multi-day journeys, daily for
  * day trips. Multi-day private journeys are ON_REQUEST, because an operator
@@ -29,8 +24,6 @@ import { setTourInventoryRange } from '../services/tour/inventory.service.js';
  * Idempotent by slug: a tour that already exists is skipped. Prerequisites:
  * `seed-reference.js` (policy templates) and `seed-catalogue.js` (destinations).
  */
-
-const CLIENT = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..', 'client');
 
 /** GEL per USD. Fixture prices are USD-denominated; tours contract in GEL. */
 const GEL_PER_USD = 2.7;
@@ -55,33 +48,6 @@ const TRANSLATED_FIELDS = [
 ];
 
 const usdToGelCents = (usd) => Math.round((usd * GEL_PER_USD * 100) / 100) * 100;
-
-/**
- * Pulls a literal out of a TypeScript module without a bundler.
- *
- * `tours.ts` has a value import (`./i18n/merge`) with an extensionless path
- * that Node's ESM loader refuses, so the module cannot simply be imported. The
- * data itself is a plain literal, which a sandboxed evaluation reads without
- * running anything else in the file.
- */
-const evaluateLiteral = async (file, pattern) => {
-    const source = await readFile(join(CLIENT, 'data', file), 'utf8');
-    const match = source.match(pattern);
-
-    if (!match) {
-        throw new Error(`Could not find the fixture literal in ${file}`);
-    }
-
-    return vm.runInNewContext(`(${match[1]})`, {}, { timeout: 5000 });
-};
-
-const loadFixtures = async () => {
-    const tours = await evaluateLiteral('tours.ts', /export const tours: Tour\[\] = (\[[\s\S]*?\n\]);/);
-    const b2c = await evaluateLiteral('tours.ts', /new Set<string>\((\[[\s\S]*?\])\)/);
-    const content = await evaluateLiteral('i18n/tours.ts', /export const tourContent: LocalisedContent<Tour> = (\{[\s\S]*\n\});/);
-
-    return { tours, b2cSlugs: new Set(b2c), content };
-};
 
 const translationFor = (content, locale, fixtureId) => {
     const entry = content[locale]?.[fixtureId];
@@ -223,7 +189,9 @@ const seedTour = async (fixture, { destination, policy, b2cSlugs, content, today
 };
 
 const main = async () => {
-    const { tours, b2cSlugs, content } = await loadFixtures();
+    const tours = TOURS;
+    const b2cSlugs = new Set(B2C_TOUR_SLUGS);
+    const content = TOUR_CONTENT;
 
     const policy = await prisma.cancellationPolicy.findFirst({ where: { hotelId: null, kind: 'TIERED' } });
 

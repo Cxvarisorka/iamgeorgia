@@ -11,10 +11,12 @@ import {
 } from "lucide-react";
 
 import { bookingStatusLabels } from "@/lib/admin/bookings";
+import { tourBookingStatusLabels } from "@/lib/admin/tours";
 import { invitationStatusLabels, partnerStatusLabels } from "@/lib/admin/partners";
 import { cn } from "@/lib/utils";
 import type { InvitationStatus, PartnerStatus } from "@/types";
 import type { HotelBookingStatus } from "@/types/booking";
+import type { TourBookingStatus } from "@/types/tour";
 
 /**
  * Status pills.
@@ -82,6 +84,25 @@ export function BookingStatusBadge({
   return (
     <Pill tone={tone} icon={icon} className={className}>
       {bookingStatusLabels[status]}
+    </Pill>
+  );
+}
+
+/**
+ * Tour bookings share the hotel palette but not the words: PENDING here is
+ * an on-request booking awaiting the operator, with seats already claimed.
+ */
+export function TourBookingStatusBadge({
+  status,
+  className,
+}: {
+  status: TourBookingStatus;
+  className?: string;
+}) {
+  const { tone, icon } = bookingTones[status];
+  return (
+    <Pill tone={tone} icon={icon} className={className}>
+      {tourBookingStatusLabels[status]}
     </Pill>
   );
 }

@@ -9,6 +9,8 @@ const ORDER: Step[] = ["choose", "details", "confirm"];
 
 interface BookingStepsProps {
   current: Step;
+  /** The wording, when the product is not a hotel stay — a tour names its steps differently. */
+  labels?: Record<Step, string>;
 }
 
 /**
@@ -19,8 +21,9 @@ interface BookingStepsProps {
  * a row of decorated divs — a progress indicator that a screen reader cannot
  * read is decoration, and this one is carrying real orientation.
  */
-export async function BookingSteps({ current }: BookingStepsProps) {
+export async function BookingSteps({ current, labels }: BookingStepsProps) {
   const { t } = await getI18n();
+  const words = labels ?? t.booking.checkout.steps;
   const currentIndex = ORDER.indexOf(current);
 
   return (
@@ -50,7 +53,7 @@ export async function BookingSteps({ current }: BookingStepsProps) {
               >
                 {done ? <Check size={12} aria-hidden /> : index + 1}
               </span>
-              {t.booking.checkout.steps[step]}
+              {words[step]}
             </span>
 
             {index < ORDER.length - 1 && (

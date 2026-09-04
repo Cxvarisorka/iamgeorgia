@@ -3,6 +3,7 @@ import { listPartners } from "@/lib/api/partners";
 import { requireAdminSession } from "@/lib/auth/session";
 import { countActive } from "@/lib/admin/metrics";
 import { listDispatchLegs } from "@/lib/api/dispatch";
+import { listAdminTourBookings } from "@/lib/api/tours";
 import { defaultWindow } from "@/lib/admin/dispatch";
 import { isAdmin } from "@/types/auth";
 
@@ -24,7 +25,7 @@ export default async function PanelLayout({ children }: { children: React.ReactN
   // The counts are decoration on the sidebar and must never take the panel
   // down: an operator who cannot see "3 pending" can still open the queue and
   // count. A failure here is logged and shown as zeros rather than thrown.
-  let badges = { pendingBookings: 0, pendingPartners: 0, unassignedLegs: 0 };
+  let badges = { pendingBookings: 0, pendingPartners: 0, unassignedLegs: 0, pendingTourRequests: 0 };
 
   try {
     // The counts go out together rather than one waiting on the other. A
@@ -33,18 +34,21 @@ export default async function PanelLayout({ children }: { children: React.ReactN
     const admin = isAdmin(session);
     const window = defaultWindow(30);
 
-    const [applications, activeBookings, unassigned] = await Promise.all([
+    const [applications, activeBookings, unassigned, tourRequests] = await Promise.all([
       // The two states waiting on the admin: an application that has been
       // submitted, and one somebody is partway through filling in.
       admin ? listPartners({ status: ["PENDING_APPROVAL", "REGISTRATION_IN_PROGRESS"], pageSize: 1 }) : null,
       admin ? countActive() : 0,
       listDispatchLegs({ from: window.from, to: window.to, legStatus: "UNASSIGNED", pageSize: 1 }),
+      // On-request tour bookings the operator has not answered yet.
+      admin ? listAdminTourBookings({ status: "PENDING", pageSize: 1 }) : null,
     ]);
 
     badges = {
       pendingBookings: activeBookings,
       pendingPartners: applications?.total ?? 0,
       unassignedLegs: unassigned.total,
+      pendingTourRequests: tourRequests?.total ?? 0,
     };
   } catch (error) {
     console.error("Admin queue counts failed:", error);

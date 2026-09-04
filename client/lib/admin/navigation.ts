@@ -6,6 +6,7 @@ import {
   Car,
   CarFront,
   Coins,
+  Compass,
   ClipboardCheck,
   Globe2,
   Handshake,
@@ -37,7 +38,11 @@ import {
  * link in a disclosure would be a control that hides one thing.
  */
 
-export type AdminBadgeKey = "pendingBookings" | "pendingPartners" | "unassignedLegs";
+export type AdminBadgeKey =
+  | "pendingBookings"
+  | "pendingPartners"
+  | "unassignedLegs"
+  | "pendingTourRequests";
 
 export type AdminBadges = Record<AdminBadgeKey, number>;
 
@@ -132,6 +137,15 @@ export const adminNavigation: AdminNavGroup[] = [
         badgeKey: "pendingBookings",
       },
       { label: "Transfer bookings", href: "/admin/transfers/bookings", icon: CarFront, ops: true },
+      // TUR references. Badged with on-request bookings the operator has yet
+      // to answer — seats are already claimed, so a request left waiting is
+      // capacity nobody else can buy.
+      {
+        label: "Tour bookings",
+        href: "/admin/tours/bookings",
+        icon: Compass,
+        badgeKey: "pendingTourRequests",
+      },
       // Legs, not bookings, and badged with the ones nobody is driving yet.
       {
         label: "Dispatch",

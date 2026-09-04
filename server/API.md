@@ -650,7 +650,8 @@ All under `/admin/tours`, admin only.
 | GET / POST | `/admin/tours` | Register (`?status&supplierId&…`) and create a DRAFT. |
 | GET / PATCH / DELETE | `/admin/tours/:tourId` | Detail with `publishChecklist`; delete only with no bookings (409 `HAS_BOOKINGS`). |
 | POST | `/admin/tours/:tourId/publish` · `/unpublish` · `/archive` | Publish answers 422 with `details.missing` until the checklist is clear. |
-| PUT | `/admin/tours/:tourId/translations/:locale` | Prose only, field by field. |
+| GET / PUT | `/admin/tours/:tourId/translations`, `…/translations/:locale` | Every translation for the editor; a locale is written whole, prose only. |
+| GET | `/admin/tours/policies/cancellation` | The platform templates a tour option may use — active, and priced against the whole total. |
 | POST / PUT / PATCH / DELETE | `…/images`, `…/images/order`, `…/images/:imageId` | The gallery, as for hotels. |
 | GET / POST | `…/options` | Options: `kind` SHARED\|PRIVATE, `pricingBasis` PER_PERSON\|PER_GROUP, `unitKind`, `scheduleKind`, `confirmationMode`, `visibility`, `minPax`/`maxPax`, `noticeHours`, `horizonDays`, `cancellationPolicyId` (percent-of-total policies only). |
 | GET / PATCH | `…/options/:optionId`, `POST …/archive` | |
@@ -660,7 +661,7 @@ All under `/admin/tours`, admin only.
 | GET | `/admin/tours/bookings` · `/:reference` | Every tour booking. |
 | POST | `/admin/tours/bookings/:reference/confirm` · `/decline` (`{ reason }`) · `/cancel` | The operator's answer to a request, and cancellation. |
 
-Seeding: `node scripts/seed-tours.js` reads the ten fixture tours from `client/data/tours.ts` (and their translations), gives each a shared and a private option, a year of price sheets and departures, and publishes them. Requires `seed-reference.js` and `seed-catalogue.js` first.
+Seeding: `node scripts/seed-tours.js` reads the ten editorial tours in `db/seed/tours.js` (prose in four languages), gives each a shared and a private option, a year of price sheets and departures, and publishes them. Requires `seed-reference.js` and `seed-catalogue.js` first.
 
 ## Admin
 

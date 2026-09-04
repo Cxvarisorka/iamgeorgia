@@ -1,5 +1,6 @@
 import { Router } from 'express';
 
+import { prisma } from '../db/index.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import {
@@ -34,6 +35,7 @@ import {
     tourGallery,
     unpublishTour,
     updateTour,
+    listTourTranslations,
     upsertTourTranslation
 } from '../services/tour/tour.service.js';
 import {
@@ -55,6 +57,7 @@ import {
     toTourSummary,
     toTourTranslation
 } from '../serializers/tour.js';
+import { toCancellationPolicy } from '../serializers/ratePlan.js';
 
 /**
  * Tour administration.
@@ -73,6 +76,25 @@ const reload = (req, locale = 'en') => findTourOr404(req.valid.params.tourId, { 
 const withChecklist = (tour, viewer) => ({
     ...toTourDetail(tour, 'en', viewer),
     publishChecklist: buildTourPublishChecklist(tour)
+});
+
+/**
+ * The cancellation templates a tour option may use: platform-owned, active,
+ * and priced against the whole total rather than a first night. Listed here
+ * because the hotel policy endpoints are scoped to a property.
+ */
+adminTourRoutes.get('/policies/cancellation', async (req, res) => {
+    const policies = await prisma.cancellationPolicy.findMany({
+        where: { hotelId: null, isActive: true },
+        include: { rules: { orderBy: { hoursBeforeCheckIn: 'desc' } } },
+        orderBy: { name: 'asc' }
+    });
+
+    res.json({
+        data: policies
+            .filter((policy) => policy.rules.every((rule) => ['PERCENT_OF_TOTAL', 'FIXED_AMOUNT'].includes(rule.chargeBasis)))
+            .map(toCancellationPolicy)
+    });
 });
 
 adminTourRoutes.get('/', validate({ query: tourQuerySchema }), async (req, res) => {
@@ -125,6 +147,12 @@ adminTourRoutes.delete('/:tourId', validate({ params: tourParamSchema }), async 
     await deleteTour(req.valid.params.tourId, req.user, req);
 
     res.status(204).end();
+});
+
+adminTourRoutes.get('/:tourId/translations', validate({ params: tourParamSchema }), async (req, res) => {
+    const translations = await listTourTranslations(req.valid.params.tourId);
+
+    res.json({ data: translations.map(toTourTranslation) });
 });
 
 adminTourRoutes.put(

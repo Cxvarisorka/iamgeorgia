@@ -40,6 +40,14 @@ export function bookingErrorKey(error: unknown): BookingErrorKey {
     case "UNAVAILABLE":
     case "ALREADY_COMMITTED":
     case "HOLD_INCONSISTENT":
+    // The tour engine's reasons for a departure that cannot be sold to this
+    // party right now. From the traveller's side they are all "choose another
+    // date": the seats went, the party no longer fits, or the notice window
+    // closed while they were deciding.
+    case "SOLD_OUT":
+    case "PARTY_SIZE":
+    case "TOO_SOON":
+    case "UNPRICED":
       return "soldOut";
     default:
       break;

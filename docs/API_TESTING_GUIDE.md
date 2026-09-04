@@ -974,7 +974,7 @@ They behave exactly like their hotel equivalents:
 
 ## Part 6b — Tours
 
-Tours follow the hotel shape exactly, with departures in place of nights. Seed the catalogue first — `node --env-file=.env.test scripts/seed-tours.js` after `seed-reference.js` and `seed-catalogue.js` — and you have ten published tours, each with a shared seat option and a private group option, a year of price sheets and departures. Multi-day private options are **on request**.
+Tours follow the hotel shape exactly, with departures in place of nights. Seed the catalogue first — `node --env-file=.env.test scripts/seed-tours.js` after `seed-reference.js` and `seed-catalogue.js` — and you have ten published tours (the editorial data lives in `db/seed/tours.js`), each with a shared seat option and a private group option, a year of price sheets and departures. Multi-day private options are **on request**.
 
 ### 6b.1 Browse and search
 

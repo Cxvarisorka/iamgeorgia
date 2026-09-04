@@ -123,6 +123,39 @@ describe('tour catalogue and lifecycle', { skip: dbAvailable ? false : 'Postgres
         assert.equal((await request(app).get(`/api/tours/${b2bOnly.slug}`).set('Cookie', partnerCookie)).status, 200);
     });
 
+    it('lists every translation for the editor, and the templates an option may use', async () => {
+        const tour = await makeTour(tracker, { destination });
+
+        await request(app).put(`/api/admin/tours/${tour.id}/translations/ka`).set('Cookie', adminCookie).send({ title: 'ქართული' });
+        await request(app).put(`/api/admin/tours/${tour.id}/translations/he`).set('Cookie', adminCookie).send({ summary: 'עברית' });
+
+        const listed = await request(app).get(`/api/admin/tours/${tour.id}/translations`).set('Cookie', adminCookie);
+        assert.equal(listed.status, 200, JSON.stringify(listed.body));
+        assert.deepEqual(
+            listed.body.data.map((row) => [row.locale, row.title, row.summary]),
+            [
+                ['he', null, 'עברית'],
+                ['ka', 'ქართული', null]
+            ]
+        );
+
+        // Only percent-of-total templates: the Flexible template charges a
+        // first night, which a tour does not have.
+        const policies = await request(app).get('/api/admin/tours/policies/cancellation').set('Cookie', adminCookie);
+        assert.equal(policies.status, 200);
+        assert.ok(policies.body.data.length >= 1);
+        assert.ok(policies.body.data.every((policy) => policy.isTemplate));
+        assert.ok(
+            policies.body.data.every((policy) =>
+                policy.rules.every((rule) => ['PERCENT_OF_TOTAL', 'FIXED_AMOUNT'].includes(rule.chargeBasis))
+            )
+        );
+        assert.ok(!policies.body.data.some((policy) => policy.kind === 'FLEXIBLE'));
+
+        // Not for partners.
+        assert.equal((await request(app).get('/api/admin/tours/policies/cancellation').set('Cookie', partnerCookie)).status, 403);
+    });
+
     it('refuses a confirmation whose price moved since the offer was issued', async () => {
         const tour = await makeTour(tracker, { destination });
         const option = await makeTourOption(tour, { date: DATE });

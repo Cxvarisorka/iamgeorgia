@@ -34,7 +34,8 @@ export type UnitKey =
   | "cabinBag"
   | "bag"
   | "review"
-  | "result";
+  | "result"
+  | "seat";
 
 const englishUnits: Record<UnitKey, PluralForms> = {
   traveller: { one: "traveller", other: "travellers" },
@@ -54,6 +55,7 @@ const englishUnits: Record<UnitKey, PluralForms> = {
   bag: { one: "bag", other: "bags" },
   review: { one: "review", other: "reviews" },
   result: { one: "result", other: "results" },
+  seat: { one: "seat", other: "seats" },
 };
 
 export const en = {
@@ -407,19 +409,192 @@ export const en = {
       priceHigh: "Price (highest first)",
       duration: "Duration (shortest first)",
     },
-    planning: {
-      preferredStart: "Preferred start date",
+    perGroup: "per group",
+    optionKinds: {
+      SHARED: "Shared departure",
+      PRIVATE: "Private",
+    },
+    search: {
+      date: "Departure date",
       travellers: "Travellers",
-      planningFee: "Trip planning & permits",
-      estimatedTotal: "Estimated total",
-      requestJourney: "Request this journey",
-      noPayment:
-        "No payment is taken at this stage. A trip planner replies within one working day.",
-      rowJourney: "Journey",
-      rowDuration: "Duration",
-      rowStart: "Preferred start",
-      rowTravellers: "Travellers",
-      sendRequest: "Send request",
+      adults: "Adults",
+      children: "Children",
+      childAge: "Child {number}",
+      submit: "See departures",
+      update: "Update",
+      datesRequired: "Choose a date to see live prices and every departure that runs.",
+      done: "Done",
+      minAge: "Minimum age {age}",
+    },
+    results: {
+      heading: "{count} departing",
+      subheading: "{date} · {party}",
+      emptyTitle: "Nothing departs that day",
+      emptyBody:
+        "No journey runs on that date for your party. Shared departures often run on set weekdays — try a nearby date.",
+      browseCatalogue: "Browse all tours",
+      viewDepartures: "See departures",
+      cheapestFrom: "from {price}",
+    },
+    availability: {
+      heading: "Departures",
+      windowFor: "Departures {from} – {to} for {party}",
+      noDatesTitle: "Pick a date",
+      noDatesBody:
+        "Prices and seats are live. Choose a departure date and we will show every option that runs in the two weeks after it.",
+      emptyTitle: "Nothing runs in that window",
+      emptyBody:
+        "No departure fits your party between those dates. Try another date, or a smaller party for a shared departure.",
+      seatsLeft: "{count} left",
+      lastSeat: "Last seat",
+      groupsLeft: "{count} available",
+      perPerson: "{price} per person",
+      wholeGroup: "for the whole group",
+      totalFor: "Total for {party}",
+      showBreakdown: "Price breakdown",
+      hideBreakdown: "Hide breakdown",
+      reserve: "Reserve",
+      holding: "Holding your seats…",
+      instant: "Instant confirmation",
+      onRequest: "Confirmed by the operator within 48 hours",
+      startsAt: "Starts {time}",
+      freeUntil: "Free cancellation until {date}",
+      nonRefundable: "Non-refundable",
+      languages: "Guided in {languages}",
+      lines: {
+        ADULT: "Adult",
+        CHILD: "Child",
+        INFANT: "Infant",
+        GROUP: "Group",
+      },
+      reasons: {
+        SOLD_OUT: "Sold out",
+        PARTY_SIZE: "Party size",
+        TOO_SOON: "Too late to book",
+        BEYOND_HORIZON: "Not on sale yet",
+        PAST: "Departed",
+        UNPRICED: "Not priced",
+      },
+      reasonHints: {
+        SOLD_OUT: "No seats left on this departure.",
+        PARTY_SIZE: "This option takes {min} to {max} travellers.",
+        TOO_SOON: "Book at least {hours} hours before departure.",
+        BEYOND_HORIZON: "Bookable up to {date}.",
+        PAST: "This date has passed.",
+        UNPRICED: "No price has been set for this date.",
+      },
+    },
+    checkout: {
+      metaTitle: "Checkout",
+      title: "Confirm your journey",
+      crumb: "Checkout",
+      steps: {
+        choose: "Choose a departure",
+        details: "Your details",
+        confirm: "Confirmed",
+      },
+      heldNotice: "These seats are held for you",
+      expiredTitle: "Your hold has expired",
+      expiredBody:
+        "Seats are only held for a few minutes so they are not kept from other travellers. Nothing was booked and nothing was charged — pick the departure again and it will be held afresh.",
+      backToTour: "Back to the tour",
+      leadTraveller: "Lead traveller",
+      leadTravellerHint: "Whoever the guide will ask for at the meeting point.",
+      otherTravellers: "Other travellers",
+      otherTravellersHint:
+        "Optional now. Multi-day journeys need every name before departure, so adding them saves a call later.",
+      travellerNumber: "Traveller {number}",
+      addTraveller: "Add a traveller",
+      removeTraveller: "Remove traveller {number}",
+      passport: "Passport number (optional)",
+      nationality: "Nationality (optional)",
+      nationalityHint: "Two-letter country code, e.g. GE, IL, US.",
+      dietary: "Dietary needs (optional)",
+      pickupNote: "Pick-up note",
+      pickupNoteHint:
+        "Where to collect you if the option includes pick-up — a hotel name and address is ideal.",
+      specialRequests: "Anything the operator should know",
+      specialRequestsHint:
+        "Mobility, a birthday on the road, a photographer in the group. Passed on, never guaranteed.",
+      terms:
+        "By confirming you accept the cancellation terms shown. Payment is settled with the operator, not on this site.",
+      onRequestNotice:
+        "This departure is confirmed by the operator. Your seats are held now; you will hear within 48 hours, and nothing is charged if it cannot run.",
+      confirm: "Confirm booking",
+      request: "Send request",
+      confirming: "Confirming…",
+      summary: "Your journey",
+      departure: "Departure",
+      option: "Option",
+      travellers: "Travellers",
+      total: "Total",
+      noHoldTitle: "Nothing to check out",
+      noHoldBody:
+        "This page needs a departure held against it. Choose a date and an option on a tour, and you will land back here.",
+      findTour: "Find a tour",
+      partialDraft:
+        "We could not recover the full details of your hold in this tab, but it is still valid and your booking will be confirmed correctly.",
+    },
+    confirmation: {
+      metaTitle: "Booking confirmed",
+      title: "You are booked",
+      requestedTitle: "Request sent",
+      subtitle: "{tour} departs on {date}.",
+      requestedSubtitle: "The operator will confirm {tour} for {date} within 48 hours.",
+      emailedTo: "A confirmation is on its way to {email}.",
+      referenceHint: "Quote this to the guide. Keep it with your travel documents.",
+      whatNext: "What happens now",
+      whatNextSteps: {
+        one: "The operator has your booking and your travellers' names.",
+        two: "Be at the meeting point a little before the start time.",
+        three: "You can review or cancel from your booking page, under the terms shown.",
+      },
+      requestedSteps: {
+        one: "The operator checks the guide and the vehicle for your date.",
+        two: "You will get an email within 48 hours saying yes or no.",
+        three: "Until then the request can be cancelled at no charge.",
+      },
+      manageBooking: "View or cancel this booking",
+      notFoundTitle: "We cannot find that booking",
+      notFoundBody:
+        "The reference or the email does not match anything we hold. Check both — the reference is on your confirmation email.",
+    },
+    manage: {
+      reference: "Booking reference",
+      bookedOn: "Booked {date}",
+      tour: "Journey",
+      departure: "Departure",
+      ends: "Ends",
+      option: "Option",
+      meetingPoint: "Meeting point",
+      meetingTime: "Meet at {time}",
+      travellers: "Travellers",
+      leadTraveller: "Lead traveller",
+      pickupNote: "Pick-up",
+      specialRequests: "Your requests",
+      noRequests: "None",
+      priceTitle: "What you booked",
+      cancellationTerms: "Cancellation terms",
+      freeUntil: "Free until {date}",
+      thenCharge: "From {date}: {amount}",
+      nonRefundable: "Non-refundable",
+      total: "Total",
+      cancellationCharge: "Cancellation charge",
+      cancelledOn: "Cancelled {date}",
+      awaiting: "The operator has until {date} to confirm this departure.",
+      declined: "The operator could not run this departure: {reason}",
+    },
+    cancel: {
+      irreversible: "Cancelling releases the seats immediately and cannot be undone.",
+      doneBody: "The seats have been released and the operator has been told.",
+      pendingFree: "A request the operator has not yet confirmed is cancelled at no charge.",
+    },
+    status: {
+      PENDING: "Awaiting confirmation",
+      CONFIRMED: "Confirmed",
+      CANCELLED: "Cancelled",
+      COMPLETED: "Completed",
+      NO_SHOW: "No show",
     },
     categories: {
       adventure: "Adventure",

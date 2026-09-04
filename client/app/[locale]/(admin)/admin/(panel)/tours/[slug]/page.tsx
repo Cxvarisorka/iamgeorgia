@@ -1,8 +1,7 @@
-import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import type { Metadata } from "next";
+import { ArrowRight, CalendarDays, ExternalLink, FileText, ImageIcon, Languages, Tags } from "lucide-react";
 
 import {
   AdminBreadcrumbs,
@@ -11,170 +10,227 @@ import {
   AdminPageHeader,
   AdminPanel,
 } from "@/components/admin/AdminPage";
-import { ListingEditor, type EditorField } from "@/components/admin/ListingEditor";
-import { getTourBySlug, tours } from "@/data/tours";
-import { } from "@/lib/admin/metrics";
+import { Cell, DataTable, EmptyRow, Row } from "@/components/admin/DataTable";
+import { HotelStatusBadge } from "@/components/admin/HotelStatusBadge";
+import { TourBookingStatusBadge } from "@/components/admin/StatusBadge";
+import { TourActions } from "@/components/admin/TourActions";
+import { getTour, listAdminTourBookings } from "@/lib/api/tours";
+import { ApiError } from "@/lib/api/client";
+import {
+  categoryLabel,
+  confirmationModeLabels,
+  formatDeparture,
+  optionKindLabels,
+  pricingBasisLabels,
+  tourCardImage,
+} from "@/lib/admin/tours";
+import { formatMoney } from "@/lib/money";
 import { getI18n } from "@/lib/i18n/server";
-import { formatPrice } from "@/lib/utils";
+import type { TourBookingSummary } from "@/types/tour";
 
-export function generateStaticParams() {
-  return tours.map((tour) => ({ slug: tour.slug }));
-}
+export const metadata: Metadata = { title: "Tour" };
 
-export async function generateMetadata(
-  props: PageProps<"/[locale]/admin/tours/[slug]">,
-): Promise<Metadata> {
-  const { slug } = await props.params;
-  const tour = getTourBySlug(slug);
-  return { title: tour ? tour.title : "Tour not found" };
-}
+/**
+ * One tour: the hub its sub-screens hang off.
+ *
+ * The segment is `[slug]` but takes the id or the slug — the API accepts
+ * either. The publish checklist travels with the record, so the page shows
+ * exactly what stands between a draft and going on sale.
+ */
+export default async function AdminTourPage({ params }: PageProps<"/[locale]/admin/tours/[slug]">) {
+  const { slug } = await params;
+  const { path } = await getI18n();
 
-export default async function AdminTourEditPage(
-  props: PageProps<"/[locale]/admin/tours/[slug]">,
-) {
-  const [{ slug }, { path }] = await Promise.all([props.params, getI18n()]);
+  let tour;
 
-  const tour = getTourBySlug(slug);
-  if (!tour) notFound();
+  try {
+    tour = await getTour(slug);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) notFound();
+    throw error;
+  }
 
-  const sections: { title: string; description?: string; fields: EditorField[] }[] = [
+  // Recent bookings are decoration on the hub; a failure there must not take
+  // the tour page down.
+  let recent: TourBookingSummary[] = [];
+
+  try {
+    recent = (await listAdminTourBookings({ tourId: tour.id, pageSize: 5 })).data;
+  } catch (error) {
+    console.error("Tour bookings failed:", error);
+  }
+
+  const cover = tourCardImage(tour);
+  const options = tour.options.filter((option) => option.status !== "ARCHIVED");
+
+  const subScreens = [
     {
-      title: "Listing",
-      description: "How the journey appears across the public site.",
-      fields: [
-        { name: "title", label: "Tour title", type: "text", value: tour.title },
-        {
-          name: "category",
-          label: "Category",
-          type: "select",
-          value: tour.category,
-          options: ["adventure", "culture", "wine", "nature", "city"],
-          half: true,
-        },
-        {
-          name: "difficulty",
-          label: "Difficulty",
-          type: "select",
-          value: tour.difficulty,
-          options: ["Easy", "Moderate", "Challenging"],
-          half: true,
-        },
-        { name: "location", label: "Region", type: "text", value: tour.location, half: true },
-        {
-          name: "groupSize",
-          label: "Group size",
-          type: "text",
-          value: tour.groupSize,
-          half: true,
-        },
-        {
-          name: "summary",
-          label: "Summary",
-          type: "area",
-          value: tour.summary,
-          hint: "One or two sentences. Shown on cards and search results.",
-        },
-      ],
+      href: `/admin/tours/${tour.id}/options`,
+      icon: Tags,
+      title: "Options & prices",
+      description: `${options.length} ${options.length === 1 ? "option" : "options"}, with their price sheets`,
     },
     {
-      title: "Duration and price",
-      fields: [
-        {
-          name: "durationDays",
-          label: "Duration in days",
-          type: "number",
-          value: String(tour.durationDays),
-          half: true,
-        },
-        {
-          name: "durationLabel",
-          label: "Duration label",
-          type: "text",
-          value: tour.durationLabel,
-          half: true,
-          hint: "What a traveller reads, e.g. “3 days, 2 nights”.",
-        },
-        {
-          name: "priceFrom",
-          label: "Price from",
-          type: "number",
-          value: String(tour.priceFrom),
-          prefix: "$",
-          half: true,
-          hint: "Per person.",
-        },
-        {
-          name: "meetingPoint",
-          label: "Meeting point",
-          type: "text",
-          value: tour.meetingPoint,
-          half: true,
-        },
-      ],
+      href: `/admin/tours/${tour.id}/departures`,
+      icon: CalendarDays,
+      title: "Departures",
+      description: "Capacity per date, and the bulk editor",
+    },
+    {
+      href: `/admin/tours/${tour.id}/details`,
+      icon: FileText,
+      title: "Details & itinerary",
+      description: tour.itinerary.length > 0 ? `${tour.itinerary.length}-day itinerary` : "Itinerary still to write",
+    },
+    {
+      href: `/admin/tours/${tour.id}/images`,
+      icon: ImageIcon,
+      title: "Images",
+      description: `${tour.images.length} in the gallery`,
+    },
+    {
+      href: `/admin/tours/${tour.id}/translations`,
+      icon: Languages,
+      title: "Translations",
+      description: "Georgian, Russian and Hebrew prose",
     },
   ];
 
   return (
     <AdminContainer>
-      <AdminBreadcrumbs
-        items={[{ label: "Tours", href: path("/admin/tours") }, { label: tour.title }]}
-      />
+      <AdminBreadcrumbs items={[{ label: "Tours", href: path("/admin/tours") }, { label: tour.title }]} />
 
       <AdminPageHeader
         title={tour.title}
-        description={`${tour.durationLabel} · ${tour.location} · ${tour.difficulty}`}
+        description={`${categoryLabel(tour.category)} · ${tour.durationLabel} · ${tour.location}`}
         actions={
-          <>
-            <Link
-              href={path(`/tours/${tour.slug}`)}
-              className="inline-flex h-10 items-center gap-2 rounded-sm border border-ink/20 px-4 text-[0.8125rem] font-semibold text-ink transition-colors hover:border-ink hover:bg-surface-soft"
-            >
-              <ExternalLink size={15} aria-hidden />
-              View live page
-            </Link>
-            <Link
-              href={path("/admin/tours")}
-              className="inline-flex h-10 items-center gap-2 rounded-sm border border-ink/20 px-4 text-[0.8125rem] font-semibold text-ink transition-colors hover:border-ink hover:bg-surface-soft"
-            >
-              <ArrowLeft size={15} className="rtl:-scale-x-100" aria-hidden />
-              All tours
-            </Link>
-          </>
+          <div className="flex items-center gap-3">
+            {tour.status === "ACTIVE" && (
+              <Link
+                href={path(`/tours/${tour.slug}`)}
+                className="inline-flex h-10 items-center gap-2 rounded-sm border border-ink/20 px-4 text-[0.8125rem] font-semibold text-ink transition-colors hover:border-ink hover:bg-surface-soft"
+              >
+                <ExternalLink size={15} aria-hidden />
+                View live page
+              </Link>
+            )}
+            {tour.status && <HotelStatusBadge status={tour.status} />}
+          </div>
         }
       />
 
       <div className="mt-8 grid gap-6 lg:grid-cols-3">
-        <div className="min-w-0 lg:col-span-2">
-          <ListingEditor sections={sections} featured={tour.featured} />
-        </div>
+        <div className="flex flex-col gap-6 lg:col-span-2">
+          <nav aria-label="Tour sections" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {subScreens.map((screen) => (
+              <Link
+                key={screen.href}
+                href={path(screen.href)}
+                className="group rounded-sm border border-line bg-surface p-4 transition-colors hover:border-ink"
+              >
+                <screen.icon size={18} className="text-brand-text" aria-hidden />
+                <p className="mt-3 flex items-center gap-1 font-medium text-ink">
+                  {screen.title}
+                  <ArrowRight size={14} aria-hidden className="opacity-0 transition-opacity group-hover:opacity-100 rtl:-scale-x-100" />
+                </p>
+                <p className="mt-1 text-[0.8125rem] text-muted">{screen.description}</p>
+              </Link>
+            ))}
+          </nav>
 
-        <div className="space-y-6">
-          <AdminPanel title="Cover image" bodyClassName="p-0">
-            <div className="relative aspect-4/3 w-full overflow-hidden bg-line">
-              <Image
-                src={tour.image}
-                alt={`Cover image for ${tour.title}`}
-                fill
-                sizes="(max-width: 1024px) 100vw, 22rem"
-                className="object-cover"
-              />
-            </div>
-            <p className="px-5 py-4 text-[0.75rem] text-subtle">
-              {tour.gallery.length} images in the gallery. Image management is not part of
-              this prototype.
-            </p>
-          </AdminPanel>
-
-          <AdminPanel title="Performance">
+          <AdminPanel title="Tour">
             <AdminDefinitionList
               items={[
-                { label: "Itinerary days", value: String(tour.itinerary.length) },
-                { label: "Rating", value: `${tour.rating.toFixed(1)} / 5` },
-                { label: "Reviews", value: tour.reviewCount.toLocaleString("en-GB") },
+                { label: "Slug", value: tour.slug },
+                { label: "Destination", value: tour.destination ? `${tour.destination.name} (${tour.destination.path})` : "—" },
+                { label: "Currency", value: tour.currency },
+                { label: "Time zone", value: tour.timezone },
+                { label: "Meeting", value: `${tour.meetingPoint}${tour.meetingTime ? ` at ${tour.meetingTime}` : ""}` },
+                { label: "Ages", value: `infants to ${tour.ages.infantMaxAge}, children to ${tour.ages.childMaxAge}${tour.minAge !== null ? `, minimum ${tour.minAge}` : ""}` },
+                { label: "Supplier", value: tour.supplier?.name ?? "Platform-operated" },
+                { label: "From price", value: tour.priceFrom ? formatMoney(tour.priceFrom.amountCents, tour.priceFrom.currency) : "Not priced yet" },
               ]}
             />
           </AdminPanel>
 
+          <AdminPanel title="Options" bodyClassName="p-0">
+            <DataTable
+              columns={[{ label: "Option" }, { label: "Kind" }, { label: "Priced" }, { label: "Confirmation" }, { label: "Pax", align: "end" }]}
+              caption="Options on this tour"
+            >
+              {options.length === 0 ? (
+                <EmptyRow colSpan={5} message="No options yet. A tour needs one before it can be published." />
+              ) : (
+                options.map((option) => (
+                  <Row key={option.id}>
+                    <Cell>
+                      <Link href={path(`/admin/tours/${tour.id}/options`)} className="font-medium text-ink underline-offset-4 hover:underline">
+                        {option.name}
+                      </Link>
+                      <span className="ms-2 text-[0.75rem] text-muted">{option.code}</span>
+                    </Cell>
+                    <Cell>{optionKindLabels[option.kind]}</Cell>
+                    <Cell>{pricingBasisLabels[option.pricingBasis]}</Cell>
+                    <Cell>{confirmationModeLabels[option.confirmationMode]}</Cell>
+                    <Cell align="end">{option.minPax}–{option.maxPax}</Cell>
+                  </Row>
+                ))
+              )}
+            </DataTable>
+          </AdminPanel>
+
+          <AdminPanel title="Recent bookings" bodyClassName="p-0">
+            <DataTable
+              columns={[{ label: "Reference" }, { label: "Traveller" }, { label: "Departure", hideBelow: "md" }, { label: "Status" }, { label: "Total", align: "end" }]}
+              caption="Recent bookings on this tour"
+            >
+              {recent.length === 0 ? (
+                <EmptyRow colSpan={5} message="No bookings yet." />
+              ) : (
+                recent.map((booking) => (
+                  <Row key={booking.reference}>
+                    <Cell>
+                      <Link href={path(`/admin/tours/bookings/${booking.reference}`)} className="font-medium text-ink underline-offset-4 hover:underline">
+                        {booking.reference}
+                      </Link>
+                    </Cell>
+                    <Cell>{booking.leadTravellerName}</Cell>
+                    <Cell hideBelow="md">{formatDeparture(booking.date, booking.endDate)}</Cell>
+                    <Cell><TourBookingStatusBadge status={booking.status} /></Cell>
+                    <Cell align="end" className="tabular-nums">{formatMoney(booking.totalCents, booking.currency)}</Cell>
+                  </Row>
+                ))
+              )}
+            </DataTable>
+          </AdminPanel>
+        </div>
+
+        <div className="flex flex-col gap-6">
+          {cover && (
+            // eslint-disable-next-line @next/next/no-img-element -- editorial or API-served
+            <img src={cover} alt={tour.title} className="aspect-4/3 w-full rounded-sm object-cover" />
+          )}
+
+          <AdminPanel
+            title="Publishing"
+            description={
+              tour.publishChecklist.length === 0
+                ? "Everything required is in place."
+                : "What still stands between this tour and going on sale."
+            }
+          >
+            {tour.publishChecklist.length > 0 && (
+              <ul className="mb-4 space-y-2">
+                {tour.publishChecklist.map((item) => (
+                  <li key={item.code} className="flex items-start gap-2 text-[0.8125rem] text-body">
+                    <span aria-hidden className="mt-1.5 size-1.5 shrink-0 rounded-full bg-warning" />
+                    {item.message}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <TourActions tour={tour} />
+          </AdminPanel>
         </div>
       </div>
     </AdminContainer>

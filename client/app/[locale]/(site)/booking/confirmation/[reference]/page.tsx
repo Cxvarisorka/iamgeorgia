@@ -7,11 +7,17 @@ import { PrintButton } from "@/components/booking/PrintButton";
 import { Button } from "@/components/ui/Button";
 import { Container } from "@/components/ui/Container";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { TourConfirmationView } from "@/components/tours/TourConfirmationView";
 import { getGuestBooking } from "@/lib/api/bookings";
 import { ApiError } from "@/lib/api/client";
+import { getGuestTourBooking } from "@/lib/api/tours";
 import { formatStayDate } from "@/lib/booking/stay";
 import { getI18n } from "@/lib/i18n/server";
 import type { Booking } from "@/types/booking";
+import type { TourBooking } from "@/types/tour";
+
+/** A TUR reference is a tour booking: a separate record with its own page. */
+const isTourReference = (reference: string) => reference.toUpperCase().startsWith("TUR-");
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -44,6 +50,17 @@ const loadBooking = async (reference: string, email: string | null): Promise<Boo
   }
 };
 
+const loadTourBooking = async (reference: string, email: string | null): Promise<TourBooking | null> => {
+  if (!email) return null;
+
+  try {
+    return await getGuestTourBooking(reference, email);
+  } catch (error) {
+    if (error instanceof ApiError && [400, 403, 404].includes(error.status)) return null;
+    throw error;
+  }
+};
+
 export default async function BookingConfirmationPage(
   props: PageProps<"/[locale]/booking/confirmation/[reference]">,
 ) {
@@ -53,6 +70,24 @@ export default async function BookingConfirmationPage(
 
   const requested = searchParams.email;
   const email = (Array.isArray(requested) ? requested[0] : requested) ?? null;
+
+  const notFoundView = (
+    <Container className="py-20">
+      <EmptyState
+        iconName="searchX"
+        title={t.booking.confirmation.notFoundTitle}
+        description={t.booking.confirmation.notFoundBody}
+        action={{ label: t.booking.manage.title, href: path("/booking/manage") }}
+      />
+    </Container>
+  );
+
+  if (isTourReference(reference)) {
+    const tourBooking = await loadTourBooking(reference, email);
+
+    return tourBooking ? <TourConfirmationView booking={tourBooking} /> : notFoundView;
+  }
+
   const booking = await loadBooking(reference, email);
 
   if (!booking) {

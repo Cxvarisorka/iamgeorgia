@@ -1,62 +1,58 @@
+import Link from "next/link";
 import type { Metadata } from "next";
-import { Plus } from "lucide-react";
+import { CheckCircle2, Compass, PenLine, Plus } from "lucide-react";
 
 import { AdminContainer, AdminPageHeader } from "@/components/admin/AdminPage";
-import { InventoryBrowser, type InventoryRow } from "@/components/admin/InventoryBrowser";
-import { tours } from "@/data/tours";
+import { StatCard } from "@/components/admin/StatCard";
+import { ToursBrowser } from "@/components/admin/ToursBrowser";
+import { listTours } from "@/lib/api/tours";
+import { tourQueryFromParams } from "@/lib/admin/tours";
+import { getI18n } from "@/lib/i18n/server";
 
 export const metadata: Metadata = { title: "Tours" };
 
-/** Sentence case for the table, from the lowercase category keys in the data. */
-function categoryLabel(category: string): string {
-  return category.charAt(0).toUpperCase() + category.slice(1);
-}
+/**
+ * The tour register.
+ *
+ * Live records, filtered on the server through the URL — the same shape as
+ * the hotels list. The counting queries ask for one row each; they want
+ * totals, not records.
+ */
+export default async function AdminToursPage({ searchParams }: PageProps<"/[locale]/admin/tours">) {
+  const { path } = await getI18n();
+  const query = tourQueryFromParams(await searchParams);
 
-export default function AdminToursPage() {
-  const rows: InventoryRow[] = tours.map((tour) => ({
-    id: tour.id,
-    slug: tour.slug,
-    name: tour.title,
-    image: tour.image,
-    location: tour.location,
-    group: categoryLabel(tour.category),
-    price: tour.priceFrom,
-    priceUnit: "per person",
-    rating: tour.rating,
-    reviewCount: tour.reviewCount,
-    detailLabel: `${tour.durationLabel} · ${tour.difficulty}`,
-    featured: tour.featured,
-    // Tours have no booking backend yet, and a fictional count would imply
-    // one. Zero is the honest figure until they do.
-    bookings: 0,
-  }));
-
-  const groups = Array.from(new Set(tours.map((tour) => categoryLabel(tour.category))));
+  const [list, active, drafts] = await Promise.all([
+    listTours(query),
+    listTours({ status: "ACTIVE", pageSize: 1 }),
+    listTours({ status: "DRAFT", pageSize: 1 }),
+  ]);
 
   return (
     <AdminContainer>
       <AdminPageHeader
         title="Tours"
-        description="Multi-day journeys and day trips, with live booking counts."
+        description="Every journey on the platform and where each sits in its lifecycle."
         actions={
-          <button
-            type="button"
+          <Link
+            href={path("/admin/tours/new")}
             className="inline-flex h-10 items-center gap-2 rounded-sm bg-brand px-4 text-[0.8125rem] font-semibold text-white transition-colors hover:bg-brand-hover"
           >
             <Plus size={15} aria-hidden />
             Add tour
-          </button>
+          </Link>
         }
       />
 
-      <InventoryBrowser
-        rows={rows}
-        groups={groups}
-        groupLegend="Category"
-        basePath="/admin/tours"
-        searchPlaceholder="Search tours by name or region"
-        emptyMessage="No tours match those filters."
-      />
+      <div className="mt-6 grid gap-4 sm:grid-cols-3">
+        <StatCard label="On sale" value={String(active.total)} icon={CheckCircle2} hint="Visible in search and bookable" />
+        <StatCard label="Drafts" value={String(drafts.total)} icon={PenLine} hint="Being set up, invisible to travellers" />
+        <StatCard label="All tours" value={String(list.total)} icon={Compass} />
+      </div>
+
+      <div className="mt-8">
+        <ToursBrowser {...list} />
+      </div>
     </AdminContainer>
   );
 }

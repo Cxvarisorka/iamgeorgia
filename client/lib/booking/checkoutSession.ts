@@ -1,25 +1,29 @@
 "use client";
 
 import type { Hold, Offer, StayQuery } from "@/types/booking";
+import type { TourHold, TourOfferAvailable, TourOption } from "@/types/tour";
+import type { TourStay } from "@/lib/tours/query";
 
 /**
- * The handoff between choosing a room and filling in the guest form.
+ * The handoff between choosing something and filling in the guest form.
  *
  * The hold token travels in the URL, so a refresh or a back-button resumes the
- * same hold rather than taking a second one off the same room. Everything the
- * summary panel wants to *show* — the property, the room, the nightly
- * breakdown, the cancellation terms — travels in `sessionStorage` beside it,
- * because an offer token runs to a few thousand characters and has no business
- * in a URL.
+ * same hold rather than taking a second one off the same room or seat.
+ * Everything the summary panel wants to *show* — the property, the room, the
+ * nightly breakdown, the cancellation terms — travels in `sessionStorage`
+ * beside it, because an offer token runs to a few thousand characters and has
+ * no business in a URL.
  *
  * `sessionStorage` rather than `localStorage` deliberately: a checkout is one
  * tab's business, and two tabs booking two different rooms must not overwrite
  * each other's summary. Losing it is survivable — the confirm call needs only
  * the hold token, so a draft that has gone shows a reduced summary rather than
  * an error.
+ *
+ * One store per product. A hotel draft and a tour draft are different shapes
+ * under different keys, so a traveller with a hotel checkout open in one tab
+ * and a tour in another loses neither.
  */
-
-const KEY = "iag:checkout";
 
 export interface CheckoutDraft {
   /** Also in the URL. Read back to detect a draft belonging to another hold. */
@@ -53,18 +57,18 @@ export interface CheckoutDraft {
   idempotencyKey: string;
 }
 
-const isBrowser = () => typeof window !== "undefined";
-
-export function saveCheckoutDraft(draft: CheckoutDraft): void {
-  if (!isBrowser()) return;
-
-  try {
-    window.sessionStorage.setItem(KEY, JSON.stringify(draft));
-    notify();
-  } catch {
-    // Private-mode quota, or storage switched off. The flow still works from
-    // the hold token alone, so this is not worth interrupting anyone over.
-  }
+/** The tour twin: one departure, one option, one party. */
+export interface TourCheckoutDraft {
+  holdToken: string;
+  hold: TourHold;
+  offer: TourOfferAvailable;
+  option: Pick<TourOption, "id" | "code" | "name" | "kind" | "pricingBasis" | "confirmationMode">;
+  tourSlug: string;
+  tourTitle: string;
+  /** "3 days · 2 nights" as the tour states it, for the summary. */
+  durationLabel: string;
+  stay: TourStay;
+  idempotencyKey: string;
 }
 
 /**
@@ -80,79 +84,126 @@ export function saveCheckoutDraft(draft: CheckoutDraft): void {
  * so the markup React renders on the server and the markup it hydrates with
  * agree, and the real value arrives on the first client snapshot.
  */
-export interface CheckoutDraftState {
+export interface DraftState<T> {
   ready: boolean;
-  draft: CheckoutDraft | null;
+  draft: T | null;
 }
 
 type Listener = () => void;
 
-const listeners = new Set<Listener>();
+const isBrowser = () => typeof window !== "undefined";
 
-/** Frozen: `useSyncExternalStore` compares snapshots by identity. */
-const SERVER_STATE: CheckoutDraftState = Object.freeze({ ready: false, draft: null });
-
-/**
- * The parse is cached against the raw string, because `getSnapshot` is called
- * on every render and must return the same object until the value changes —
- * a fresh `JSON.parse` each time would loop React forever.
- */
-let cached: { raw: string | null; state: CheckoutDraftState } | null = null;
-
-const readRaw = (): string | null => {
-  try {
-    return window.sessionStorage.getItem(KEY);
-  } catch {
-    return null;
-  }
-};
-
-export function checkoutDraftSnapshot(): CheckoutDraftState {
-  const raw = readRaw();
-
-  if (!cached || cached.raw !== raw) {
-    let draft: CheckoutDraft | null = null;
-
-    try {
-      draft = raw ? (JSON.parse(raw) as CheckoutDraft) : null;
-    } catch {
-      draft = null;
-    }
-
-    cached = { raw, state: { ready: true, draft } };
-  }
-
-  return cached.state;
+interface DraftStore<T> {
+  save: (draft: T) => void;
+  clear: () => void;
+  snapshot: () => DraftState<T>;
+  serverSnapshot: () => DraftState<T>;
+  subscribe: (listener: Listener) => () => void;
 }
 
-export const checkoutDraftServerSnapshot = (): CheckoutDraftState => SERVER_STATE;
+function createDraftStore<T>(key: string): DraftStore<T> {
+  const listeners = new Set<Listener>();
 
-export function subscribeCheckoutDraft(listener: Listener): () => void {
-  listeners.add(listener);
-  // Fires for writes made by *other* tabs; same-tab writes notify directly.
-  window.addEventListener("storage", listener);
+  /** Frozen: `useSyncExternalStore` compares snapshots by identity. */
+  const SERVER_STATE: DraftState<T> = Object.freeze({ ready: false, draft: null });
 
-  return () => {
-    listeners.delete(listener);
-    window.removeEventListener("storage", listener);
+  /**
+   * The parse is cached against the raw string, because `getSnapshot` is
+   * called on every render and must return the same object until the value
+   * changes — a fresh `JSON.parse` each time would loop React forever.
+   */
+  let cached: { raw: string | null; state: DraftState<T> } | null = null;
+
+  const readRaw = (): string | null => {
+    try {
+      return window.sessionStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  };
+
+  const notify = () => {
+    cached = null;
+    for (const listener of listeners) listener();
+  };
+
+  return {
+    save(draft) {
+      if (!isBrowser()) return;
+
+      try {
+        window.sessionStorage.setItem(key, JSON.stringify(draft));
+        notify();
+      } catch {
+        // Private-mode quota, or storage switched off. The flow still works
+        // from the hold token alone, so this is not worth interrupting anyone
+        // over.
+      }
+    },
+    clear() {
+      if (!isBrowser()) return;
+
+      try {
+        window.sessionStorage.removeItem(key);
+        notify();
+      } catch {
+        /* nothing to clear */
+      }
+    },
+    snapshot() {
+      const raw = readRaw();
+
+      if (!cached || cached.raw !== raw) {
+        let draft: T | null = null;
+
+        try {
+          draft = raw ? (JSON.parse(raw) as T) : null;
+        } catch {
+          draft = null;
+        }
+
+        cached = { raw, state: { ready: true, draft } };
+      }
+
+      return cached.state;
+    },
+    serverSnapshot: () => SERVER_STATE,
+    subscribe(listener) {
+      listeners.add(listener);
+      // Fires for writes made by *other* tabs; same-tab writes notify directly.
+      window.addEventListener("storage", listener);
+
+      return () => {
+        listeners.delete(listener);
+        window.removeEventListener("storage", listener);
+      };
+    },
   };
 }
 
-const notify = () => {
-  cached = null;
-  for (const listener of listeners) listener();
-};
+// --- hotels -----------------------------------------------------------------
 
-export function clearCheckoutDraft(): void {
-  if (!isBrowser()) return;
+const hotelStore = createDraftStore<CheckoutDraft>("iag:checkout");
 
-  try {
-    window.sessionStorage.removeItem(KEY);
-    notify();
-  } catch {
-    /* nothing to clear */
-  }
-}
+export type CheckoutDraftState = DraftState<CheckoutDraft>;
+
+export const saveCheckoutDraft = hotelStore.save;
+export const clearCheckoutDraft = hotelStore.clear;
+export const checkoutDraftSnapshot = hotelStore.snapshot;
+export const checkoutDraftServerSnapshot = hotelStore.serverSnapshot;
+export const subscribeCheckoutDraft = hotelStore.subscribe;
+
+// --- tours ------------------------------------------------------------------
+
+const tourStore = createDraftStore<TourCheckoutDraft>("iag:checkout:tour");
+
+export type TourCheckoutDraftState = DraftState<TourCheckoutDraft>;
+
+export const saveTourCheckoutDraft = tourStore.save;
+export const clearTourCheckoutDraft = tourStore.clear;
+export const tourCheckoutDraftSnapshot = tourStore.snapshot;
+export const tourCheckoutDraftServerSnapshot = tourStore.serverSnapshot;
+export const subscribeTourCheckoutDraft = tourStore.subscribe;
 
 /**
  * An idempotency key for one confirmation attempt.
