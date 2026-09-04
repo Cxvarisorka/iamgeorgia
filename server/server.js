@@ -7,6 +7,8 @@ import { auditSweep, sweepExpiredHolds } from './services/hotel/availability.ser
 import { sweepExpiringCertifications } from './services/hotel/kosher.service.js';
 import { drainOutbox } from './services/notifications/outbox.service.js';
 import { sweepReminders } from './services/transfer/reminder.service.js';
+import { auditTourSweep, sweepExpiredTourHolds } from './services/tour/availability.service.js';
+import { sweepCompletedTourBookings, sweepOverdueTourRequests } from './services/tour/booking.service.js';
 
 const start = async () => {
     await connect();
@@ -87,6 +89,29 @@ const start = async () => {
     }, config.transfer.dispatch.reminderSweepIntervalMs);
 
     reminderSweeper.unref();
+
+    /** Tour holds: the same counter-and-sweeper discipline as room holds. */
+    const tourHoldSweeper = setInterval(() => {
+        sweepExpiredTourHolds()
+            .then(({ swept }) => auditTourSweep(swept))
+            .catch((err) => logger.error({ err }, 'Tour hold sweep failed'));
+    }, config.tour.holdSweepIntervalMs);
+
+    tourHoldSweeper.unref();
+
+    /** Rolls tours whose last day has passed to COMPLETED. */
+    const tourCompletionSweeper = setInterval(() => {
+        sweepCompletedTourBookings().catch((err) => logger.error({ err }, 'Tour completion sweep failed'));
+    }, config.tour.completionSweepIntervalMs);
+
+    tourCompletionSweeper.unref();
+
+    /** Tells operations about on-request bookings nobody has answered in time. */
+    const tourRequestSweeper = setInterval(() => {
+        sweepOverdueTourRequests().catch((err) => logger.error({ err }, 'Tour request sweep failed'));
+    }, config.tour.requestSweepIntervalMs);
+
+    tourRequestSweeper.unref();
 
     let shuttingDown = false;
 

@@ -155,6 +155,14 @@ export const jsonFieldSchemas = {
     Tour: {
         gallery: gallerySchema
     },
+    TourBooking: {
+        // Snapshots and the frozen schedule are read whole and never queried;
+        // constrained to an object so a stray string cannot land in a column
+        // the voucher reads keys from.
+        tourSnapshot: openObjectSchema,
+        priceLines: z.array(openObjectSchema),
+        cancellationSchedule: openObjectSchema
+    },
     Experience: {
         gallery: gallerySchema,
         whatToExpect: z.array(expectationStepSchema)

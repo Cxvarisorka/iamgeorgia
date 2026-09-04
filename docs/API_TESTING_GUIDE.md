@@ -972,6 +972,61 @@ They behave exactly like their hotel equivalents:
 
 ---
 
+## Part 6b — Tours
+
+Tours follow the hotel shape exactly, with departures in place of nights. Seed the catalogue first — `node --env-file=.env.test scripts/seed-tours.js` after `seed-reference.js` and `seed-catalogue.js` — and you have ten published tours, each with a shared seat option and a private group option, a year of price sheets and departures. Multi-day private options are **on request**.
+
+### 6b.1 Browse and search
+
+```
+GET /api/tours?locale=ka
+GET /api/tours/kakheti-wine-route
+GET /api/search/tours?date=2027-08-10&adults=2&childAges=6
+GET /api/search/tours/kakheti-wine-route?from=2027-08-01&to=2027-08-31&adults=2
+```
+
+Expect: anonymous callers see only B2C tours and PUBLIC options; a signed-in partner sees everything ACTIVE. Every departure entry is either `available: true` with a `token` and a `quote`, or `available: false` with a `reason` (`SOLD_OUT`, `PARTY_SIZE`, `TOO_SOON`, `BEYOND_HORIZON`, `PAST`, `UNPRICED`). A partner is quoted at its own commission; no `netCents` ever appears for a non-staff caller.
+
+### 6b.2 Hold, confirm, replay, cancel
+
+```
+POST /api/tours/bookings/holds           { "token": "<from search>" }        → 201, units held
+POST /api/tours/bookings                 { "holdToken": "...", "leadTraveller": {...}, "travellers": [...] }
+                                          Idempotency-Key: any-string          → 201 TUR-000001
+POST /api/tours/bookings  (same body + same key)                              → 200, same reference
+GET  /api/tours/bookings/TUR-000001?email=<lead email>
+GET  /api/tours/bookings/TUR-000001/cancellation-quote?email=...
+POST /api/tours/bookings/TUR-000001/cancel  { "email": "..." }
+```
+
+Things to try: confirm with an `offerToken` after an admin has repriced the season → `409 PRICE_CHANGED` with `quotedCents`/`currentCents`; five concurrent confirmations against a departure with seven seats → exactly three succeed, two get `409 UNAVAILABLE`; let a hold expire (or `DELETE /holds/:token`) and confirm it → `410`.
+
+### 6b.3 On request
+
+Book the private option of any multi-day tour (or an option with `confirmationMode: ON_REQUEST`) → `201` with `status: PENDING` and `requestDeadlineAt`. The departure is already claimed. Then as an admin:
+
+```
+GET  /api/admin/tours/bookings?status=PENDING
+POST /api/admin/tours/bookings/TUR-000002/confirm            → CONFIRMED
+POST /api/admin/tours/bookings/TUR-000002/decline  { "reason": "Guide unavailable" }  → CANCELLED, charge 0, seats released
+```
+
+Confirming twice is a `409`. A pending request cancelled by the traveller charges nothing.
+
+### 6b.4 Admin catalogue
+
+```
+POST /api/admin/tours                                   → 201 DRAFT with publishChecklist
+POST /api/admin/tours/:tourId/options                   { code, name, kind, pricingBasis, maxPax, cancellationPolicyId, ... }
+POST /api/admin/tours/:tourId/options/:optionId/seasons { name, validFrom, validUntil, tiers: [{ minPax, adultNetCents, childNetCents }] }
+PUT  /api/admin/tours/:tourId/options/:optionId/inventory { from, to, weekdays?, totalUnits }
+GET  /api/admin/tours/:tourId/options/:optionId/inventory/calendar?from&to
+POST /api/admin/tours/:tourId/publish                   → 422 with details.missing until the checklist is clear
+PUT  /api/admin/tours/:tourId/translations/ka           { title: "..." }
+```
+
+Expect: a cancellation policy with per-night rules (the Flexible template) is refused for a tour option with `400`; the Tiered template works. Reducing `totalUnits` below what is already booked answers `409 OVERSELL` naming the dates. Publishing refreshes nothing — `priceFrom` is refreshed whenever a season is written.
+
 ## Part 7 — Partner portal
 
 All under `/api/partner`, all requiring a session.

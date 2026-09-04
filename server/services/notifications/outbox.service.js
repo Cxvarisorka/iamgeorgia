@@ -296,6 +296,43 @@ const handlers = {
         }
     },
 
+    [TOPICS.TOUR_REQUEST_OVERDUE]: async ({ bookingId }) => {
+        const booking = await prisma.tourBooking.findUnique({
+            where: { id: bookingId },
+            include: {
+                tour: { select: { title: true, timezone: true } },
+                partner: { select: { name: true, reference: true } }
+            }
+        });
+
+        // Answered or withdrawn since the sweep: nothing to say.
+        if (!booking || booking.status !== 'PENDING') return;
+
+        const data = {
+            reference: booking.reference,
+            tourTitle: booking.tour?.title ?? booking.tourSnapshot?.title ?? 'Tour',
+            optionName: booking.tourSnapshot?.option?.name ?? null,
+            date: booking.date,
+            timezone: booking.tour?.timezone ?? 'Asia/Tbilisi',
+            travellers: booking.adults + (booking.childAges?.length ?? 0),
+            partnerName: booking.partner?.name ?? null,
+            requestDeadlineAt: booking.requestDeadlineAt
+        };
+
+        await notify(await opsUserIds(), {
+            kind: 'TOUR_REQUEST_OVERDUE',
+            title: `${booking.reference} is waiting for the operator`,
+            body: `${data.tourTitle}${data.optionName ? ` · ${data.optionName}` : ''} · request unanswered past its deadline`,
+            payload: { bookingId, bookingReference: booking.reference },
+            entityType: 'TourBooking',
+            entityId: bookingId
+        });
+
+        if (config.transfer.dispatch.opsEmail) {
+            await sendMailQuietly({ to: config.transfer.dispatch.opsEmail, template: 'tourRequestOverdue', data });
+        }
+    },
+
     [TOPICS.PICKUP_REMINDER]: async ({ legId, assignmentId, driverId }) => {
         const [leg, driver] = await Promise.all([legWithContext(legId), driverWithUser(driverId)]);
         if (!leg || !driver?.user?.isActive) return;

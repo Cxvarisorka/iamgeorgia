@@ -30,6 +30,13 @@ import { adminDriverRoutes } from './admin.drivers.routes.js';
 import { adminDispatchRoutes } from './admin.dispatch.routes.js';
 import { driverRoutes } from './driver.routes.js';
 import { partnerDriverRoutes } from './partner.drivers.routes.js';
+import { tourRoutes, tourSearchRoutes } from './tours.routes.js';
+import {
+    adminTourBookingRoutes,
+    partnerTourBookingRoutes,
+    tourBookingRoutes
+} from './tours.bookings.routes.js';
+import { adminTourRoutes } from './admin.tours.routes.js';
 
 /**
  * Everything under /api. Mounted as one router so app.js keeps saying what the
@@ -50,7 +57,13 @@ routes.use('/invitations', invitationRoutes);
 routes.use('/destinations', destinationRoutes);
 // Dated search sits above the catalogue router: /api/search answers "what can
 // I book", /api/hotels answers "what properties exist".
+// Tours keep their own dated search and their own bookings prefix, for the
+// same reason transfers do: a TUR reference is not a BKG one. Mounted above
+// the catalogue routers so `/tours/bookings` is never read as a slug.
+routes.use('/search/tours', tourSearchRoutes);
 routes.use('/search', hotelSearchRoutes);
+routes.use('/tours/bookings', tourBookingRoutes);
+routes.use('/tours', tourRoutes);
 routes.use('/hotels', hotelRoutes);
 routes.use('/bookings', bookingRoutes);
 // Transfers keep their bookings under their own prefix rather than joining
@@ -75,6 +88,9 @@ routes.use('/admin/transfers/fleet', adminFleetRoutes);
 routes.use('/admin/transfers/drivers', adminDriverRoutes);
 routes.use('/admin/transfers/dispatch', adminDispatchRoutes);
 routes.use('/admin/transfers', adminTransferRoutes);
+routes.use('/admin/tours/bookings', adminTourBookingRoutes);
+routes.use('/admin/tours', adminTourRoutes);
+routes.use('/partner/tours/bookings', partnerTourBookingRoutes);
 routes.use('/partner/hotels', partnerHotelRoutes);
 routes.use('/partner/bookings', partnerBookingRoutes);
 routes.use('/partner/transfers/bookings', partnerTransferBookingRoutes);

@@ -15,7 +15,8 @@
 export const REFERENCE_KINDS = {
     partner: { sequence: 'partner_reference_seq', prefix: 'PTR', digits: 6 },
     hotelBooking: { sequence: 'hotel_booking_reference_seq', prefix: 'BKG', digits: 6 },
-    transferBooking: { sequence: 'transfer_booking_reference_seq', prefix: 'TRF', digits: 6 }
+    transferBooking: { sequence: 'transfer_booking_reference_seq', prefix: 'TRF', digits: 6 },
+    tourBooking: { sequence: 'tour_booking_reference_seq', prefix: 'TUR', digits: 6 }
 };
 
 const kindOrThrow = (kind) => {
@@ -68,3 +69,6 @@ export const isHotelBookingReference = (value) => isReference(value, 'hotelBooki
 
 export const nextTransferBookingReference = (client) => nextReference(client, 'transferBooking');
 export const isTransferBookingReference = (value) => isReference(value, 'transferBooking');
+
+export const nextTourBookingReference = (client) => nextReference(client, 'tourBooking');
+export const isTourBookingReference = (value) => isReference(value, 'tourBooking');

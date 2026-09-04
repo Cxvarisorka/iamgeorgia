@@ -52,5 +52,9 @@ export const AUDIT_ENTITY = {
     transferDriver: 'TransferDriver',
     transferAssignment: 'TransferAssignment',
     transferResourceBlock: 'TransferResourceBlock',
-    transferRating: 'TransferDriverRating'
+    transferRating: 'TransferDriverRating',
+    tour: 'Tour',
+    tourOption: 'TourOption',
+    tourSeason: 'TourSeason',
+    tourBooking: 'TourBooking'
 };

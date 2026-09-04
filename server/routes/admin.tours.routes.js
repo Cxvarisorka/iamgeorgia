@@ -1,0 +1,299 @@
+import { Router } from 'express';
+
+import { authenticate, requireAdmin } from '../middleware/auth.js';
+import { validate } from '../middleware/validate.js';
+import {
+    archiveTourSchema,
+    attachTourImageSchema,
+    createTourOptionSchema,
+    createTourSchema,
+    reorderTourImagesSchema,
+    tourCalendarQuerySchema,
+    tourImageParamSchema,
+    tourInventoryRangeSchema,
+    tourLocaleParamSchema,
+    tourOptionParamSchema,
+    tourOptionQuerySchema,
+    tourParamSchema,
+    tourQuerySchema,
+    tourSeasonParamSchema,
+    tourSeasonSchema,
+    tourTranslationSchema,
+    updateTourImageSchema,
+    updateTourOptionSchema,
+    updateTourSchema
+} from '../validation/tour.js';
+import {
+    archiveTour,
+    buildTourPublishChecklist,
+    createTour,
+    deleteTour,
+    findTourOr404,
+    listTours,
+    publishTour,
+    tourGallery,
+    unpublishTour,
+    updateTour,
+    upsertTourTranslation
+} from '../services/tour/tour.service.js';
+import {
+    archiveTourOption,
+    createTourOption,
+    deleteTourSeason,
+    findTourOptionOr404,
+    listTourOptions,
+    updateTourOption,
+    upsertTourSeason
+} from '../services/tour/option.service.js';
+import { readTourCalendar, setTourInventoryRange } from '../services/tour/inventory.service.js';
+import {
+    toTourCalendar,
+    toTourDetail,
+    toTourImage,
+    toTourOption,
+    toTourSeason,
+    toTourSummary,
+    toTourTranslation
+} from '../serializers/tour.js';
+
+/**
+ * Tour administration.
+ *
+ * The same shape as the hotel wizard's back end: a DRAFT from the first form,
+ * every later screen a PATCH or a sub-resource, lifecycle on its own
+ * endpoints so an ordinary update can never publish. Options, price sheets
+ * and departures hang off the tour and are only ever addressable through it.
+ */
+export const adminTourRoutes = Router();
+
+adminTourRoutes.use(authenticate, requireAdmin);
+
+const reload = (req, locale = 'en') => findTourOr404(req.valid.params.tourId, { locale });
+
+const withChecklist = (tour, viewer) => ({
+    ...toTourDetail(tour, 'en', viewer),
+    publishChecklist: buildTourPublishChecklist(tour)
+});
+
+adminTourRoutes.get('/', validate({ query: tourQuerySchema }), async (req, res) => {
+    const { locale } = req.valid.query;
+    const { tours, ...page } = await listTours(req.valid.query);
+
+    res.json({ data: tours.map((tour) => toTourSummary(tour, locale, req.user)), ...page });
+});
+
+adminTourRoutes.post('/', validate({ body: createTourSchema }), async (req, res) => {
+    const created = await createTour(req.valid.body, req.user, req);
+    const tour = await findTourOr404(created.id);
+
+    res.status(201).json(withChecklist(tour, req.user));
+});
+
+adminTourRoutes.get('/:tourId', validate({ params: tourParamSchema }), async (req, res) => {
+    res.json(withChecklist(await reload(req), req.user));
+});
+
+adminTourRoutes.patch('/:tourId', validate({ params: tourParamSchema, body: updateTourSchema }), async (req, res) => {
+    await updateTour(req.valid.params.tourId, req.valid.body, req.user, req);
+
+    res.json(withChecklist(await reload(req), req.user));
+});
+
+adminTourRoutes.post('/:tourId/publish', validate({ params: tourParamSchema }), async (req, res) => {
+    await publishTour(req.valid.params.tourId, req.user, req);
+
+    res.json(withChecklist(await reload(req), req.user));
+});
+
+adminTourRoutes.post('/:tourId/unpublish', validate({ params: tourParamSchema }), async (req, res) => {
+    await unpublishTour(req.valid.params.tourId, req.user, req);
+
+    res.json(withChecklist(await reload(req), req.user));
+});
+
+adminTourRoutes.post(
+    '/:tourId/archive',
+    validate({ params: tourParamSchema, body: archiveTourSchema }),
+    async (req, res) => {
+        await archiveTour(req.valid.params.tourId, req.valid.body, req.user, req);
+
+        res.json(withChecklist(await reload(req), req.user));
+    }
+);
+
+adminTourRoutes.delete('/:tourId', validate({ params: tourParamSchema }), async (req, res) => {
+    await deleteTour(req.valid.params.tourId, req.user, req);
+
+    res.status(204).end();
+});
+
+adminTourRoutes.put(
+    '/:tourId/translations/:locale',
+    validate({ params: tourLocaleParamSchema, body: tourTranslationSchema }),
+    async (req, res) => {
+        const { tourId, locale } = req.valid.params;
+        const translation = await upsertTourTranslation(tourId, locale, req.valid.body, req.user, req);
+
+        res.json(toTourTranslation(translation));
+    }
+);
+
+// --- gallery -----------------------------------------------------------------
+
+adminTourRoutes.post(
+    '/:tourId/images',
+    validate({ params: tourParamSchema, body: attachTourImageSchema }),
+    async (req, res) => {
+        const image = await tourGallery.attach(req.valid.params.tourId, req.valid.body, req.user, req);
+
+        res.status(201).json(toTourImage(image));
+    }
+);
+
+adminTourRoutes.put(
+    '/:tourId/images/order',
+    validate({ params: tourParamSchema, body: reorderTourImagesSchema }),
+    async (req, res) => {
+        await tourGallery.reorder(req.valid.params.tourId, req.valid.body.order, req.user, req);
+
+        res.json(withChecklist(await reload(req), req.user));
+    }
+);
+
+adminTourRoutes.patch(
+    '/:tourId/images/:imageId',
+    validate({ params: tourImageParamSchema, body: updateTourImageSchema }),
+    async (req, res) => {
+        const { tourId, imageId } = req.valid.params;
+        const image = await tourGallery.update(tourId, imageId, req.valid.body, req.user, req);
+
+        res.json(toTourImage(image));
+    }
+);
+
+adminTourRoutes.delete('/:tourId/images/:imageId', validate({ params: tourImageParamSchema }), async (req, res) => {
+    const { tourId, imageId } = req.valid.params;
+    await tourGallery.detach(tourId, imageId, req.user, req);
+
+    res.status(204).end();
+});
+
+// --- options -----------------------------------------------------------------
+
+adminTourRoutes.get(
+    '/:tourId/options',
+    validate({ params: tourParamSchema, query: tourOptionQuerySchema }),
+    async (req, res) => {
+        const tour = await reload(req);
+        const options = await listTourOptions(req.valid.params.tourId, {
+            status: req.valid.query.status,
+            includePartnerOnly: true
+        });
+
+        res.json({ data: options.map((option) => toTourOption(option, req.user, tour)) });
+    }
+);
+
+adminTourRoutes.post(
+    '/:tourId/options',
+    validate({ params: tourParamSchema, body: createTourOptionSchema }),
+    async (req, res) => {
+        const tour = await reload(req);
+        const option = await createTourOption(req.valid.params.tourId, req.valid.body, req.user, req);
+
+        res.status(201).json(toTourOption(option, req.user, tour));
+    }
+);
+
+adminTourRoutes.get('/:tourId/options/:optionId', validate({ params: tourOptionParamSchema }), async (req, res) => {
+    const { tourId, optionId } = req.valid.params;
+    const tour = await reload(req);
+    const option = await findTourOptionOr404(tourId, optionId);
+
+    res.json(toTourOption(option, req.user, tour));
+});
+
+adminTourRoutes.patch(
+    '/:tourId/options/:optionId',
+    validate({ params: tourOptionParamSchema, body: updateTourOptionSchema }),
+    async (req, res) => {
+        const { tourId, optionId } = req.valid.params;
+        const tour = await reload(req);
+        const option = await updateTourOption(tourId, optionId, req.valid.body, req.user, req);
+
+        res.json(toTourOption(option, req.user, tour));
+    }
+);
+
+adminTourRoutes.post(
+    '/:tourId/options/:optionId/archive',
+    validate({ params: tourOptionParamSchema }),
+    async (req, res) => {
+        const { tourId, optionId } = req.valid.params;
+        const tour = await reload(req);
+        const option = await archiveTourOption(tourId, optionId, req.user, req);
+
+        res.json(toTourOption(option, req.user, tour));
+    }
+);
+
+// --- price sheets ------------------------------------------------------------
+
+adminTourRoutes.post(
+    '/:tourId/options/:optionId/seasons',
+    validate({ params: tourOptionParamSchema, body: tourSeasonSchema }),
+    async (req, res) => {
+        const { tourId, optionId } = req.valid.params;
+        const tour = await reload(req);
+        const season = await upsertTourSeason(tourId, optionId, null, req.valid.body, req.user, req);
+
+        res.status(201).json(toTourSeason(season, req.user, tour));
+    }
+);
+
+adminTourRoutes.put(
+    '/:tourId/options/:optionId/seasons/:seasonId',
+    validate({ params: tourSeasonParamSchema, body: tourSeasonSchema }),
+    async (req, res) => {
+        const { tourId, optionId, seasonId } = req.valid.params;
+        const tour = await reload(req);
+        const season = await upsertTourSeason(tourId, optionId, seasonId, req.valid.body, req.user, req);
+
+        res.json(toTourSeason(season, req.user, tour));
+    }
+);
+
+adminTourRoutes.delete(
+    '/:tourId/options/:optionId/seasons/:seasonId',
+    validate({ params: tourSeasonParamSchema }),
+    async (req, res) => {
+        const { tourId, optionId, seasonId } = req.valid.params;
+        await deleteTourSeason(tourId, optionId, seasonId, req.user, req);
+
+        res.status(204).end();
+    }
+);
+
+// --- departures --------------------------------------------------------------
+
+adminTourRoutes.get(
+    '/:tourId/options/:optionId/inventory/calendar',
+    validate({ params: tourOptionParamSchema, query: tourCalendarQuerySchema }),
+    async (req, res) => {
+        const { tourId, optionId } = req.valid.params;
+        const calendar = await readTourCalendar(tourId, optionId, req.valid.query);
+
+        res.json(toTourCalendar(calendar));
+    }
+);
+
+adminTourRoutes.put(
+    '/:tourId/options/:optionId/inventory',
+    validate({ params: tourOptionParamSchema, body: tourInventoryRangeSchema }),
+    async (req, res) => {
+        const { tourId, optionId } = req.valid.params;
+        const result = await setTourInventoryRange(tourId, optionId, req.valid.body, req.user, req);
+
+        res.json(result);
+    }
+);

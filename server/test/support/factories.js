@@ -66,6 +66,7 @@ export const createTracker = () => {
     const transferDriverIds = new Set();
     const transferFleetVehicleIds = new Set();
     const transferBookingIds = new Set();
+    const tourIds = new Set();
 
     return {
         partner(partner) {
@@ -124,6 +125,10 @@ export const createTracker = () => {
             transferBookingIds.add(booking.id);
             return booking;
         },
+        tour(tour) {
+            tourIds.add(tour.id);
+            return tour;
+        },
         async cleanup() {
             // Invitations are cleaned by id, never by an email pattern. The
             // runner gives each file its own process but they share one
@@ -149,7 +154,8 @@ export const createTracker = () => {
                 ...transferRouteIds,
                 ...transferDriverIds,
                 ...transferFleetVehicleIds,
-                ...transferBookingIds
+                ...transferBookingIds,
+                ...tourIds
             ];
 
             if (entityIds.length > 0) {
@@ -256,6 +262,29 @@ export const createTracker = () => {
                 await prisma.transferExtra.deleteMany({ where: { code: { in: [...transferExtraCodes] } } });
             }
 
+            // Tours before destinations and partners: both hold a tour with
+            // Restrict. Bookings block the tour delete on purpose, so the suite
+            // clears its own, with their audit rows, exactly as for hotels.
+            if (tourIds.size > 0) {
+                const bookings = await prisma.tourBooking.findMany({
+                    where: { tourId: { in: [...tourIds] } },
+                    select: { id: true }
+                });
+
+                if (bookings.length > 0) {
+                    const bookingIds = bookings.map(({ id }) => id);
+
+                    await prisma.tourHold.updateMany({
+                        where: { bookingId: { in: bookingIds } },
+                        data: { bookingId: null }
+                    });
+                    await prisma.tourBooking.deleteMany({ where: { id: { in: bookingIds } } });
+                    await prisma.auditLog.deleteMany({ where: { entityId: { in: bookingIds } } });
+                }
+
+                await prisma.tour.deleteMany({ where: { id: { in: [...tourIds] } } });
+            }
+
             if (destinationIds.size > 0) {
                 // Deepest first: a parent cannot go while a child still points
                 // at it, and tests routinely build a two- or three-level tree.
@@ -299,6 +328,7 @@ export const createTracker = () => {
             transferDriverIds.clear();
             transferFleetVehicleIds.clear();
             transferBookingIds.clear();
+            tourIds.clear();
         }
     };
 };
@@ -817,3 +847,82 @@ export const makeAssignment = (leg, { driverId, fleetVehicleId = null, windowSta
             ...overrides
         }
     });
+
+// --- tours -------------------------------------------------------------------
+
+/** A published tour with nothing else: options, sheets and departures are added by the builders below. */
+export const makeTour = async (tracker, { destination, ...overrides } = {}) => {
+    const place = destination ?? (await makeDestination(tracker));
+
+    return tracker.tour(
+        await prisma.tour.create({
+            data: {
+                slug: unique('tour'),
+                title: 'Test Tour',
+                location: 'Kazbegi',
+                status: 'ACTIVE',
+                b2cEnabled: true,
+                destinationId: place.id,
+                timezone: place.timezone,
+                currency: 'GEL',
+                category: 'nature',
+                summary: 'A day in the mountains.',
+                description: ['Up and back.'],
+                image: '/images/tours/test.jpg',
+                durationDays: 1,
+                durationLabel: '1 day',
+                groupSize: '2-12',
+                difficulty: 'Easy',
+                meetingPoint: 'Hotel lobby',
+                itinerary: { create: [{ day: 1, title: 'The day', description: 'What happens.', meals: [], accommodation: '' }] },
+                ...overrides
+            }
+        })
+    );
+};
+
+/**
+ * An option priced by one season for the whole of 2027, with a departure on
+ * `date` (when given). Percent-of-total cancellation via the tiered template.
+ */
+export const makeTourOption = async (
+    tour,
+    { date = null, totalUnits = 12, adultNetCents = 10_000, childNetCents = 5_000, groupNetCents = 40_000, ...overrides } = {}
+) => {
+    const policy = await prisma.cancellationPolicy.findFirst({ where: { hotelId: null, kind: 'TIERED' } });
+
+    const option = await prisma.tourOption.create({
+        data: {
+            tourId: tour.id,
+            code: unique('opt').slice(0, 40),
+            name: 'Shared seat',
+            kind: 'SHARED',
+            pricingBasis: 'PER_PERSON',
+            unitKind: 'SEAT',
+            scheduleKind: 'SCHEDULED',
+            maxPax: 12,
+            startTime: '08:00',
+            cancellationPolicyId: policy.id,
+            seasons: {
+                create: [
+                    {
+                        name: 'All year',
+                        validFrom: new Date('2027-01-01T00:00:00.000Z'),
+                        validUntil: new Date('2027-12-31T00:00:00.000Z'),
+                        currency: 'GEL',
+                        tiers: { create: [{ minPax: 1, adultNetCents, childNetCents, groupNetCents }] }
+                    }
+                ]
+            },
+            ...overrides
+        }
+    });
+
+    if (date) {
+        await prisma.tourInventory.create({
+            data: { tourOptionId: option.id, date: new Date(`${date}T00:00:00.000Z`), totalUnits }
+        });
+    }
+
+    return option;
+};

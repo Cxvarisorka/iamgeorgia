@@ -583,6 +583,85 @@ stamped on the leg in the statement that selects it, so it fires once.
 Drivers read theirs at `GET /api/driver/notifications` (`unread=true`) and
 mark them with `POST /api/driver/notifications/:id/read` or `…/read-all`.
 
+## Tours
+
+A tour is sold through **options** — a shared seat or a private group, priced per person or per group — and each option has **price sheets** (seasons with party-size tiers) and **departures** (a capacity row per date). Availability is derived on read, exactly as for rooms: `total − blocked − booked − held`, with a database CHECK beneath it. A multi-day tour claims its departure date only.
+
+Everything is B2B by default: an anonymous visitor sees only tours switched on for B2C, and only `PUBLIC` options. A signed-in partner or member of staff sees the whole `ACTIVE` catalogue.
+
+### Catalogue
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET | `/tours` | Browse, no dates. `?search&destinationSlug&destinationPath&category&difficulty&minDays&maxDays&featured&locale&page&pageSize`. `priceFrom` is indicative. |
+| GET | `/tours/:slug` | Detail with itinerary, images, options (terms only — no price sheets). `?locale=` |
+
+### Dated search
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET | `/search/tours` | `?date=YYYY-MM-DD&adults&childAges&…filters` — tours with a bookable departure that day, cheapest first; without `date` it is the catalogue. |
+| GET | `/search/tours/:slug` | `?date=` or `?from=&to=` (≤ 62 days), `adults`, `childAges` (one per child). Every option, every departure in the window. |
+| POST | `/search/tours/offers/quote` | `{ token }` — re-prices an offer; a moved price comes back with `priceChanged: true`. |
+
+A departure entry is either bookable —
+
+```jsonc
+{
+  "available": true,
+  "date": "2027-08-10", "departureTime": "08:00", "startAt": "2027-08-10T04:00:00.000Z", "endDate": "2027-08-10",
+  "availableUnits": 9, "units": 3,                  // units this party would take: seats, or one group
+  "token": "…",                                     // carries the offer into checkout; never a price
+  "quote": {
+    "currency": "GEL", "pricingBasis": "PER_PERSON",
+    "party": { "adults": 2, "children": 1, "infants": 0, "pax": 3 },
+    "lines": [{ "travellerType": "ADULT", "count": 2, "unitSellCents": 11500, "sellCents": 23000 }, …],
+    "totals": { "totalCents": 28750 }               // staff also see netCents, markupBps, marginCents
+  },
+  "cancellation": { "freeUntil": "…", "windows": [ … ] }
+}
+```
+
+— or explains itself: `{ "available": false, "date": "…", "reason": "SOLD_OUT" | "PARTY_SIZE" | "TOO_SOON" | "BEYOND_HORIZON" | "PAST" | "UNPRICED", … }`.
+
+### Tour bookings
+
+References are `TUR-000001`. The same rules as hotel bookings: no amount in any request, `Idempotency-Key` replays with 200, a guest reads or cancels with `?email=`.
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| POST | `/tours/bookings/holds` | `{ token }` → hold on the seats (15 min). 409 `UNAVAILABLE` if gone. |
+| DELETE | `/tours/bookings/holds/:token` | Always 204. |
+| POST | `/tours/bookings` | `{ holdToken \| offerToken, leadTraveller, travellers?, specialRequests?, pickupNote?, source? }`. 201, or 200 on replay. 409 `PRICE_CHANGED` / `UNAVAILABLE`, 410 spent token or hold. |
+| GET | `/tours/bookings/:reference` | Detail from the snapshot. |
+| GET | `/tours/bookings/:reference/cancellation-quote` | Read off the frozen schedule. |
+| PATCH | `/tours/bookings/:reference` | Paperwork only: `leadTraveller`, `specialRequests`, `pickupNote`. |
+| POST | `/tours/bookings/:reference/cancel` | `{ reason?, email? }` |
+| GET | `/partner/tours/bookings` | Own bookings. `?status&tourId&from&to&search&page&pageSize` |
+
+**On request.** An option with `confirmationMode: ON_REQUEST` is written as `PENDING` with its seats already claimed and a `requestDeadlineAt` (48 h). The operator answers through the admin register; declining releases the seats and charges nothing, and a traveller may cancel a pending request at no charge. Operations are alerted when a deadline passes.
+
+### Admin → Tours
+
+All under `/admin/tours`, admin only.
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET / POST | `/admin/tours` | Register (`?status&supplierId&…`) and create a DRAFT. |
+| GET / PATCH / DELETE | `/admin/tours/:tourId` | Detail with `publishChecklist`; delete only with no bookings (409 `HAS_BOOKINGS`). |
+| POST | `/admin/tours/:tourId/publish` · `/unpublish` · `/archive` | Publish answers 422 with `details.missing` until the checklist is clear. |
+| PUT | `/admin/tours/:tourId/translations/:locale` | Prose only, field by field. |
+| POST / PUT / PATCH / DELETE | `…/images`, `…/images/order`, `…/images/:imageId` | The gallery, as for hotels. |
+| GET / POST | `…/options` | Options: `kind` SHARED\|PRIVATE, `pricingBasis` PER_PERSON\|PER_GROUP, `unitKind`, `scheduleKind`, `confirmationMode`, `visibility`, `minPax`/`maxPax`, `noticeHours`, `horizonDays`, `cancellationPolicyId` (percent-of-total policies only). |
+| GET / PATCH | `…/options/:optionId`, `POST …/archive` | |
+| POST / PUT / DELETE | `…/options/:optionId/seasons[/:seasonId]` | A season is written whole with its `tiers[]` (`minPax`, `maxPax?`, adult/child/infant/group net cents, optional fixed sell cents). Currency must be the tour's. |
+| PUT | `…/options/:optionId/inventory` | `{ from, to, weekdays?, totalUnits?, blockedUnits?, stopSell?, departureTime?, note? }` — anything omitted keeps its value. 409 `OVERSELL` with the dates in the way. |
+| GET | `…/options/:optionId/inventory/calendar?from&to` | One row per departure with derived `availableUnits`. |
+| GET | `/admin/tours/bookings` · `/:reference` | Every tour booking. |
+| POST | `/admin/tours/bookings/:reference/confirm` · `/decline` (`{ reason }`) · `/cancel` | The operator's answer to a request, and cancellation. |
+
+Seeding: `node scripts/seed-tours.js` reads the ten fixture tours from `client/data/tours.ts` (and their translations), gives each a shared and a private option, a year of price sheets and departures, and publishes them. Requires `seed-reference.js` and `seed-catalogue.js` first.
+
 ## Admin
 
 All under `/admin/*`, guarded by `authenticate + requireAdmin`.

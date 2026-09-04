@@ -373,6 +373,8 @@ enum FileCategory {
   /// a signed, audited request by operations staff.
   DRIVER_DOCUMENT
   VEHICLE_DOCUMENT
+  /// Photographs of a tour: PUBLIC, shown on the catalogue page.
+  TOUR_IMAGE
   OTHER
 
   @@map("file_category")
@@ -419,6 +421,80 @@ enum ExperienceCategory {
   craft
 
   @@map("experience_category")
+}
+
+/// The same lifecycle as HotelStatus, and for the same reason: a tour with
+/// booking history is retired, never deleted.
+enum TourStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+
+  @@map("tour_status")
+}
+
+enum TourOptionStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+
+  @@map("tour_option_status")
+}
+
+/// SHARED sells seats on a departure other parties join; PRIVATE sells the
+/// whole departure to one party.
+enum TourOptionKind {
+  SHARED
+  PRIVATE
+
+  @@map("tour_option_kind")
+}
+
+enum TourPricingBasis {
+  PER_PERSON
+  PER_GROUP
+
+  @@map("tour_pricing_basis")
+}
+
+/// What one unit of inventory is. A SHARED option counts seats; a PRIVATE
+/// option counts groups — one booking, however large, is one unit.
+enum TourUnitKind {
+  SEAT
+  GROUP
+
+  @@map("tour_unit_kind")
+}
+
+/// Only affects how inventory rows are generated. SCHEDULED rows are written
+/// by hand for the dates a departure runs; ON_DEMAND rows are generated for
+/// every operating weekday across the horizon.
+enum TourScheduleKind {
+  SCHEDULED
+  ON_DEMAND
+
+  @@map("tour_schedule_kind")
+}
+
+/// Whether a booking is confirmed the moment it is written, or waits for the
+/// operator. Shared by tours and services; hotels and transfers are always
+/// INSTANT.
+enum ConfirmationMode {
+  INSTANT
+  ON_REQUEST
+
+  @@map("confirmation_mode")
+}
+
+enum TourBookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+
+  @@map("tour_booking_status")
 }
 
 model Destination {
@@ -641,20 +717,44 @@ model Review {
   @@map("reviews")
 }
 
+// ---------------------------------------------------------------------------
+// Tours.
+//
+// Tour -> TourOption -> (TourSeason/TourSeasonTier, TourInventory) mirrors
+// Hotel -> RoomType -> RatePlan for the same reason: one "Kazbegi day trip"
+// sold as a shared minibus seat and as a private car is one tour, two options,
+// two inventories and two price sheets. Collapsing the option into the tour is
+// what forces duplicate tours and, from there, oversold departures.
+//
+// Inventory is a counter table keyed by (option, date), shaped exactly like
+// room_inventory and claimed through the same statement. A scheduled departure
+// is a row that exists; an on-demand day is a row the generator wrote; a
+// blackout is stop_sell. Multi-day tours claim the departure date only — an
+// operator's capacity is "how many groups start on Monday", not per night.
+// ---------------------------------------------------------------------------
+
 model Tour {
-  id       String @id @default(cuid())
-  slug     String @unique
+  id       String     @id @default(cuid())
+  slug     String     @unique
   title    String
   location String
+  status   TourStatus @default(DRAFT)
+
+  /// The operator that runs it. Optional and Restrict — the same seam as
+  /// Hotel.supplierId, so a platform-run and a partner-run tour are one row
+  /// type and a partner with tours cannot be deleted from under them.
+  supplierId String?  @map("supplier_id")
+  supplier   Partner? @relation("PartnerTours", fields: [supplierId], references: [id], onDelete: Restrict)
 
   destinationId String      @map("destination_id")
-  destination   Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+  destination   Destination @relation(fields: [destinationId], references: [id], onDelete: Restrict)
 
   category    TourCategory
   summary     String
   description String[]
   image       String
-  /// GalleryImage[]
+  /// GalleryImage[] — the editorial gallery the fixtures carried. Uploaded
+  /// media attaches through TourImage.
   gallery     Json         @default("[]")
 
   durationDays  Int        @map("duration_days")
@@ -662,28 +762,56 @@ model Tour {
   groupSize     String     @map("group_size")
   difficulty    Difficulty
 
-  /// Indicative "from" price per person, in cents.
-  priceFromCents Int   @map("price_from_cents")
+  /// IANA. "Day one, 08:00" is a wall-clock fact here, and a cancellation
+  /// deadline is resolved in it.
+  timezone String @default("Asia/Tbilisi")
+  /// ISO-4217, the currency every season under every option is quoted in.
+  currency String @default("GEL") @db.Char(3)
+
+  /// Where the day starts: structured when it is a known pick-up point, and
+  /// prose in `meetingPoint` always, because "your hotel lobby" is not a
+  /// coordinate.
+  meetingPointId  String?        @map("meeting_point_id")
+  meetingPointRef TransferPoint? @relation("TourMeetingPoint", fields: [meetingPointId], references: [id], onDelete: SetNull)
+  meetingTime     String?        @map("meeting_time")
+  meetingPoint    String         @map("meeting_point")
+
+  minAge       Int? @map("min_age")
+  /// The two age lines a child policy draws, on the tour itself: a trek and a
+  /// wine tour disagree about who is a child.
+  infantMaxAge Int  @default(2) @map("infant_max_age")
+  childMaxAge  Int  @default(11) @map("child_max_age")
+
+  /// Lowest adult sell price across active options, in minor units. A
+  /// derived cache for the un-dated browse page, refreshed by the season
+  /// editor and never used to quote or to book.
+  priceFromCents Int   @default(0) @map("price_from_cents")
   /// 5-point star rating.
-  rating         Float
+  rating         Float @default(0)
   reviewCount    Int   @default(0) @map("review_count")
 
   highlights    String[]
   included      String[]
   excluded      String[]
-  meetingPoint  String   @map("meeting_point")
   importantInfo String[] @map("important_info")
 
-  featured Boolean @default(false)
+  /// Sold to the public at all. B2B by default, exactly as Hotel.b2cEnabled.
+  b2cEnabled Boolean @default(false) @map("b2c_enabled")
+  featured   Boolean @default(false)
 
-  itinerary ItineraryDay[]
+  itinerary    ItineraryDay[]
+  options      TourOption[]
+  images       TourImage[]
+  translations TourTranslation[]
+  bookings     TourBooking[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  @@index([destinationId])
+  @@index([destinationId, status])
+  @@index([supplierId])
   @@index([category])
-  @@index([featured])
+  @@index([status, featured])
   @@map("tours")
 }
 
@@ -743,6 +871,352 @@ model Experience {
   @@index([category])
   @@index([featured])
   @@map("experiences")
+}
+
+/// The sellable variant of a tour: shared seat or private group, per person
+/// or per group, scheduled or on demand. The thing a price attaches to and
+/// the thing inventory is counted on.
+model TourOption {
+  id     String @id @default(cuid())
+  tourId String @map("tour_id")
+  tour   Tour   @relation(fields: [tourId], references: [id], onDelete: Cascade)
+
+  code      String
+  name      String
+  status    TourOptionStatus @default(ACTIVE)
+  sortOrder Int              @default(0) @map("sort_order")
+
+  kind             TourOptionKind
+  pricingBasis     TourPricingBasis   @map("pricing_basis")
+  unitKind         TourUnitKind       @map("unit_kind")
+  scheduleKind     TourScheduleKind   @default(ON_DEMAND) @map("schedule_kind")
+  confirmationMode ConfirmationMode   @default(INSTANT) @map("confirmation_mode")
+  visibility       RatePlanVisibility @default(PUBLIC)
+
+  /// Party size a single booking may carry. For SHARED it bounds one party;
+  /// for PRIVATE it is the group size the price sheet is written for.
+  minPax Int @default(1) @map("min_pax")
+  maxPax Int @map("max_pax")
+
+  /// Wall clock in the tour's timezone; a departure row may override it.
+  startTime       String? @map("start_time")
+  /// Day tours only. Multi-day tours read Tour.durationDays.
+  durationMinutes Int?    @map("duration_minutes")
+
+  languages          String[]
+  /// ISO weekdays, 1 = Monday. Empty means every day. The ON_DEMAND
+  /// generator reads this; SCHEDULED rows are written by hand.
+  operatesOnWeekdays Int[]    @map("operates_on_weekdays")
+
+  /// A booking closer than this to the start is refused; further ahead than
+  /// the horizon is refused too.
+  noticeHours Int @default(24) @map("notice_hours")
+  horizonDays Int @default(365) @map("horizon_days")
+
+  /// A platform template (CancellationPolicy.hotelId null) or a tour-owned
+  /// policy. Percent-of-total tiers only; a night has no meaning here.
+  cancellationPolicyId String             @map("cancellation_policy_id")
+  cancellationPolicy   CancellationPolicy @relation(fields: [cancellationPolicyId], references: [id], onDelete: Restrict)
+
+  seasons   TourSeason[]
+  inventory TourInventory[]
+  holds     TourHold[]
+  bookings  TourBooking[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tourId, code])
+  @@index([tourId, status])
+  @@index([cancellationPolicyId])
+  @@map("tour_options")
+}
+
+/// A price sheet valid over a date window. Seasons, not per-date rows: a tour
+/// price is a small matrix of traveller type by party-size tier, and a row per
+/// date per tier is an editor nobody wants. Overlaps resolve by priority.
+model TourSeason {
+  id           String     @id @default(cuid())
+  tourOptionId String     @map("tour_option_id")
+  tourOption   TourOption @relation(fields: [tourOptionId], references: [id], onDelete: Cascade)
+
+  name       String
+  validFrom  DateTime @map("valid_from") @db.Date
+  /// Inclusive.
+  validUntil DateTime @map("valid_until") @db.Date
+  /// ISO weekdays; empty means every day. A weekend supplement is its own
+  /// season with a higher priority.
+  weekdays   Int[]
+  priority   Int      @default(0)
+  currency   String   @db.Char(3)
+  isActive   Boolean  @default(true) @map("is_active")
+
+  tiers TourSeasonTier[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([tourOptionId, validFrom, validUntil])
+  @@map("tour_seasons")
+}
+
+/// One party-size tier of a season. PER_PERSON options read the per-traveller
+/// columns; PER_GROUP options read the group columns. A fixed sell price
+/// overrides the markup, exactly as Rate.sellCents does.
+model TourSeasonTier {
+  id       String     @id @default(cuid())
+  seasonId String     @map("season_id")
+  season   TourSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  minPax Int  @map("min_pax")
+  /// Null means open-ended.
+  maxPax Int? @map("max_pax")
+
+  adultNetCents  Int? @map("adult_net_cents")
+  childNetCents  Int? @map("child_net_cents")
+  infantNetCents Int  @default(0) @map("infant_net_cents")
+  groupNetCents  Int? @map("group_net_cents")
+
+  adultSellCents Int? @map("adult_sell_cents")
+  childSellCents Int? @map("child_sell_cents")
+  groupSellCents Int? @map("group_sell_cents")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([seasonId, minPax])
+  @@map("tour_season_tiers")
+}
+
+/// Capacity on one departure date. Shaped exactly like RoomInventory and
+/// claimed through the same statement; availability is derived on read and a
+/// CHECK in the migration says the four counters can never add up to an
+/// oversell.
+model TourInventory {
+  tourOptionId String     @map("tour_option_id")
+  tourOption   TourOption @relation(fields: [tourOptionId], references: [id], onDelete: Cascade)
+  /// The departure date, never an instant.
+  date         DateTime   @db.Date
+
+  totalUnits   Int @map("total_units")
+  blockedUnits Int @default(0) @map("blocked_units")
+  bookedUnits  Int @default(0) @map("booked_units")
+  heldUnits    Int @default(0) @map("held_units")
+
+  stopSell Boolean @default(false) @map("stop_sell")
+
+  /// Overrides TourOption.startTime for this departure.
+  departureTime String? @map("departure_time")
+  /// Operational: "guide: Nino".
+  note          String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@id([tourOptionId, date])
+  @@index([date])
+  @@map("tour_inventory")
+}
+
+/// Inventory claimed by a checkout in progress. Its own table rather than a
+/// widened BookingHold: every hold row must name real inventory, and making
+/// the room columns nullable to share the table would weaken that.
+model TourHold {
+  id    String @id @default(cuid())
+  token String @unique
+
+  tourOptionId String     @map("tour_option_id")
+  tourOption   TourOption @relation(fields: [tourOptionId], references: [id], onDelete: Cascade)
+
+  date      DateTime @db.Date
+  /// Units, not people: pax for a SEAT option, one for a GROUP option.
+  quantity  Int      @default(1)
+  adults    Int
+  childAges Int[]    @map("child_ages")
+
+  quotedNetCents  Int    @map("quoted_net_cents")
+  quotedSellCents Int    @map("quoted_sell_cents")
+  currency        String @db.Char(3)
+
+  status    HoldStatus @default(ACTIVE)
+  expiresAt DateTime   @map("expires_at")
+
+  bookingId String?      @unique @map("booking_id")
+  booking   TourBooking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  createdByUserId String?  @map("created_by_user_id")
+  createdByUser   User?    @relation("TourHoldCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  partnerId       String?  @map("partner_id")
+  partner         Partner? @relation("PartnerTourHolds", fields: [partnerId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([status, expiresAt])
+  @@index([tourOptionId, date])
+  @@map("tour_holds")
+}
+
+/// A tour as it was sold: snapshot, frozen price lines, frozen cancellation
+/// schedule. The foreign keys stay for reporting.
+model TourBooking {
+  id String @id @default(cuid())
+
+  /// The public reference, e.g. TUR-000001, from a Postgres sequence.
+  reference String @unique
+
+  status TourBookingStatus @default(PENDING)
+
+  idempotencyKey String? @unique @map("idempotency_key")
+
+  partnerId      String?  @map("partner_id")
+  partner        Partner? @relation("PartnerTourBookings", fields: [partnerId], references: [id], onDelete: SetNull)
+  bookedByUserId String?  @map("booked_by_user_id")
+  bookedByUser   User?    @relation("TourBookingBookedBy", fields: [bookedByUserId], references: [id], onDelete: SetNull)
+
+  tourId       String      @map("tour_id")
+  tour         Tour        @relation(fields: [tourId], references: [id], onDelete: Restrict)
+  tourOptionId String?     @map("tour_option_id")
+  tourOption   TourOption? @relation(fields: [tourOptionId], references: [id], onDelete: SetNull)
+
+  /// The departure date, and the instant it resolves to in the tour's
+  /// timezone. Both, because a roster wants a date and a deadline an instant.
+  date    DateTime @db.Date
+  endDate DateTime @map("end_date") @db.Date
+  startAt DateTime @map("start_at")
+
+  adults    Int
+  childAges Int[] @map("child_ages")
+  /// Inventory units this booking holds: pax for SEAT, one for GROUP.
+  units     Int   @default(1)
+
+  currency       String @db.Char(3)
+  netTotalCents  Int    @map("net_total_cents")
+  sellTotalCents Int    @map("sell_total_cents")
+  markupBps      Int    @map("markup_bps")
+
+  leadTravellerName  String  @map("lead_traveller_name")
+  leadTravellerEmail String  @map("lead_traveller_email")
+  leadTravellerPhone String? @map("lead_traveller_phone")
+  specialRequests    String? @map("special_requests")
+  /// Where to collect the party: "Hotel Vera, lobby".
+  pickupNote         String? @map("pickup_note")
+
+  /// The tour and option as they were sold. A voucher reads this.
+  tourSnapshot Json @map("tour_snapshot")
+  /// The quote's lines, frozen: what each traveller type cost.
+  priceLines   Json @map("price_lines")
+
+  cancellationSummary  String? @map("cancellation_summary")
+  cancellationSchedule Json    @map("cancellation_schedule")
+
+  /// Frozen from the option: an option switched to instant confirmation
+  /// tomorrow does not confirm a request made today.
+  confirmationMode  ConfirmationMode @map("confirmation_mode")
+  requestedAt       DateTime?        @map("requested_at")
+  requestDeadlineAt DateTime?        @map("request_deadline_at")
+  declinedAt        DateTime?        @map("declined_at")
+  declineReason     String?          @map("decline_reason")
+  /// Idempotency stamp for the overdue-request sweeper: set in the same
+  /// statement that enqueues the alert, so a crash cannot double-send.
+  overdueAlertAt    DateTime?        @map("overdue_alert_at")
+
+  confirmedAt             DateTime? @map("confirmed_at")
+  cancelledAt             DateTime? @map("cancelled_at")
+  cancellationChargeCents Int?      @map("cancellation_charge_cents")
+  cancellationReason      String?   @map("cancellation_reason")
+  completedAt             DateTime? @map("completed_at")
+
+  /// Where it came from: web, partner API, admin.
+  source String @default("web")
+
+  travellers TourBookingTraveller[]
+  hold       TourHold?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([tourId, date])
+  @@index([tourOptionId, date])
+  @@index([partnerId, createdAt])
+  @@index([status, date])
+  @@map("tour_bookings")
+}
+
+/// One traveller, as booked. Per-person prices are kept on the line even for a
+/// PER_GROUP option (where they are zero) so an invoice line and a future
+/// amendment have the figure.
+model TourBookingTraveller {
+  id        String      @id @default(cuid())
+  bookingId String      @map("booking_id")
+  booking   TourBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  type      BookingGuestType @default(ADULT)
+  firstName String           @map("first_name")
+  lastName  String           @map("last_name")
+  /// Age on the departure date, frozen.
+  age       Int?
+  isLead    Boolean          @default(false) @map("is_lead")
+
+  unitNetCents  Int @default(0) @map("unit_net_cents")
+  unitSellCents Int @default(0) @map("unit_sell_cents")
+
+  /// What an operator actually asks for on a multi-day tour.
+  passportNumber String? @map("passport_number")
+  nationality    String? @db.Char(2)
+  dietary        String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([bookingId])
+  @@map("tour_booking_travellers")
+}
+
+/// Shaped exactly like HotelImage so the same gallery service drives both.
+model TourImage {
+  id          String    @id @default(cuid())
+  tourId      String    @map("tour_id")
+  tour        Tour      @relation(fields: [tourId], references: [id], onDelete: Cascade)
+  fileAssetId String    @map("file_asset_id")
+  fileAsset   FileAsset @relation("TourImages", fields: [fileAssetId], references: [id], onDelete: Restrict)
+
+  caption   String?
+  sortOrder Int     @default(0) @map("sort_order")
+  /// At most one per tour, enforced by a partial unique index in the migration.
+  isCover   Boolean @default(false) @map("is_cover")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tourId, fileAssetId])
+  @@index([tourId, sortOrder])
+  @@map("tour_images")
+}
+
+/// Prose in a non-default locale, merged field by field over the English row.
+model TourTranslation {
+  id     String @id @default(cuid())
+  tourId String @map("tour_id")
+  tour   Tour   @relation(fields: [tourId], references: [id], onDelete: Cascade)
+  locale String
+
+  title         String?
+  location      String?
+  summary       String?
+  description   String[]
+  highlights    String[]
+  included      String[]
+  excluded      String[]
+  importantInfo String[] @map("important_info")
+  meetingPoint  String?  @map("meeting_point")
+  durationLabel String?  @map("duration_label")
+  groupSize     String?  @map("group_size")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tourId, locale])
+  @@map("tour_translations")
 }
 
 // ---------------------------------------------------------------------------
@@ -1040,6 +1514,7 @@ model CancellationPolicy {
   rules            CancellationRule[]
   ratePlans        RatePlan[]
   transferVehicles TransferVehicle[]
+  tourOptions      TourOption[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1689,6 +2164,7 @@ model FileAsset {
   mainImageForFleet     TransferFleetVehicle[]         @relation("FleetVehicleMainImage")
   driverDocuments       TransferDriverDocument[]       @relation("DriverDocuments")
   driverPhotos          TransferDriver[]               @relation("DriverPhoto")
+  tourImages            TourImage[]                    @relation("TourImages")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2127,6 +2603,26 @@ enum AuditAction {
   TRANSFER_PICKUP_REMINDER_SENT
   TRANSFER_FLEET_VEHICLE_DELETED
   TRANSFER_DRIVER_DELETED
+  TOUR_CREATED
+  TOUR_UPDATED
+  TOUR_PUBLISHED
+  TOUR_UNPUBLISHED
+  TOUR_ARCHIVED
+  TOUR_DELETED
+  TOUR_OPTION_CREATED
+  TOUR_OPTION_UPDATED
+  TOUR_OPTION_ARCHIVED
+  TOUR_SEASON_UPDATED
+  TOUR_SEASON_DELETED
+  TOUR_INVENTORY_UPDATED
+  TOUR_BOOKING_CREATED
+  TOUR_BOOKING_CONFIRMED
+  TOUR_BOOKING_DECLINED
+  TOUR_BOOKING_CANCELLED
+  TOUR_BOOKING_AMENDED
+  TOUR_BOOKING_COMPLETED
+  TOUR_HOLD_EXPIRED
+  TOUR_INVENTORY_RECONCILED
 
   @@map("audit_action")
 }
@@ -2169,6 +2665,8 @@ model User {
   holdsCreated      BookingHold[]  @relation("HoldCreatedBy")
 
   transferBookingsMade TransferBooking[] @relation("TransferBookingBookedBy")
+  tourBookingsMade     TourBooking[]     @relation("TourBookingBookedBy")
+  tourHoldsCreated     TourHold[]        @relation("TourHoldCreatedBy")
 
   /// The driver profile behind a DRIVER account, when one has been linked.
   driverProfile                 TransferDriver?                @relation("DriverUser")
@@ -2304,6 +2802,10 @@ model Partner {
   transferProviders TransferProvider[] @relation("PartnerTransferProviders")
   transferVehicles  TransferVehicle[]  @relation("PartnerTransferVehicles")
   transferBookings  TransferBooking[]  @relation("PartnerTransferBookings")
+
+  tours        Tour[]        @relation("PartnerTours")
+  tourBookings TourBooking[] @relation("PartnerTourBookings")
+  tourHolds    TourHold[]    @relation("PartnerTourHolds")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2582,6 +3084,7 @@ model TransferPoint {
   legsTo       TransferBookingLeg[]       @relation("TransferLegTo")
   translations TransferPointTranslation[]
   driversBased TransferDriver[]           @relation("DriverHomeBase")
+  tourMeetings Tour[]                     @relation("TourMeetingPoint")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -3194,6 +3697,7 @@ enum NotificationKind {
   TRANSFER_PICKUP_REMINDER
   TRANSFER_DRIVER_DETAILS
   TRANSFER_RATING_RECEIVED
+  TOUR_REQUEST_OVERDUE
 
   @@map("notification_kind")
 }

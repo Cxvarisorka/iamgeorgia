@@ -6,6 +6,7 @@ import { ConflictError, GoneError, NotFoundError } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
 import { recordAudit, AUDIT_ENTITY } from '../../lib/audit.js';
 import { dateOnlyToUtc, eachNight, toDateOnly } from '../../lib/time.js';
+import { moveCounterUnits, nightDates } from '../../lib/inventory/counter.js';
 
 /**
  * Claiming inventory.
@@ -35,39 +36,25 @@ import { dateOnlyToUtc, eachNight, toDateOnly } from '../../lib/time.js';
  * which `middleware/errors.js` renders as a 409.
  */
 
-/** Dates are always claimed in ascending order, which is half of deadlock avoidance. */
-const nightsFor = (checkIn, checkOut) => eachNight(checkIn, checkOut).map(dateOnlyToUtc);
-
 /**
  * Moves units between the four counters for every night of a stay, atomically.
  *
- * One statement per room type, with the dates as an array. Postgres locks the
- * rows in a consistent order within a statement, so two concurrent claims on
- * the same room type cannot deadlock; when a booking spans several room types
- * the caller processes them in ascending id order for the same reason.
+ * The statement itself lives in `lib/inventory/counter.js`, shared with every
+ * other counter-shaped inventory; this is the room-shaped door to it. One
+ * statement per room type, with the dates as an array, so two concurrent
+ * claims on the same room type cannot deadlock; a booking spanning several
+ * room types processes them in ascending id order for the same reason.
  */
-const moveUnits = async (tx, { roomTypeId, checkIn, checkOut, quantity, from, to, requireAvailable }) => {
-    const dates = nightsFor(checkIn, checkOut);
-
-    const claimed = await tx.$queryRaw`
-        UPDATE room_inventory
-           SET held_units   = held_units   + ${to === 'held' ? quantity : from === 'held' ? -quantity : 0},
-               booked_units = booked_units + ${to === 'booked' ? quantity : from === 'booked' ? -quantity : 0},
-               updated_at   = now()
-         WHERE room_type_id = ${roomTypeId}
-           AND date = ANY(${dates}::date[])
-           AND (${!requireAvailable}::boolean OR stop_sell = false)
-           -- The availability check and the write are the same statement. This
-           -- line is the entire concurrency guarantee.
-           AND (${!requireAvailable}::boolean
-                OR total_units - blocked_units - booked_units - held_units >= ${quantity})
-           AND (${from !== 'held'}::boolean  OR held_units   >= ${quantity})
-           AND (${from !== 'booked'}::boolean OR booked_units >= ${quantity})
-        RETURNING date
-    `;
-
-    return { claimed, expected: dates.length };
-};
+const moveUnits = (tx, { roomTypeId, checkIn, checkOut, quantity, from, to, requireAvailable }) =>
+    moveCounterUnits(tx, {
+        table: 'room_inventory',
+        keyId: roomTypeId,
+        dates: nightDates(checkIn, checkOut),
+        quantity,
+        from,
+        to,
+        requireAvailable
+    });
 
 /**
  * Takes a hold on a room for a stay, inside the caller's transaction.

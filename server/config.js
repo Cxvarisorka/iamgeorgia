@@ -40,6 +40,8 @@ const requiredInProduction = [
     // Same again for transfer quotes, which carry their own secret so the two
     // can be rotated independently.
     'TRANSFER_QUOTE_TOKEN_SECRET',
+    // And again for tour offers, with their own secret for the same reason.
+    'TOUR_OFFER_TOKEN_SECRET',
     // And for the rating links emailed after a transfer: a guessable secret
     // would let anyone rate any driver.
     'TRANSFER_RATING_TOKEN_SECRET',
@@ -327,6 +329,38 @@ export const config = {
             outboxDrainIntervalMs: numberEnv('TRANSFER_OUTBOX_DRAIN_INTERVAL_MS', 5 * 1000),
             reminderSweepIntervalMs: numberEnv('TRANSFER_REMINDER_SWEEP_INTERVAL_MS', 60 * 1000)
         }
+    },
+
+    tour: {
+        // Signs the offer tokens tour availability hands out. Its own secret
+        // rather than the hotel one, so the two can be rotated independently.
+        offerTokenSecret: process.env.TOUR_OFFER_TOKEN_SECRET || 'development-tour-secret',
+        offerTokenTtlMs: numberEnv('TOUR_OFFER_TOKEN_TTL_MS', 30 * 60 * 1000),
+
+        // How long checkout may hold seats before the sweeper takes them back,
+        // and how often that sweeper runs. Same reasoning as the hotel pair.
+        holdTtlMs: numberEnv('TOUR_HOLD_TTL_MS', 15 * 60 * 1000),
+        holdSweepIntervalMs: numberEnv('TOUR_HOLD_SWEEP_INTERVAL_MS', 30 * 1000),
+
+        // Applied to net prices when no partner-specific pricing rule matches.
+        defaultMarkupBps: numberEnv('TOUR_DEFAULT_MARKUP_BPS', 1500),
+
+        // How long an operator has to answer an on-request booking before
+        // operations are told it is overdue. Nothing auto-declines: a late
+        // answer is still an answer, and the traveller may cancel meanwhile.
+        onRequestSlaHours: numberEnv('TOUR_ON_REQUEST_SLA_HOURS', 48),
+        requestSweepIntervalMs: numberEnv('TOUR_REQUEST_SWEEP_INTERVAL_MS', 10 * 60 * 1000),
+
+        // Bookings whose last day has passed are rolled to COMPLETED on this
+        // interval, so an order made of them can complete too.
+        completionSweepIntervalMs: numberEnv('TOUR_COMPLETION_SWEEP_INTERVAL_MS', 60 * 60 * 1000),
+
+        // Guard rails on the bulk inventory editor, and the capacity an
+        // "unlimited" on-demand option is written with — a number, because the
+        // no-oversell CHECK needs one.
+        maxBulkDays: numberEnv('TOUR_MAX_BULK_DAYS', 730),
+        unlimitedUnits: numberEnv('TOUR_UNLIMITED_UNITS', 99),
+        bookingHorizonDays: numberEnv('TOUR_BOOKING_HORIZON_DAYS', 540)
     },
 
     media: {

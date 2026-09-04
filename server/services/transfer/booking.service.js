@@ -175,40 +175,31 @@ const driverUnavailable = (conflicts = []) =>
         conflicts
     });
 
-/**
- * Confirms a transfer.
- *
- * Idempotent: a repeated `Idempotency-Key` returns the original booking with a
- * 200 rather than making a second one with a 201.
- *
- * A partner may name a driver. The offer is written in the same transaction
- * as the booking, so a driver who is no longer free rolls the whole thing
- * back and the partner chooses again; the driver still has to say yes, as
- * with any other offer.
- */
-export const confirmTransferBooking = async (input, actor, req) => {
+/** A guest cannot name a driver; a partner or operations may. Checked before anything is read. */
+const assertMayChooseDriver = (input, actor) => {
     if (input.preferredDriverId && !mayChooseDriver(actor)) {
         throw new BadRequestError('Choosing a driver is available to partner accounts', {
             field: 'preferredDriverId'
         });
     }
+};
 
-    const idempotencyKey = deriveIdempotencyKey(input);
-
-    // Answered first, before anything is written, so a retry can never produce
-    // a second dispatch.
-    const existing = await prisma.transferBooking.findUnique({
-        where: { idempotencyKey },
-        include: bookingInclude
-    });
-
-    if (existing) {
-        return { booking: existing, replayed: true };
-    }
+/**
+ * Everything a confirmation needs before a transaction is opened: the fresh
+ * fare and the frozen cancellation schedule. Reads a lot, holds no locks.
+ *
+ * Split from the commit for the same reason as the hotel one — a package
+ * prepares every product up front and commits them together. With `strict`
+ * (the default) a fare that moved is a 409 thrown here; with `strict: false`
+ * the result carries `priceChanged` and both figures so an orchestrator can
+ * report every drifted component at once.
+ */
+export const prepareTransferBooking = async (input, actor, { strict = true } = {}) => {
+    assertMayChooseDriver(input, actor);
 
     // Re-quoted from scratch. The token names the journey; it does not set the
     // price, and a fare that has moved since it was issued raises here.
-    const offer = await revalidateQuote(input.quoteToken, actor, { strict: true });
+    const offer = await revalidateQuote(input.quoteToken, actor, { strict });
     const { vehicle, quote, from, to, route, decoded } = offer;
 
     const schedule = buildCancellationSchedule({
@@ -226,96 +217,180 @@ export const confirmTransferBooking = async (input, actor, req) => {
         bookedAt: new Date()
     });
 
+    return {
+        kind: 'TRANSFER',
+        vehicle,
+        quote,
+        from,
+        to,
+        route,
+        decoded,
+        schedule,
+        leadPassenger: input.leadPassenger,
+        flightNumber: input.flightNumber ?? null,
+        pickupAddress: input.pickupAddress ?? null,
+        dropoffAddress: input.dropoffAddress ?? null,
+        specialRequests: input.specialRequests ?? null,
+        source: input.source ?? 'web',
+        preferredDriverId: input.preferredDriverId ?? null,
+        preferredFleetVehicleId: input.preferredFleetVehicleId ?? null,
+        priceChanged: quote.totals.sellCents !== decoded.quotedSellCents,
+        quotedCents: decoded.quotedSellCents,
+        currentCents: quote.totals.sellCents,
+        currency: quote.currency,
+        // A transfer claims no inventory, so there is nothing to order locks on.
+        lockKey: null
+    };
+};
+
+/**
+ * Writes a prepared transfer inside the caller's transaction: the booking, its
+ * legs and extras, the audit row, and — when a partner named a driver — the
+ * offer on every leg, so a driver who is no longer free rolls the whole
+ * thing back and the partner chooses again.
+ */
+export const confirmTransferBookingInTx = async (tx, prepared, { idempotencyKey } = {}, actor, req) => {
+    const { vehicle, quote, from, to, route, decoded, schedule } = prepared;
+
+    const reference = await nextTransferBookingReference(tx);
+
+    const created = await tx.transferBooking.create({
+        data: {
+            reference,
+            status: 'CONFIRMED',
+            idempotencyKey: idempotencyKey ?? null,
+            partnerId: actor?.partnerId ?? null,
+            bookedByUserId: actor?.id ?? null,
+            routeId: route?.id ?? null,
+            vehicleId: vehicle.id,
+            tripType: decoded.tripType,
+            pickupAt: quote.legs[0].pickupAt,
+            returnPickupAt: quote.legs[1]?.pickupAt ?? null,
+            adults: decoded.adults,
+            children: decoded.children,
+            childAges: decoded.childAges ?? [],
+            luggage: decoded.luggage,
+            cabinBags: decoded.cabinBags,
+            currency: quote.currency,
+            netTotalCents: quote.totals.netCents,
+            sellTotalCents: quote.totals.sellCents,
+            markupBps: quote.totals.markupBps,
+            leadPassengerName: `${prepared.leadPassenger.firstName} ${prepared.leadPassenger.lastName}`,
+            leadPassengerEmail: prepared.leadPassenger.email,
+            leadPassengerPhone: prepared.leadPassenger.phone ?? null,
+            flightNumber: prepared.flightNumber,
+            pickupAddress: prepared.pickupAddress,
+            dropoffAddress: prepared.dropoffAddress,
+            specialRequests: prepared.specialRequests,
+            routeSnapshot: snapshotRoute(from, to, route, quote.legs),
+            vehicleSnapshot: snapshotVehicle(vehicle),
+            cancellationSchedule: schedule,
+            confirmedAt: new Date(),
+            source: prepared.source,
+            legs: {
+                create: quote.legs.map((leg, index) => ({
+                    legIndex: index,
+                    direction: leg.direction,
+                    fromPointId: leg.fromPointId,
+                    toPointId: leg.toPointId,
+                    fromPointName: leg.fromPointName,
+                    toPointName: leg.toPointName,
+                    pickupAt: leg.pickupAt,
+                    distanceKm: leg.distanceKm,
+                    durationMinutes: leg.durationMinutes,
+                    netCents: leg.netCents,
+                    sellCents: leg.sellCents
+                }))
+            },
+            // Extras are summed across the legs: a return buys the
+            // child seat twice, and the booking records one line for it
+            // at the total quantity and total price.
+            extras: {
+                create: aggregateExtras(quote.legs)
+            }
+        },
+        include: bookingInclude
+    });
+
+    await recordAudit(tx, {
+        action: 'TRANSFER_BOOKING_CREATED',
+        actor,
+        entityType: AUDIT_ENTITY.transferBooking,
+        entityId: created.id,
+        summary: `Transfer ${created.reference} confirmed: ${from.name} to ${to.name}`,
+        metadata: { reference: created.reference, vehicle: vehicle.slug, totalCents: created.sellTotalCents },
+        req
+    });
+
+    if (!prepared.preferredDriverId) {
+        return created;
+    }
+
+    const chosen = await resolvePreferredDriver(tx, prepared, { vehicle, booking: created });
+
+    for (const leg of created.legs) {
+        await assignDriverInTx(
+            tx,
+            leg.id,
+            { ...chosen, acceptOnBehalf: false, requestedByPartner: true, note: 'Requested by the partner at booking' },
+            actor,
+            req
+        );
+    }
+
+    return tx.transferBooking.findUnique({ where: { id: created.id }, include: bookingInclude });
+};
+
+/**
+ * The chosen driver was taken between the list and the confirmation: the
+ * service's pre-check under the row lock, or the exclusion constraint behind
+ * it. Either way the transaction rolled back, and the partner is told to
+ * choose again. Null when the error is something else.
+ */
+export const driverConflictFor = (err, prepared) => {
+    if (!prepared?.preferredDriverId) {
+        return null;
+    }
+
+    if (sqlStateOf(err) === '23P01') {
+        return driverUnavailable();
+    }
+
+    if (err instanceof ConflictError && err.details?.reason === 'SCHEDULE_CONFLICT') {
+        return driverUnavailable(err.details.conflicts);
+    }
+
+    return null;
+};
+
+/**
+ * Confirms a transfer on its own.
+ *
+ * Idempotent: a repeated `Idempotency-Key` returns the original booking with a
+ * 200 rather than making a second one with a 201.
+ */
+export const confirmTransferBooking = async (input, actor, req) => {
+    assertMayChooseDriver(input, actor);
+
+    const idempotencyKey = deriveIdempotencyKey(input);
+
+    // Answered first, before anything is written, so a retry can never produce
+    // a second dispatch.
+    const existing = await prisma.transferBooking.findUnique({
+        where: { idempotencyKey },
+        include: bookingInclude
+    });
+
+    if (existing) {
+        return { booking: existing, replayed: true };
+    }
+
+    const prepared = await prepareTransferBooking(input, actor);
+
     try {
-        const booking = await prisma.$transaction(async (tx) => {
-            const reference = await nextTransferBookingReference(tx);
-
-            const created = await tx.transferBooking.create({
-                data: {
-                    reference,
-                    status: 'CONFIRMED',
-                    idempotencyKey,
-                    partnerId: actor?.partnerId ?? null,
-                    bookedByUserId: actor?.id ?? null,
-                    routeId: route?.id ?? null,
-                    vehicleId: vehicle.id,
-                    tripType: decoded.tripType,
-                    pickupAt: quote.legs[0].pickupAt,
-                    returnPickupAt: quote.legs[1]?.pickupAt ?? null,
-                    adults: decoded.adults,
-                    children: decoded.children,
-                    childAges: decoded.childAges ?? [],
-                    luggage: decoded.luggage,
-                    cabinBags: decoded.cabinBags,
-                    currency: quote.currency,
-                    netTotalCents: quote.totals.netCents,
-                    sellTotalCents: quote.totals.sellCents,
-                    markupBps: quote.totals.markupBps,
-                    leadPassengerName: `${input.leadPassenger.firstName} ${input.leadPassenger.lastName}`,
-                    leadPassengerEmail: input.leadPassenger.email,
-                    leadPassengerPhone: input.leadPassenger.phone ?? null,
-                    flightNumber: input.flightNumber ?? null,
-                    pickupAddress: input.pickupAddress ?? null,
-                    dropoffAddress: input.dropoffAddress ?? null,
-                    specialRequests: input.specialRequests ?? null,
-                    routeSnapshot: snapshotRoute(from, to, route, quote.legs),
-                    vehicleSnapshot: snapshotVehicle(vehicle),
-                    cancellationSchedule: schedule,
-                    confirmedAt: new Date(),
-                    source: input.source ?? 'web',
-                    legs: {
-                        create: quote.legs.map((leg, index) => ({
-                            legIndex: index,
-                            direction: leg.direction,
-                            fromPointId: leg.fromPointId,
-                            toPointId: leg.toPointId,
-                            fromPointName: leg.fromPointName,
-                            toPointName: leg.toPointName,
-                            pickupAt: leg.pickupAt,
-                            distanceKm: leg.distanceKm,
-                            durationMinutes: leg.durationMinutes,
-                            netCents: leg.netCents,
-                            sellCents: leg.sellCents
-                        }))
-                    },
-                    // Extras are summed across the legs: a return buys the
-                    // child seat twice, and the booking records one line for it
-                    // at the total quantity and total price.
-                    extras: {
-                        create: aggregateExtras(quote.legs)
-                    }
-                },
-                include: bookingInclude
-            });
-
-            await recordAudit(tx, {
-                action: 'TRANSFER_BOOKING_CREATED',
-                actor,
-                entityType: AUDIT_ENTITY.transferBooking,
-                entityId: created.id,
-                summary: `Transfer ${created.reference} confirmed: ${from.name} to ${to.name}`,
-                metadata: { reference: created.reference, vehicle: vehicle.slug, totalCents: created.sellTotalCents },
-                req
-            });
-
-            if (!input.preferredDriverId) {
-                return created;
-            }
-
-            const chosen = await resolvePreferredDriver(tx, input, { vehicle, booking: created });
-
-            for (const leg of created.legs) {
-                await assignDriverInTx(
-                    tx,
-                    leg.id,
-                    { ...chosen, acceptOnBehalf: false, requestedByPartner: true, note: 'Requested by the partner at booking' },
-                    actor,
-                    req
-                );
-            }
-
-            return tx.transferBooking.findUnique({ where: { id: created.id }, include: bookingInclude });
-        });
+        const booking = await prisma.$transaction((tx) =>
+            confirmTransferBookingInTx(tx, prepared, { idempotencyKey }, actor, req)
+        );
 
         return { booking, replayed: false };
     } catch (err) {
@@ -332,17 +407,10 @@ export const confirmTransferBooking = async (input, actor, req) => {
             }
         }
 
-        // The chosen driver was taken between the list and the confirmation:
-        // the service's pre-check under the row lock, or the exclusion
-        // constraint behind it. Either way the booking rolled back with it.
-        if (input.preferredDriverId) {
-            if (sqlStateOf(err) === '23P01') {
-                throw driverUnavailable();
-            }
+        const conflict = driverConflictFor(err, prepared);
 
-            if (err instanceof ConflictError && err.details?.reason === 'SCHEDULE_CONFLICT') {
-                throw driverUnavailable(err.details.conflicts);
-            }
+        if (conflict) {
+            throw conflict;
         }
 
         throw err;
@@ -481,9 +549,15 @@ export const quoteTransferCancellation = (booking, at = new Date()) => {
 
 const CANCELLABLE_STATUSES = ['PENDING', 'CONFIRMED'];
 
-export const cancelTransferBooking = async (reference, { reason, email } = {}, actor, req) => {
-    const booking = await findTransferBookingOr404(reference, actor, { email });
-
+/**
+ * Cancels an already-loaded booking inside the caller's transaction.
+ *
+ * The legs go first: that is what refuses a cancellation once a passenger is
+ * in the car, and what tells the driver of one on the way. `waiveCharges` is
+ * for the platform walking away rather than the traveller — a package whose
+ * supplier declined — and records a zero charge without reading the schedule.
+ */
+export const cancelTransferBookingInTx = async (tx, booking, { reason, waiveCharges = false } = {}, actor, req) => {
     if (!CANCELLABLE_STATUSES.includes(booking.status)) {
         throw new ConflictError('That booking cannot be cancelled', {
             reason: 'NOT_CANCELLABLE',
@@ -491,38 +565,50 @@ export const cancelTransferBooking = async (reference, { reason, email } = {}, a
         });
     }
 
-    const quote = quoteTransferCancellation(booking);
+    const quote = waiveCharges
+        ? {
+              chargeCents: 0,
+              refundableCents: booking.sellTotalCents,
+              currency: booking.currency,
+              freeUntil: null,
+              asAt: new Date().toISOString()
+          }
+        : quoteTransferCancellation(booking);
 
-    const updated = await prisma.$transaction(async (tx) => {
-        // The legs first: this is what refuses a cancellation once a passenger
-        // is in the car, and what tells the driver of one on the way.
-        await cascadeBookingCancellation(tx, booking.id, actor, req);
+    await cascadeBookingCancellation(tx, booking.id, actor, req);
 
-        const result = await tx.transferBooking.update({
-            where: { id: booking.id },
-            data: {
-                status: 'CANCELLED',
-                cancelledAt: new Date(),
-                cancellationChargeCents: quote.chargeCents,
-                cancellationReason: reason ?? null
-            },
-            include: bookingInclude
-        });
-
-        await recordAudit(tx, {
-            action: 'TRANSFER_BOOKING_CANCELLED',
-            actor,
-            entityType: AUDIT_ENTITY.transferBooking,
-            entityId: booking.id,
-            summary: `Transfer ${booking.reference} cancelled`,
-            metadata: { chargeCents: quote.chargeCents, reason: reason ?? null },
-            req
-        });
-
-        return result;
+    const result = await tx.transferBooking.update({
+        where: { id: booking.id },
+        data: {
+            status: 'CANCELLED',
+            cancelledAt: new Date(),
+            cancellationChargeCents: quote.chargeCents,
+            cancellationReason: reason ?? null
+        },
+        include: bookingInclude
     });
 
-    return { booking: updated, quote };
+    await recordAudit(tx, {
+        action: 'TRANSFER_BOOKING_CANCELLED',
+        actor,
+        entityType: AUDIT_ENTITY.transferBooking,
+        entityId: booking.id,
+        summary: `Transfer ${booking.reference} cancelled`,
+        metadata: {
+            chargeCents: quote.chargeCents,
+            reason: reason ?? null,
+            ...(waiveCharges ? { waived: true } : {})
+        },
+        req
+    });
+
+    return { booking: result, quote };
+};
+
+export const cancelTransferBooking = async (reference, { reason, email } = {}, actor, req) => {
+    const booking = await findTransferBookingOr404(reference, actor, { email });
+
+    return prisma.$transaction((tx) => cancelTransferBookingInTx(tx, booking, { reason }, actor, req));
 };
 
 const AMENDABLE_STATUSES = ['PENDING', 'CONFIRMED'];

@@ -22,7 +22,8 @@ export const TOPICS = Object.freeze({
     PICKUP_REMINDER: 'transfer.pickup.reminder',
     DRIVER_DETAILS: 'transfer.driver.details',
     RATING_RECEIVED: 'transfer.rating.received',
-    RATING_INVITE: 'transfer.rating.invite'
+    RATING_INVITE: 'transfer.rating.invite',
+    TOUR_REQUEST_OVERDUE: 'tour.booking.request_overdue'
 });
 
 /** Writes one event on the given client — a transaction handle, in practice. */

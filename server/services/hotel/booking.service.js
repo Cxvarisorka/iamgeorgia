@@ -147,39 +147,25 @@ const bedText = (roomType) => {
 };
 
 /**
- * Confirms a booking.
+ * Everything a confirmation needs that can be worked out *before* a
+ * transaction is opened: the offer or the hold, a fresh price, the frozen
+ * cancellation schedule and the requirement check. It reads a lot and holds
+ * no locks, which is why it is not inside the transaction.
  *
- * The order inside the transaction matters. Inventory is claimed *first* — a
- * fresh hold when booking straight from an offer, taken on the same transaction
- * so it rolls back with the booking — and moved from held to booked before the
- * transaction ends. If either fails there is no booking, rather than a booking
- * with nothing behind it or a hold with no booking in front of it. Everything
- * in between is bookkeeping that cannot fail for availability reasons.
- *
- * Nothing slow happens in here. No email, no payment call, no HTTP of any kind
- * — the connection is held for the duration and the pool is only
- * DATABASE_POOL_MAX per process.
+ * Split from the commit so a package can prepare several products up front
+ * and then commit them together in one transaction — see
+ * `confirmHotelBookingInTx`. With `strict` (the default, and what the
+ * standalone endpoint uses) a price that moved is thrown here as a 409; with
+ * `strict: false` the result carries `priceChanged` and both figures instead,
+ * so an orchestrator can report every drifted component at once rather than
+ * the first one it happened to meet.
  */
-export const confirmBooking = async (input, actor, req) => {
-    const idempotencyKey = deriveIdempotencyKey(input);
-
-    // A replay is answered before anything is claimed, so a retried request
-    // never takes a second room.
-    const existing = await prisma.hotelBooking.findUnique({
-        where: { idempotencyKey },
-        include: bookingInclude
-    });
-
-    if (existing) {
-        return { booking: existing, replayed: true };
-    }
-
-    // Revalidation happens outside the transaction: it reads a lot and the
-    // transaction should hold locks only for the claim and the writes.
+export const prepareHotelBooking = async (input, actor, { strict = true } = {}) => {
     const offer = input.holdToken ? null : readOfferToken(input.offerToken);
 
     let hold = null;
     let priced;
+    let quotedCents;
 
     if (input.holdToken) {
         hold = await findUsableHold(prisma, input.holdToken);
@@ -216,30 +202,36 @@ export const confirmBooking = async (input, actor, req) => {
             { strict: false, requireAvailability: false }
         );
 
-        // The hold guarantees the rooms, not the price. A rate the hotel moved
-        // while the guest was typing is a question for the guest, not something
-        // to absorb silently in either direction.
-        if (priced.quote.totals.totalCents !== hold.quotedSellCents) {
-            throw new ConflictError('The price for this booking has changed', {
-                reason: 'PRICE_CHANGED',
-                quotedCents: hold.quotedSellCents,
-                currentCents: priced.quote.totals.totalCents,
-                currency: priced.quote.currency
-            });
-        }
+        quotedCents = hold.quotedSellCents;
     } else {
-        // No hold: price it, then claim in the same breath. Convenient for a
+        // No hold: price it now, claim it in the transaction. Convenient for a
         // server-to-server partner booking, and the claim is identical.
-        priced = await revalidateOffer(offer, actor);
+        priced = await revalidateOffer(offer, actor, { strict });
+        quotedCents = offer.quotedSellCents;
+    }
+
+    const currentCents = priced.quote.totals.totalCents;
+    const priceChanged = currentCents !== quotedCents;
+
+    // The hold guarantees the rooms, not the price. A rate the hotel moved
+    // while the guest was typing is a question for the guest, not something to
+    // absorb silently in either direction.
+    if (strict && priceChanged) {
+        throw new ConflictError('The price for this booking has changed', {
+            reason: 'PRICE_CHANGED',
+            quotedCents,
+            currentCents,
+            currency: priced.quote.currency
+        });
     }
 
     const hotel = priced.hotel;
     const ratePlan = priced.ratePlan;
-    const checkIn = input.holdToken ? toDateOnly(hold.checkIn) : offer.checkIn;
-    const checkOut = input.holdToken ? toDateOnly(hold.checkOut) : offer.checkOut;
-    const rooms = input.holdToken ? hold.quantity : offer.rooms;
-    const adults = input.holdToken ? hold.adults : offer.adults;
-    const childAges = input.holdToken ? hold.childAges : offer.childAges;
+    const checkIn = hold ? toDateOnly(hold.checkIn) : offer.checkIn;
+    const checkOut = hold ? toDateOnly(hold.checkOut) : offer.checkOut;
+    const rooms = hold ? hold.quantity : offer.rooms;
+    const adults = hold ? hold.adults : offer.adults;
+    const childAges = hold ? hold.childAges : offer.childAges;
 
     const schedule = buildCancellationSchedule({
         rules: ratePlan.cancellationPolicy?.rules ?? [],
@@ -258,138 +250,217 @@ export const confirmBooking = async (input, actor, req) => {
     // unpick, and this is a read that has no business inside the transaction.
     await assertRequestsSupported(prisma, hotel.id, input.requests);
 
-    try {
-        const booking = await prisma.$transaction(async (tx) => {
-            // Claimed on this transaction, not its own, so the rooms and the
-            // booking commit together or not at all: a hold that outlived a
-            // rolled-back booking would block the room until the sweeper
-            // noticed.
-            const claimedHold =
-                hold ??
-                (await createHoldIn(tx, {
-                    offer: {
-                        roomTypeId: ratePlan.roomTypeId,
-                        ratePlanId: ratePlan.id,
-                        checkIn,
-                        checkOut,
-                        rooms,
-                        adults,
-                        childAges
-                    },
-                    quote: priced.quote,
-                    actor,
-                    ttlMs: 60_000
-                }));
+    return {
+        kind: 'HOTEL',
+        hold,
+        priced,
+        hotel,
+        ratePlan,
+        checkIn,
+        checkOut,
+        rooms,
+        adults,
+        childAges,
+        schedule,
+        party,
+        leadGuest: input.leadGuest,
+        guests: input.guests ?? [],
+        requests: input.requests ?? [],
+        specialRequests: input.specialRequests ?? null,
+        source: input.source ?? 'web',
+        priceChanged,
+        quotedCents,
+        currentCents,
+        currency: priced.quote.currency,
+        // What an orchestrator claiming several products sorts on, so every
+        // transaction takes its room-type locks in the same order.
+        lockKey: ratePlan.roomTypeId
+    };
+};
 
-            const reference = await nextHotelBookingReference(tx);
+/**
+ * Writes a prepared booking inside the caller's transaction.
+ *
+ * The order in here matters. Inventory is claimed *first* — a fresh hold when
+ * booking straight from an offer, taken on this transaction so it rolls back
+ * with the booking — and moved from held to booked before the transaction
+ * ends. If either fails there is no booking, rather than a booking with
+ * nothing behind it or a hold with no booking in front of it. Everything in
+ * between is bookkeeping that cannot fail for availability reasons.
+ *
+ * Nothing slow happens in here. No email, no payment call, no HTTP of any kind
+ * — the connection is held for the duration and the pool is only
+ * DATABASE_POOL_MAX per process.
+ *
+ * `holdTtlMs` on the inner hold is irrelevant on success (the hold commits
+ * with the booking) and irrelevant on failure (it never existed); it only has
+ * to be long enough that a sweeper on another connection cannot mistake a
+ * hold created a moment ago for an expired one.
+ */
+export const confirmHotelBookingInTx = async (
+    tx,
+    prepared,
+    { idempotencyKey, holdTtlMs = 60_000 } = {},
+    actor,
+    req
+) => {
+    const { hold, priced, hotel, ratePlan, checkIn, checkOut, rooms, adults, childAges, schedule } = prepared;
 
-            const created = await tx.hotelBooking.create({
-                data: {
-                    reference,
-                    status: 'CONFIRMED',
-                    idempotencyKey,
-                    partnerId: actor?.partnerId ?? null,
-                    bookedByUserId: actor?.id ?? null,
-                    hotelId: hotel.id,
-                    checkIn: dateOnlyToUtc(checkIn),
-                    checkOut: dateOnlyToUtc(checkOut),
-                    nights: nightsBetween(checkIn, checkOut),
-                    currency: priced.quote.currency,
-                    netTotalCents: priced.quote.totals.netCents,
-                    sellTotalCents: priced.quote.totals.sellCents,
-                    taxTotalCents: priced.quote.totals.taxIncludedCents,
-                    payableAtPropertyCents: priced.quote.totals.payableAtPropertyCents,
-                    markupBps: priced.quote.totals.markupBps,
-                    leadGuestName: `${input.leadGuest.firstName} ${input.leadGuest.lastName}`,
-                    leadGuestEmail: input.leadGuest.email,
-                    leadGuestPhone: input.leadGuest.phone ?? null,
-                    specialRequests: input.specialRequests ?? null,
-                    // Structured requirements, stored alongside the free text.
-                    // They deliberately do NOT hold the booking open: the rooms
-                    // are claimed and priced, so the reservation is CONFIRMED,
-                    // and each requirement carries its own answer. Making a meal
-                    // request gate the room would turn a secured booking into a
-                    // pending one and would put confirmed inventory into a state
-                    // cancellation and reconciliation do not expect.
-                    requests: {
-                        create: (input.requests ?? []).map((request) => ({
-                            code: request.code,
-                            note: request.note ?? null
-                        }))
-                    },
-                    hotelSnapshot: snapshotHotel(hotel),
-                    confirmedAt: new Date(),
-                    source: input.source ?? 'web',
-                    rooms: {
-                        // One row per room: two rooms on one booking are two
-                        // rows, which is what makes cancelling one of them
-                        // possible later.
-                        create: Array.from({ length: rooms }, () => ({
-                            roomTypeId: ratePlan.roomTypeId,
-                            ratePlanId: ratePlan.id,
-                            roomTypeName: ratePlan.roomType?.name ?? 'Room',
-                            ratePlanName: ratePlan.name,
-                            mealPlanCode: ratePlan.mealPlan?.code ?? 'RO',
-                            mealPlanName: ratePlan.mealPlan?.name ?? 'Room Only',
-                            bedConfigurationText: bedText(ratePlan.roomType),
-                            adults,
-                            childAges,
-                            netSubtotalCents: Math.round(priced.quote.totals.netCents / rooms),
-                            sellSubtotalCents: Math.round(priced.quote.totals.sellCents / rooms),
-                            cancellationSummary: ratePlan.cancellationPolicy?.description ?? null,
-                            cancellationSchedule: schedule,
-                            nights: {
-                                create: priced.quote.nights.map((night) => ({
-                                    date: dateOnlyToUtc(night.date),
-                                    netCents: night.netCents,
-                                    sellCents: night.sellCents
-                                }))
-                            },
-                            guests: {
-                                create: [
-                                    {
-                                        type: 'ADULT',
-                                        firstName: input.leadGuest.firstName,
-                                        lastName: input.leadGuest.lastName,
-                                        isLead: true
-                                    },
-                                    ...(input.guests ?? []).map((guest) => ({
-                                        type: guest.type ?? 'ADULT',
-                                        firstName: guest.firstName,
-                                        lastName: guest.lastName,
-                                        age: guest.age ?? null
-                                    }))
-                                ]
-                            }
-                        }))
-                    }
-                }
-            });
+    // Claimed on this transaction, not its own, so the rooms and the booking
+    // commit together or not at all: a hold that outlived a rolled-back
+    // booking would block the room until the sweeper noticed.
+    const claimedHold =
+        hold ??
+        (await createHoldIn(tx, {
+            offer: {
+                roomTypeId: ratePlan.roomTypeId,
+                ratePlanId: ratePlan.id,
+                checkIn,
+                checkOut,
+                rooms,
+                adults,
+                childAges
+            },
+            quote: priced.quote,
+            actor,
+            ttlMs: holdTtlMs
+        }));
 
-            await commitHold(tx, claimedHold, created.id);
+    const reference = await nextHotelBookingReference(tx);
 
-            await recordAudit(tx, {
-                action: 'BOOKING_CREATED',
-                actor,
-                entityType: AUDIT_ENTITY.booking,
-                entityId: created.id,
-                summary: `Booked ${hotel.name} for ${checkIn} to ${checkOut}`,
-                metadata: {
-                    reference,
-                    hotelId: hotel.id,
+    const created = await tx.hotelBooking.create({
+        data: {
+            reference,
+            status: 'CONFIRMED',
+            idempotencyKey: idempotencyKey ?? null,
+            partnerId: actor?.partnerId ?? null,
+            bookedByUserId: actor?.id ?? null,
+            hotelId: hotel.id,
+            checkIn: dateOnlyToUtc(checkIn),
+            checkOut: dateOnlyToUtc(checkOut),
+            nights: nightsBetween(checkIn, checkOut),
+            currency: priced.quote.currency,
+            netTotalCents: priced.quote.totals.netCents,
+            sellTotalCents: priced.quote.totals.sellCents,
+            taxTotalCents: priced.quote.totals.taxIncludedCents,
+            payableAtPropertyCents: priced.quote.totals.payableAtPropertyCents,
+            markupBps: priced.quote.totals.markupBps,
+            leadGuestName: `${prepared.leadGuest.firstName} ${prepared.leadGuest.lastName}`,
+            leadGuestEmail: prepared.leadGuest.email,
+            leadGuestPhone: prepared.leadGuest.phone ?? null,
+            specialRequests: prepared.specialRequests,
+            // Structured requirements, stored alongside the free text.
+            // They deliberately do NOT hold the booking open: the rooms
+            // are claimed and priced, so the reservation is CONFIRMED,
+            // and each requirement carries its own answer. Making a meal
+            // request gate the room would turn a secured booking into a
+            // pending one and would put confirmed inventory into a state
+            // cancellation and reconciliation do not expect.
+            requests: {
+                create: prepared.requests.map((request) => ({
+                    code: request.code,
+                    note: request.note ?? null
+                }))
+            },
+            hotelSnapshot: snapshotHotel(hotel),
+            confirmedAt: new Date(),
+            source: prepared.source,
+            rooms: {
+                // One row per room: two rooms on one booking are two
+                // rows, which is what makes cancelling one of them
+                // possible later.
+                create: Array.from({ length: rooms }, () => ({
+                    roomTypeId: ratePlan.roomTypeId,
                     ratePlanId: ratePlan.id,
-                    rooms,
-                    nights: created.nights,
-                    totalCents: created.sellTotalCents,
-                    currency: created.currency
-                },
-                req
-            });
+                    roomTypeName: ratePlan.roomType?.name ?? 'Room',
+                    ratePlanName: ratePlan.name,
+                    mealPlanCode: ratePlan.mealPlan?.code ?? 'RO',
+                    mealPlanName: ratePlan.mealPlan?.name ?? 'Room Only',
+                    bedConfigurationText: bedText(ratePlan.roomType),
+                    adults,
+                    childAges,
+                    netSubtotalCents: Math.round(priced.quote.totals.netCents / rooms),
+                    sellSubtotalCents: Math.round(priced.quote.totals.sellCents / rooms),
+                    cancellationSummary: ratePlan.cancellationPolicy?.description ?? null,
+                    cancellationSchedule: schedule,
+                    nights: {
+                        create: priced.quote.nights.map((night) => ({
+                            date: dateOnlyToUtc(night.date),
+                            netCents: night.netCents,
+                            sellCents: night.sellCents
+                        }))
+                    },
+                    guests: {
+                        create: [
+                            {
+                                type: 'ADULT',
+                                firstName: prepared.leadGuest.firstName,
+                                lastName: prepared.leadGuest.lastName,
+                                isLead: true
+                            },
+                            ...prepared.guests.map((guest) => ({
+                                type: guest.type ?? 'ADULT',
+                                firstName: guest.firstName,
+                                lastName: guest.lastName,
+                                age: guest.age ?? null
+                            }))
+                        ]
+                    }
+                }))
+            }
+        }
+    });
 
-            return tx.hotelBooking.findUnique({ where: { id: created.id }, include: bookingInclude });
-        });
+    await commitHold(tx, claimedHold, created.id);
 
-        return { booking, replayed: false, party };
+    await recordAudit(tx, {
+        action: 'BOOKING_CREATED',
+        actor,
+        entityType: AUDIT_ENTITY.booking,
+        entityId: created.id,
+        summary: `Booked ${hotel.name} for ${checkIn} to ${checkOut}`,
+        metadata: {
+            reference,
+            hotelId: hotel.id,
+            ratePlanId: ratePlan.id,
+            rooms,
+            nights: created.nights,
+            totalCents: created.sellTotalCents,
+            currency: created.currency
+        },
+        req
+    });
+
+    return tx.hotelBooking.findUnique({ where: { id: created.id }, include: bookingInclude });
+};
+
+/**
+ * Confirms a booking on its own.
+ *
+ * The replay is answered before anything is claimed, so a retried request
+ * never takes a second room; the preparation runs outside the transaction;
+ * the transaction holds locks only for the claim and the writes.
+ */
+export const confirmBooking = async (input, actor, req) => {
+    const idempotencyKey = deriveIdempotencyKey(input);
+
+    const existing = await prisma.hotelBooking.findUnique({
+        where: { idempotencyKey },
+        include: bookingInclude
+    });
+
+    if (existing) {
+        return { booking: existing, replayed: true };
+    }
+
+    const prepared = await prepareHotelBooking(input, actor);
+
+    try {
+        const booking = await prisma.$transaction((tx) =>
+            confirmHotelBookingInTx(tx, prepared, { idempotencyKey }, actor, req)
+        );
+
+        return { booking, replayed: false, party: prepared.party };
     } catch (err) {
         // Two requests that raced past the replay check both try to insert the
         // same key; the loser is a replay, not a failure.
@@ -528,6 +599,75 @@ export const quoteCancellation = (booking, at = new Date()) => {
     };
 };
 
+/**
+ * Cancels an already-loaded booking inside the caller's transaction.
+ *
+ * `booking` must have been read with `bookingInclude` (and, for anything but
+ * a system caller, been through `assertMayRead`). The charge is read off the
+ * frozen schedule; `waiveCharges` is for the one case where the platform, not
+ * the guest, is walking away — a package component the supplier declined —
+ * and records a zero charge without consulting the schedule at all.
+ */
+export const cancelHotelBookingInTx = async (tx, booking, { reason, waiveCharges = false } = {}, actor, req) => {
+    if (booking.status === 'CANCELLED') {
+        throw new ConflictError('This booking is already cancelled', { status: booking.status });
+    }
+
+    if (booking.status === 'COMPLETED') {
+        throw new ConflictError('A completed stay cannot be cancelled', { status: booking.status });
+    }
+
+    const quote = waiveCharges
+        ? { chargeCents: 0, refundCents: booking.sellTotalCents, currency: booking.currency, rooms: [] }
+        : quoteCancellation(booking);
+
+    // Give the rooms back, one statement per room row.
+    for (const room of booking.rooms.filter((candidate) => candidate.status === 'CONFIRMED')) {
+        if (room.roomTypeId) {
+            await releaseBookedUnits(tx, {
+                roomTypeId: room.roomTypeId,
+                checkIn: booking.checkIn,
+                checkOut: booking.checkOut,
+                quantity: 1
+            });
+        }
+    }
+
+    await tx.hotelBookingRoom.updateMany({
+        where: { bookingId: booking.id, status: 'CONFIRMED' },
+        data: { status: 'CANCELLED' }
+    });
+
+    const cancelled = await tx.hotelBooking.update({
+        where: { id: booking.id },
+        data: {
+            status: 'CANCELLED',
+            cancelledAt: new Date(),
+            cancellationChargeCents: quote.chargeCents,
+            cancellationReason: reason ?? null
+        }
+    });
+
+    await recordAudit(tx, {
+        action: 'BOOKING_CANCELLED',
+        actor,
+        entityType: AUDIT_ENTITY.booking,
+        entityId: booking.id,
+        summary: `Cancelled ${booking.reference}`,
+        metadata: {
+            reference: booking.reference,
+            chargeCents: quote.chargeCents,
+            refundCents: quote.refundCents,
+            currency: booking.currency,
+            ...(reason ? { reason } : {}),
+            ...(waiveCharges ? { waived: true } : {})
+        },
+        req
+    });
+
+    return { booking: cancelled, quote };
+};
+
 export const cancelBooking = async (reference, { reason, email } = {}, actor, req) =>
     prisma.$transaction(async (tx) => {
         const booking = await tx.hotelBooking.findFirst({
@@ -541,60 +681,7 @@ export const cancelBooking = async (reference, { reason, email } = {}, actor, re
 
         assertMayRead(booking, actor, { email });
 
-        if (booking.status === 'CANCELLED') {
-            throw new ConflictError('This booking is already cancelled', { status: booking.status });
-        }
-
-        if (booking.status === 'COMPLETED') {
-            throw new ConflictError('A completed stay cannot be cancelled', { status: booking.status });
-        }
-
-        const quote = quoteCancellation(booking);
-
-        // Give the rooms back, one statement per room row.
-        for (const room of booking.rooms.filter((candidate) => candidate.status === 'CONFIRMED')) {
-            if (room.roomTypeId) {
-                await releaseBookedUnits(tx, {
-                    roomTypeId: room.roomTypeId,
-                    checkIn: booking.checkIn,
-                    checkOut: booking.checkOut,
-                    quantity: 1
-                });
-            }
-        }
-
-        await tx.hotelBookingRoom.updateMany({
-            where: { bookingId: booking.id, status: 'CONFIRMED' },
-            data: { status: 'CANCELLED' }
-        });
-
-        const cancelled = await tx.hotelBooking.update({
-            where: { id: booking.id },
-            data: {
-                status: 'CANCELLED',
-                cancelledAt: new Date(),
-                cancellationChargeCents: quote.chargeCents,
-                cancellationReason: reason ?? null
-            }
-        });
-
-        await recordAudit(tx, {
-            action: 'BOOKING_CANCELLED',
-            actor,
-            entityType: AUDIT_ENTITY.booking,
-            entityId: booking.id,
-            summary: `Cancelled ${booking.reference}`,
-            metadata: {
-                reference: booking.reference,
-                chargeCents: quote.chargeCents,
-                refundCents: quote.refundCents,
-                currency: booking.currency,
-                ...(reason ? { reason } : {})
-            },
-            req
-        });
-
-        return { booking: cancelled, quote };
+        return cancelHotelBookingInTx(tx, booking, { reason }, actor, req);
     });
 
 /**

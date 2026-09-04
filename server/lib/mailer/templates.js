@@ -364,6 +364,23 @@ export const templates = {
         })
     }),
 
+    /** An on-request tour booking the operator has not answered in time. */
+    tourRequestOverdue: ({ reference, tourTitle, optionName, date, timezone, travellers, partnerName }) => ({
+        subject: `Unanswered request: ${reference}, ${tourTitle}`,
+        text: plain([
+            `The tour request ${reference} (${tourTitle}${optionName ? `, ${optionName}` : ''}, ${travellers} travellers, departing ${formatLocal(date, timezone)}${partnerName ? `, booked by ${partnerName}` : ''}) has passed its answer deadline and is still pending.`,
+            'Confirm or decline it from the tour bookings register.'
+        ]),
+        html: layout({
+            heading: 'A tour request is overdue',
+            paragraphs: [
+                `<strong>${escapeHtml(reference)}</strong> (${escapeHtml(tourTitle)}${optionName ? `, ${escapeHtml(optionName)}` : ''}, ${travellers} traveller${travellers === 1 ? '' : 's'}, departing ${escapeHtml(formatLocal(date, timezone))}${partnerName ? `, booked by ${escapeHtml(partnerName)}` : ''}) has passed its answer deadline and is still pending.`,
+                'Confirm or decline it from the tour bookings register.'
+            ],
+            footer: 'I am Georgia &middot; tours'
+        })
+    }),
+
     /** Password reset, which falls out of the same token machinery. */
     passwordReset: ({ url, expiresAt }) => ({
         subject: 'Reset your I am Georgia password',
