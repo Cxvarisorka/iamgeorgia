@@ -375,6 +375,8 @@ enum FileCategory {
   VEHICLE_DOCUMENT
   /// Photographs of a tour: PUBLIC, shown on the catalogue page.
   TOUR_IMAGE
+  /// Photographs of a package: PUBLIC.
+  PACKAGE_IMAGE
   OTHER
 
   @@map("file_category")
@@ -497,6 +499,155 @@ enum TourBookingStatus {
   @@map("tour_booking_status")
 }
 
+/// A priced service sold on its own line: kosher meals delivered to a hotel,
+/// a mashgiach for a stay, a synagogue transfer. No inventory; the operator
+/// confirms what needs confirming.
+enum ServiceStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+
+  @@map("service_status")
+}
+
+enum ServiceCategory {
+  KOSHER_MEAL_DELIVERY
+  SHABBAT_MEALS
+  MASHGIACH
+  SYNAGOGUE_TRANSFER
+  GUIDE
+  EQUIPMENT
+  OTHER
+
+  @@map("service_category")
+}
+
+/// What one unit of the price buys.
+enum ServiceBasis {
+  PER_PERSON
+  PER_GROUP
+  PER_DAY
+  PER_PERSON_PER_DAY
+
+  @@map("service_basis")
+}
+
+enum ServiceBookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+
+  @@map("service_booking_status")
+}
+
+enum PackageStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+
+  @@map("package_status")
+}
+
+/// The kind of thing a package slot resolves to. Each type reads its own
+/// constraint columns on the component and its own quote engine.
+enum PackageComponentType {
+  HOTEL_STAY
+  TRANSFER
+  TOUR
+  SERVICE
+
+  @@map("package_component_type")
+}
+
+/// How a package moves its price away from the sum of its parts.
+enum PackageAdjustmentKind {
+  NONE
+  DISCOUNT_BPS
+  FIXED_SELL
+  PER_PERSON_FIXED
+
+  @@map("package_adjustment_kind")
+}
+
+enum PackageAdjustmentScope {
+  REQUIRED_ONLY
+  ALL_ITEMS
+
+  @@map("package_adjustment_scope")
+}
+
+/// How many units of a SERVICE slot an order takes.
+enum PackageQuantityRule {
+  ONE
+  PER_PERSON
+  PER_ROOM
+
+  @@map("package_quantity_rule")
+}
+
+/// How Shabbat is located in time for a kosher package: from sunset at the
+/// property's coordinates, from published fixed hours, or not at all.
+enum ShabbatMode {
+  SOLAR
+  FIXED_HOURS
+  NONE
+
+  @@map("shabbat_mode")
+}
+
+enum OrderKind {
+  PACKAGE
+  CUSTOM
+
+  @@map("order_kind")
+}
+
+enum OrderStatus {
+  PENDING_CONFIRMATION
+  CONFIRMED
+  PARTIALLY_CANCELLED
+  CANCELLED
+  COMPLETED
+
+  @@map("order_status")
+}
+
+enum OrderItemStatus {
+  REQUESTED
+  CONFIRMED
+  DECLINED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+
+  @@map("order_item_status")
+}
+
+/// Who fulfils an item. EXTERNAL is reserved for a supplier reached over the
+/// wire after commit; nothing sets it yet.
+enum OrderItemFulfilment {
+  INTERNAL
+  ON_REQUEST
+  EXTERNAL
+
+  @@map("order_item_fulfilment")
+}
+
+/// The product dimension of a pricing rule. Null on a rule means any product.
+enum PricingProductType {
+  HOTEL
+  TRANSFER
+  TOUR
+  SERVICE
+  PACKAGE
+
+  @@map("pricing_product_type")
+}
+
 model Destination {
   id   String          @id @default(cuid())
   slug String          @unique
@@ -563,8 +714,10 @@ model Destination {
   transferPoints TransferPoint[]
   translations   DestinationTranslation[]
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  services  Service[]
+  packages  Package[]
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
 
   @@index([parentId])
   @@index([type, countryCode])
@@ -685,8 +838,9 @@ model Hotel {
   /// `status` out of `updateHotelSchema`.
   kosher HotelKosherProfile?
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  packageComponents PackageComponent[]
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
 
   @@index([destinationId, status])
   @@index([supplierId])
@@ -805,8 +959,11 @@ model Tour {
   translations TourTranslation[]
   bookings     TourBooking[]
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  kosher            TourKosherProfile?
+  packageComponents PackageComponent[]
+  pricingRules      PricingRule[]
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
 
   @@index([destinationId, status])
   @@index([supplierId])
@@ -1133,8 +1290,9 @@ model TourBooking {
   travellers TourBookingTraveller[]
   hold       TourHold?
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  orderItem OrderItem?
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
 
   @@index([tourId, date])
   @@index([tourOptionId, date])
@@ -1234,6 +1392,470 @@ model TourTranslation {
 // distinction is what forces duplicate room types and, from there, oversold
 // inventory.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Services, packages and orders.
+//
+// A Service is a priced line with no inventory. A Package is a template of
+// typed slots resolved through the existing quote engines at quote time. An
+// Order is the product-agnostic parent of one booking row per product,
+// linked by exactly one nullable foreign key per item — enforced by a CHECK
+// in the migration, because a polymorphic (type, id) pair cannot carry a
+// foreign key and this schema does not do polymorphic joins.
+// ---------------------------------------------------------------------------
+
+model Service {
+  id     String        @id @default(cuid())
+  slug   String        @unique
+  name   String
+  status ServiceStatus @default(DRAFT)
+
+  category ServiceCategory
+
+  destinationId String?      @map("destination_id")
+  destination   Destination? @relation(fields: [destinationId], references: [id], onDelete: SetNull)
+
+  supplierId String?  @map("supplier_id")
+  supplier   Partner? @relation("PartnerServices", fields: [supplierId], references: [id], onDelete: Restrict)
+
+  basis     ServiceBasis
+  /// Net cost of one unit, in minor units. The selling price is derived by the
+  /// buyer's markup unless `sellCents` fixes it.
+  netCents  Int          @map("net_cents")
+  sellCents Int?         @map("sell_cents")
+  currency  String       @default("GEL") @db.Char(3)
+  timezone  String       @default("Asia/Tbilisi")
+
+  minQuantity Int  @default(1) @map("min_quantity")
+  maxQuantity Int? @map("max_quantity")
+
+  cancellationPolicyId String             @map("cancellation_policy_id")
+  cancellationPolicy   CancellationPolicy @relation(fields: [cancellationPolicyId], references: [id], onDelete: Restrict)
+
+  noticeHours      Int              @default(48) @map("notice_hours")
+  confirmationMode ConfirmationMode @default(INSTANT) @map("confirmation_mode")
+
+  isKosher        Boolean @default(false) @map("is_kosher")
+  kosherAuthority String? @map("kosher_authority")
+
+  summary     String
+  description String[]
+  included    String[]
+
+  b2cEnabled Boolean @default(false) @map("b2c_enabled")
+  sortOrder  Int     @default(0) @map("sort_order")
+
+  translations ServiceTranslation[]
+  bookings     ServiceBooking[]
+  components   PackageComponent[]
+  pricingRules PricingRule[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([status, category])
+  @@index([destinationId, status])
+  @@index([supplierId])
+  @@map("services")
+}
+
+model ServiceTranslation {
+  id        String  @id @default(cuid())
+  serviceId String  @map("service_id")
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  locale      String
+  name        String?
+  summary     String?
+  description String[]
+  included    String[]
+
+  @@unique([serviceId, locale])
+  @@map("service_translations")
+}
+
+/// A service as sold. No inventory and no hold — the transfer shape — but a
+/// real row, so an order item can point at it and it carries its own frozen
+/// terms, reference and audit trail like every other product.
+model ServiceBooking {
+  id String @id @default(cuid())
+
+  reference String @unique
+
+  status ServiceBookingStatus @default(PENDING)
+
+  idempotencyKey String? @unique @map("idempotency_key")
+
+  partnerId      String?  @map("partner_id")
+  partner        Partner? @relation("PartnerServiceBookings", fields: [partnerId], references: [id], onDelete: SetNull)
+  bookedByUserId String?  @map("booked_by_user_id")
+  bookedByUser   User?    @relation("ServiceBookingBookedBy", fields: [bookedByUserId], references: [id], onDelete: SetNull)
+
+  serviceId String  @map("service_id")
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+
+  date    DateTime @db.Date
+  endDate DateTime @map("end_date") @db.Date
+  startAt DateTime @map("start_at")
+
+  quantity Int @default(1)
+  pax      Int @default(1)
+  days     Int @default(1)
+
+  currency       String @db.Char(3)
+  netTotalCents  Int    @map("net_total_cents")
+  sellTotalCents Int    @map("sell_total_cents")
+  markupBps      Int    @map("markup_bps")
+
+  leadName  String  @map("lead_name")
+  leadEmail String  @map("lead_email")
+  leadPhone String? @map("lead_phone")
+  notes     String?
+
+  serviceSnapshot      Json @map("service_snapshot")
+  cancellationSchedule Json @map("cancellation_schedule")
+
+  confirmationMode  ConfirmationMode @map("confirmation_mode")
+  requestedAt       DateTime?        @map("requested_at")
+  requestDeadlineAt DateTime?        @map("request_deadline_at")
+  declinedAt        DateTime?        @map("declined_at")
+  declineReason     String?          @map("decline_reason")
+
+  confirmedAt             DateTime? @map("confirmed_at")
+  cancelledAt             DateTime? @map("cancelled_at")
+  cancellationChargeCents Int?      @map("cancellation_charge_cents")
+  cancellationReason      String?   @map("cancellation_reason")
+  completedAt             DateTime? @map("completed_at")
+
+  source String @default("web")
+
+  orderItem OrderItem?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([serviceId, date])
+  @@index([partnerId, createdAt])
+  @@index([status, date])
+  @@map("service_bookings")
+}
+
+/// An admin-defined template: a length, a destination, a price adjustment and
+/// an ordered set of typed slots. Nothing about it is a price until it is
+/// quoted for a date and a party, when each slot resolves to a live offer.
+model Package {
+  id     String        @id @default(cuid())
+  slug   String        @unique
+  name   String
+  status PackageStatus @default(DRAFT)
+
+  destinationId String      @map("destination_id")
+  destination   Destination @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+
+  summary     String
+  description String[]
+  /// Editorial cover under /public, until the gallery has an upload.
+  image       String   @default("")
+  gallery     Json     @default("[]")
+
+  /// The package length. Slots address days as offsets from the start.
+  nights   Int
+  currency String @default("GEL") @db.Char(3)
+  timezone String @default("Asia/Tbilisi")
+
+  b2cEnabled Boolean @default(false) @map("b2c_enabled")
+  featured   Boolean @default(false)
+  sortOrder  Int     @default(0) @map("sort_order")
+
+  minAdults   Int  @default(1) @map("min_adults")
+  maxAdults   Int? @map("max_adults")
+  maxChildren Int? @map("max_children")
+  maxPax      Int? @map("max_pax")
+
+  /// Applied to the sell side after each component's own markup, then
+  /// allocated across the items pro rata and frozen onto the order.
+  adjustmentKind      PackageAdjustmentKind  @default(NONE) @map("adjustment_kind")
+  /// Basis points for DISCOUNT_BPS, minor units otherwise.
+  adjustmentValue     Int                    @default(0) @map("adjustment_value")
+  adjustmentAppliesTo PackageAdjustmentScope @default(REQUIRED_ONLY) @map("adjustment_applies_to")
+
+  /// When it may be sold, and when the travel may fall.
+  sellableFrom  DateTime? @map("sellable_from") @db.Date
+  sellableUntil DateTime? @map("sellable_until") @db.Date
+  validFrom     DateTime? @map("valid_from") @db.Date
+  validUntil    DateTime? @map("valid_until") @db.Date
+
+  /// A cached cheapest sample, refreshed by the sweeper. Indicative only.
+  priceFromCents Int       @default(0) @map("price_from_cents")
+  priceFromAt    DateTime? @map("price_from_at")
+
+  /// An admin's dated decision to sell a kosher package whose hotel has lost
+  /// eligibility. Audited; never a silent bypass.
+  kosherOverrideUntil DateTime? @map("kosher_override_until") @db.Date
+
+  components   PackageComponent[]
+  images       PackageImage[]
+  translations PackageTranslation[]
+  kosher       KosherPackageProfile?
+  orders       Order[]
+  pricingRules PricingRule[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([destinationId, status])
+  @@index([status, featured])
+  @@map("packages")
+}
+
+/// One slot of a package. The constraint columns are real columns because
+/// the resolver filters on them and the panel edits them; `constraints` holds
+/// only soft preferences.
+model PackageComponent {
+  id        String  @id @default(cuid())
+  packageId String  @map("package_id")
+  package   Package @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  slotIndex     Int                  @map("slot_index")
+  componentType PackageComponentType @map("component_type")
+  label         String
+  required      Boolean              @default(true)
+
+  /// Days from the package start. A HOTEL_STAY runs `nights` from there.
+  dayOffset    Int                 @default(0) @map("day_offset")
+  nights       Int?
+  /// A pick-up or start time override, wall clock at the destination.
+  timeOfDay    String?             @map("time_of_day")
+  quantityRule PackageQuantityRule @default(ONE) @map("quantity_rule")
+
+  // HOTEL_STAY: a fixed property, or any at the destination when null.
+  hotelId              String?        @map("hotel_id")
+  hotel                Hotel?         @relation(fields: [hotelId], references: [id], onDelete: SetNull)
+  allowedRoomTypeIds   String[]       @map("allowed_room_type_ids")
+  allowedRatePlanIds   String[]       @map("allowed_rate_plan_ids")
+  allowedMealPlanCodes MealPlanCode[] @map("allowed_meal_plan_codes")
+
+  // TRANSFER
+  fromPointId           String?                @map("from_point_id")
+  fromPoint             TransferPoint?         @relation("PackageComponentFrom", fields: [fromPointId], references: [id], onDelete: SetNull)
+  toPointId             String?                @map("to_point_id")
+  toPoint               TransferPoint?         @relation("PackageComponentTo", fields: [toPointId], references: [id], onDelete: SetNull)
+  routeId               String?                @map("route_id")
+  route                 TransferRoute?         @relation(fields: [routeId], references: [id], onDelete: SetNull)
+  allowedVehicleClasses TransferVehicleClass[] @map("allowed_vehicle_classes")
+  tripType              TransferTripType?      @map("trip_type")
+
+  // TOUR
+  tourId               String?  @map("tour_id")
+  tour                 Tour?    @relation(fields: [tourId], references: [id], onDelete: SetNull)
+  allowedTourOptionIds String[] @map("allowed_tour_option_ids")
+
+  // SERVICE
+  serviceId String?  @map("service_id")
+  service   Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+
+  // Kosher overrides of the package profile, for a HOTEL_STAY slot.
+  kosherMinServiceLevel     KosherServiceLevel?        @map("kosher_min_service_level")
+  kosherCertifiedRequired   Boolean?                   @map("kosher_certified_required")
+  kosherCertificationScopes KosherCertificationScope[] @map("kosher_certification_scopes")
+
+  constraints Json @default("{}")
+
+  @@unique([packageId, slotIndex])
+  @@index([hotelId])
+  @@index([tourId])
+  @@index([serviceId])
+  @@map("package_components")
+}
+
+model PackageImage {
+  id        String  @id @default(cuid())
+  packageId String  @map("package_id")
+  package   Package @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  fileAssetId String    @map("file_asset_id")
+  fileAsset   FileAsset @relation("PackageImages", fields: [fileAssetId], references: [id], onDelete: Restrict)
+
+  caption   String?
+  sortOrder Int     @default(0) @map("sort_order")
+  isCover   Boolean @default(false) @map("is_cover")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([packageId, fileAssetId])
+  @@index([packageId, sortOrder])
+  @@map("package_images")
+}
+
+model PackageTranslation {
+  id        String  @id @default(cuid())
+  packageId String  @map("package_id")
+  package   Package @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  locale      String
+  name        String?
+  summary     String?
+  description String[]
+
+  @@unique([packageId, locale])
+  @@map("package_translations")
+}
+
+/// What makes a package kosher: the minimum the hotel slots must meet, the
+/// requests attached to every stay, and where Shabbat falls. Its existence is
+/// the switch, exactly as HotelKosherProfile is for a property.
+model KosherPackageProfile {
+  id        String  @id @default(cuid())
+  packageId String  @unique @map("package_id")
+  package   Package @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  minServiceLevel             KosherServiceLevel         @default(FULL) @map("min_service_level")
+  certifiedRequired           Boolean                    @default(true) @map("certified_required")
+  certificationScopes         KosherCertificationScope[] @default([PROPERTY, KITCHEN]) @map("certification_scopes")
+  requireCertValidThroughStay Boolean                    @default(true) @map("require_cert_valid_through_stay")
+
+  /// Rate plans allowed on a hotel slot must carry one of these; empty = any.
+  requiredMealPlanCodes MealPlanCode[] @map("required_meal_plan_codes")
+  /// HotelBookingRequest codes attached to every hotel stay in the package.
+  hotelRequestCodes     String[]       @map("hotel_request_codes")
+
+  shabbatMode             ShabbatMode @default(SOLAR) @map("shabbat_mode")
+  shabbatFixedStart       String?     @map("shabbat_fixed_start")
+  shabbatFixedEnd         String?     @map("shabbat_fixed_end")
+  candleLightingOffsetMin Int         @default(18) @map("candle_lighting_offset_min")
+  havdalahOffsetMin       Int         @default(42) @map("havdalah_offset_min")
+
+  noTransfersInShabbat Boolean @default(true) @map("no_transfers_in_shabbat")
+  noToursOnShabbat     Boolean @default(true) @map("no_tours_on_shabbat")
+  /// Festivals: [{ from, to, label }] as date-only strings.
+  extraRestDays        Json    @default("[]") @map("extra_rest_days")
+
+  supervisionAuthority String? @map("supervision_authority")
+  notes                String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("kosher_package_profiles")
+}
+
+/// What a kosher package needs to know about a tour before it can be a slot.
+model TourKosherProfile {
+  id     String @id @default(cuid())
+  tourId String @unique @map("tour_id")
+  tour   Tour   @relation(fields: [tourId], references: [id], onDelete: Cascade)
+
+  kosherMealsAvailable Boolean @default(false) @map("kosher_meals_available")
+  operatesOnShabbat    Boolean @default(false) @map("operates_on_shabbat")
+  notes                String?
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("tour_kosher_profiles")
+}
+
+/// The product-agnostic parent. A package becomes an order; each slot becomes
+/// an item pointing at exactly one child booking. Standalone bookings are not
+/// wrapped in orders (yet), and no child table carries an order id — the
+/// unique foreign key on the item already says one child is one item.
+model Order {
+  id String @id @default(cuid())
+
+  reference String @unique
+
+  status OrderStatus
+
+  idempotencyKey String? @unique @map("idempotency_key")
+
+  partnerId      String?  @map("partner_id")
+  partner        Partner? @relation("PartnerOrders", fields: [partnerId], references: [id], onDelete: SetNull)
+  bookedByUserId String?  @map("booked_by_user_id")
+  bookedByUser   User?    @relation("OrderBookedBy", fields: [bookedByUserId], references: [id], onDelete: SetNull)
+
+  kind      OrderKind @default(PACKAGE)
+  packageId String?   @map("package_id")
+  package   Package?  @relation(fields: [packageId], references: [id], onDelete: SetNull)
+
+  startDate DateTime @map("start_date") @db.Date
+  endDate   DateTime @map("end_date") @db.Date
+  adults    Int
+  childAges Int[]    @map("child_ages")
+  rooms     Int      @default(1)
+
+  currency            String @db.Char(3)
+  componentsNetCents  Int    @map("components_net_cents")
+  componentsSellCents Int    @map("components_sell_cents")
+  adjustmentCents     Int    @default(0) @map("adjustment_cents")
+  sellTotalCents      Int    @map("sell_total_cents")
+
+  leadName        String  @map("lead_name")
+  leadEmail       String  @map("lead_email")
+  leadPhone       String? @map("lead_phone")
+  specialRequests String? @map("special_requests")
+
+  packageSnapshot Json @map("package_snapshot")
+
+  /// The earliest pending item's deadline, so the queue sorts on one column.
+  requestDeadlineAt DateTime? @map("request_deadline_at")
+  overdueAlertAt    DateTime? @map("overdue_alert_at")
+
+  confirmedAt             DateTime? @map("confirmed_at")
+  cancelledAt             DateTime? @map("cancelled_at")
+  cancellationChargeCents Int?      @map("cancellation_charge_cents")
+  cancellationReason      String?   @map("cancellation_reason")
+  completedAt             DateTime? @map("completed_at")
+
+  source String @default("web")
+
+  items OrderItem[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([partnerId, createdAt])
+  @@index([status, startDate])
+  @@index([packageId])
+  @@index([status, requestDeadlineAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id      String @id @default(cuid())
+  orderId String @map("order_id")
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  slotIndex     Int                  @map("slot_index")
+  componentType PackageComponentType @map("component_type")
+  label         String
+  required      Boolean              @default(true)
+
+  status     OrderItemStatus
+  fulfilment OrderItemFulfilment @default(INTERNAL)
+
+  hotelBookingId    String?          @unique @map("hotel_booking_id")
+  hotelBooking      HotelBooking?    @relation(fields: [hotelBookingId], references: [id], onDelete: Restrict)
+  transferBookingId String?          @unique @map("transfer_booking_id")
+  transferBooking   TransferBooking? @relation(fields: [transferBookingId], references: [id], onDelete: Restrict)
+  tourBookingId     String?          @unique @map("tour_booking_id")
+  tourBooking       TourBooking?     @relation(fields: [tourBookingId], references: [id], onDelete: Restrict)
+  serviceBookingId  String?          @unique @map("service_booking_id")
+  serviceBooking    ServiceBooking?  @relation(fields: [serviceBookingId], references: [id], onDelete: Restrict)
+
+  netCents        Int @map("net_cents")
+  sellCents       Int @map("sell_cents")
+  /// This item's share of the package adjustment, frozen at confirmation.
+  adjustmentCents Int @default(0) @map("adjustment_cents")
+  lineTotalCents  Int @map("line_total_cents")
+
+  cancellationChargeCents Int?      @map("cancellation_charge_cents")
+  cancelledAt             DateTime? @map("cancelled_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([orderId, slotIndex])
+  @@map("order_items")
+}
 
 model RoomType {
   id      String @id @default(cuid())
@@ -1516,8 +2138,9 @@ model CancellationPolicy {
   transferVehicles TransferVehicle[]
   tourOptions      TourOption[]
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  services  Service[]
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
 
   @@index([hotelId, isActive])
   @@map("cancellation_policies")
@@ -1882,8 +2505,9 @@ model HotelBooking {
   hold     BookingHold?
   requests HotelBookingRequest[]
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  orderItem OrderItem?
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
 
   @@index([hotelId, checkIn])
   @@index([partnerId, createdAt])
@@ -2036,6 +2660,21 @@ model PricingRule {
   destinationId String?      @map("destination_id")
   destination   Destination? @relation(fields: [destinationId], references: [id], onDelete: Cascade)
 
+  /// The product dimensions. A rule may name one product (a hotel, a tour, a
+  /// service or a package) or a whole product type; null means any. Named
+  /// products beat a type, a type beats nothing — see `specificity` in
+  /// services/hotel/pricingRule.service.js.
+  productType PricingProductType? @map("product_type")
+
+  tourId String? @map("tour_id")
+  tour   Tour?   @relation(fields: [tourId], references: [id], onDelete: Cascade)
+
+  serviceId String?  @map("service_id")
+  service   Service? @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  packageId String?  @map("package_id")
+  package   Package? @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
   /// Basis points added to the net rate: 1500 = 15%.
   markupBps Int @map("markup_bps")
 
@@ -2051,6 +2690,9 @@ model PricingRule {
 
   @@index([partnerId, isActive])
   @@index([hotelId, isActive])
+  @@index([tourId, isActive])
+  @@index([serviceId, isActive])
+  @@index([packageId, isActive])
   @@map("pricing_rules")
 }
 
@@ -2166,8 +2808,9 @@ model FileAsset {
   driverPhotos          TransferDriver[]               @relation("DriverPhoto")
   tourImages            TourImage[]                    @relation("TourImages")
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  packageImages PackageImage[] @relation("PackageImages")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
 
   @@index([category, visibility])
   @@index([partnerId])
@@ -2623,6 +3266,32 @@ enum AuditAction {
   TOUR_BOOKING_COMPLETED
   TOUR_HOLD_EXPIRED
   TOUR_INVENTORY_RECONCILED
+  SERVICE_CREATED
+  SERVICE_UPDATED
+  SERVICE_PUBLISHED
+  SERVICE_UNPUBLISHED
+  SERVICE_ARCHIVED
+  SERVICE_DELETED
+  SERVICE_BOOKING_CREATED
+  SERVICE_BOOKING_CONFIRMED
+  SERVICE_BOOKING_DECLINED
+  SERVICE_BOOKING_CANCELLED
+  SERVICE_BOOKING_COMPLETED
+  PACKAGE_CREATED
+  PACKAGE_UPDATED
+  PACKAGE_PUBLISHED
+  PACKAGE_UNPUBLISHED
+  PACKAGE_ARCHIVED
+  PACKAGE_DELETED
+  PACKAGE_KOSHER_OVERRIDDEN
+  ORDER_CREATED
+  ORDER_CONFIRMED
+  ORDER_ITEM_CONFIRMED
+  ORDER_ITEM_DECLINED
+  ORDER_ITEM_CANCELLED
+  ORDER_CANCELLED
+  ORDER_COMPLETED
+  ORDER_AMENDED
 
   @@map("audit_action")
 }
@@ -2684,8 +3353,10 @@ model User {
   bookingRequestsAnswered      HotelBookingRequest[]      @relation("BookingRequestRespondedBy")
   hotelDocumentsUploaded       HotelDocument[]            @relation("HotelDocumentUploadedBy")
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  serviceBookingsMade ServiceBooking[] @relation("ServiceBookingBookedBy")
+  ordersMade          Order[]          @relation("OrderBookedBy")
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
 
   @@index([partnerId])
   @@index([role])
@@ -2807,8 +3478,11 @@ model Partner {
   tourBookings TourBooking[] @relation("PartnerTourBookings")
   tourHolds    TourHold[]    @relation("PartnerTourHolds")
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  services        Service[]        @relation("PartnerServices")
+  serviceBookings ServiceBooking[] @relation("PartnerServiceBookings")
+  orders          Order[]          @relation("PartnerOrders")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
 
   @@index([status])
   @@index([country])
@@ -3086,8 +3760,10 @@ model TransferPoint {
   driversBased TransferDriver[]           @relation("DriverHomeBase")
   tourMeetings Tour[]                     @relation("TourMeetingPoint")
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  packageFrom PackageComponent[] @relation("PackageComponentFrom")
+  packageTo   PackageComponent[] @relation("PackageComponentTo")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
 
   @@index([kind, status])
   @@index([destinationId])
@@ -3251,8 +3927,9 @@ model TransferRoute {
   bookings     TransferBooking[]
   translations TransferRouteTranslation[]
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  packageComponents PackageComponent[]
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
 
   /// The reverse leg is its own route, because it is priced, described and sold
   /// separately — an airport arrival is not an airport departure.
@@ -3467,8 +4144,9 @@ model TransferBooking {
   assignments TransferAssignment[]
   ratings     TransferDriverRating[]
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  orderItem OrderItem?
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
 
   @@index([vehicleId, pickupAt])
   @@index([routeId, pickupAt])
@@ -3698,6 +4376,8 @@ enum NotificationKind {
   TRANSFER_DRIVER_DETAILS
   TRANSFER_RATING_RECEIVED
   TOUR_REQUEST_OVERDUE
+  ORDER_REQUEST_OVERDUE
+  PACKAGE_KOSHER_ELIGIBILITY_CHANGED
 
   @@map("notification_kind")
 }

@@ -56,5 +56,10 @@ export const AUDIT_ENTITY = {
     tour: 'Tour',
     tourOption: 'TourOption',
     tourSeason: 'TourSeason',
-    tourBooking: 'TourBooking'
+    tourBooking: 'TourBooking',
+    service: 'Service',
+    serviceBooking: 'ServiceBooking',
+    package: 'Package',
+    order: 'Order',
+    orderItem: 'OrderItem'
 };

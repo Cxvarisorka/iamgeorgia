@@ -23,7 +23,13 @@ export const TOPICS = Object.freeze({
     DRIVER_DETAILS: 'transfer.driver.details',
     RATING_RECEIVED: 'transfer.rating.received',
     RATING_INVITE: 'transfer.rating.invite',
-    TOUR_REQUEST_OVERDUE: 'tour.booking.request_overdue'
+    TOUR_REQUEST_OVERDUE: 'tour.booking.request_overdue',
+    ORDER_CONFIRMED: 'order.confirmed',
+    ORDER_REQUESTED: 'order.requested',
+    ORDER_ITEM_DECLINED: 'order.item.declined',
+    ORDER_CANCELLED: 'order.cancelled',
+    ORDER_REQUEST_OVERDUE: 'order.request_overdue',
+    PACKAGE_KOSHER_ELIGIBILITY_CHANGED: 'package.kosher.eligibility_changed'
 });
 
 /** Writes one event on the given client — a transaction handle, in practice. */

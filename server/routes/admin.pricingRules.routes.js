@@ -28,6 +28,12 @@ const ruleSchema = z
         // buyer at every property, which is how a platform default is written.
         partnerId: z.string().min(1).nullish(),
         hotelId: z.string().min(1).nullish(),
+        // At most one named product; the service refuses two with a 422.
+        tourId: z.string().min(1).nullish(),
+        serviceId: z.string().min(1).nullish(),
+        packageId: z.string().min(1).nullish(),
+        // Or a whole product type — "every tour" — on its own.
+        productType: z.enum(['HOTEL', 'TRANSFER', 'TOUR', 'SERVICE', 'PACKAGE']).nullish(),
         destinationId: z.string().min(1).nullish(),
         markupBps: z.number().int().min(0).max(100_000),
         label: textField(120).nullish(),
@@ -45,6 +51,10 @@ const ruleSchema = z
 const querySchema = z.object({
     partnerId: z.string().min(1).optional(),
     hotelId: z.string().min(1).optional(),
+    tourId: z.string().min(1).optional(),
+    serviceId: z.string().min(1).optional(),
+    packageId: z.string().min(1).optional(),
+    productType: z.enum(['HOTEL', 'TRANSFER', 'TOUR', 'SERVICE', 'PACKAGE']).optional(),
     includeInactive: z.stringbool().default(false)
 });
 
@@ -58,6 +68,10 @@ const toRule = (rule) => ({
     isActive: rule.isActive,
     partner: rule.partner ?? null,
     hotel: rule.hotel ?? null,
+    tour: rule.tour ?? null,
+    service: rule.service ?? null,
+    package: rule.package ?? null,
+    productType: rule.productType ?? null,
     destination: rule.destination ?? null,
     validFrom: rule.validFrom ? rule.validFrom.toISOString().slice(0, 10) : null,
     validUntil: rule.validUntil ? rule.validUntil.toISOString().slice(0, 10) : null,
@@ -84,6 +98,10 @@ adminPricingRuleRoutes.get(
         query: z.object({
             partnerId: z.string().min(1).optional(),
             hotelId: z.string().min(1).optional(),
+            tourId: z.string().min(1).optional(),
+            serviceId: z.string().min(1).optional(),
+            packageId: z.string().min(1).optional(),
+            productType: z.enum(['HOTEL', 'TRANSFER', 'TOUR', 'SERVICE', 'PACKAGE']).optional(),
             date: dateOnlyField.optional()
         })
     }),

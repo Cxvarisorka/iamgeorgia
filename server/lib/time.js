@@ -21,22 +21,66 @@ const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
+ * Intl formatters, kept rather than rebuilt.
+ *
+ * Constructing an `Intl.DateTimeFormat` costs around 35 microseconds — it loads
+ * the zone's rules and builds a pattern — while formatting with one already
+ * built costs a fraction of that. Nothing here varies per call except the zone,
+ * so the constructor was being paid on every offer: a dated tour search over a
+ * catalogue of 500 spent 250 of its 500 ms building formatters it then threw
+ * away.
+ *
+ * Bounded by the IANA zone list, and a zone only reaches this module through
+ * `timezoneField`, which refuses anything the runtime does not recognise — so
+ * the map cannot be grown by a request.
+ */
+const offsetFormatters = new Map();
+const dateFormatters = new Map();
+
+const offsetFormatter = (timeZone) => {
+    let formatter = offsetFormatters.get(timeZone);
+
+    if (!formatter) {
+        formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone,
+            hourCycle: 'h23',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+        offsetFormatters.set(timeZone, formatter);
+    }
+
+    return formatter;
+};
+
+const dateFormatter = (timeZone) => {
+    let formatter = dateFormatters.get(timeZone);
+
+    if (!formatter) {
+        formatter = new Intl.DateTimeFormat('en-CA', {
+            timeZone,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        });
+        dateFormatters.set(timeZone, formatter);
+    }
+
+    return formatter;
+};
+
+/**
  * How far `timeZone` is from UTC at a given instant, in milliseconds.
  *
  * Derived from the runtime's own tz database through Intl rather than a shipped
  * offset table, which would rot the next time a country changes its rules.
  */
 export const timezoneOffsetMs = (instant, timeZone) => {
-    const formatter = new Intl.DateTimeFormat('en-US', {
-        timeZone,
-        hourCycle: 'h23',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-    });
+    const formatter = offsetFormatter(timeZone);
 
     const parts = {};
 
@@ -84,13 +128,7 @@ export const zonedTimeToInstant = (dateOnly, timeOfDay, timeZone) => {
 };
 
 /** The calendar date it is right now at a property, as `YYYY-MM-DD`. */
-export const todayInTimezone = (timeZone, now = new Date()) =>
-    new Intl.DateTimeFormat('en-CA', {
-        timeZone,
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-    }).format(now);
+export const todayInTimezone = (timeZone, now = new Date()) => dateFormatter(timeZone).format(now);
 
 /** `YYYY-MM-DD` for a Date, read in UTC — the form `@db.Date` round-trips. */
 export const toDateOnly = (value) => {

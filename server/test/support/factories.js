@@ -67,6 +67,8 @@ export const createTracker = () => {
     const transferFleetVehicleIds = new Set();
     const transferBookingIds = new Set();
     const tourIds = new Set();
+    const serviceIds = new Set();
+    const packageIds = new Set();
 
     return {
         partner(partner) {
@@ -125,6 +127,14 @@ export const createTracker = () => {
             transferBookingIds.add(booking.id);
             return booking;
         },
+        service(service) {
+            serviceIds.add(service.id);
+            return service;
+        },
+        package(pkg) {
+            packageIds.add(pkg.id);
+            return pkg;
+        },
         tour(tour) {
             tourIds.add(tour.id);
             return tour;
@@ -155,11 +165,60 @@ export const createTracker = () => {
                 ...transferDriverIds,
                 ...transferFleetVehicleIds,
                 ...transferBookingIds,
-                ...tourIds
+                ...tourIds,
+                ...serviceIds,
+                ...packageIds
             ];
 
             if (entityIds.length > 0) {
                 await prisma.auditLog.deleteMany({ where: { entityId: { in: entityIds } } });
+            }
+
+            // Orders first: an order item holds its child booking with Restrict,
+            // so no hotel, tour or service booking below can go while an item
+            // still points at it. Items cascade from the order.
+            if (hotelIds.size > 0 || tourIds.size > 0 || serviceIds.size > 0 || packageIds.size > 0 || partnerIds.size > 0) {
+                const orders = await prisma.order.findMany({
+                    where: {
+                        OR: [
+                            { packageId: { in: [...packageIds] } },
+                            { partnerId: { in: [...partnerIds] } },
+                            { items: { some: { hotelBooking: { hotelId: { in: [...hotelIds] } } } } },
+                            { items: { some: { tourBooking: { tourId: { in: [...tourIds] } } } } },
+                            { items: { some: { serviceBooking: { serviceId: { in: [...serviceIds] } } } } }
+                        ]
+                    },
+                    select: { id: true }
+                });
+
+                if (orders.length > 0) {
+                    const orderIds = orders.map(({ id }) => id);
+
+                    await prisma.order.deleteMany({ where: { id: { in: orderIds } } });
+                    await prisma.auditLog.deleteMany({ where: { entityId: { in: orderIds } } });
+                }
+            }
+
+            // Packages before the hotels, tours and services their slots name.
+            if (packageIds.size > 0) {
+                await prisma.package.deleteMany({ where: { id: { in: [...packageIds] } } });
+            }
+
+            // Services: bookings block the delete on purpose, as for tours.
+            if (serviceIds.size > 0) {
+                const bookings = await prisma.serviceBooking.findMany({
+                    where: { serviceId: { in: [...serviceIds] } },
+                    select: { id: true }
+                });
+
+                if (bookings.length > 0) {
+                    const bookingIds = bookings.map(({ id }) => id);
+
+                    await prisma.serviceBooking.deleteMany({ where: { id: { in: bookingIds } } });
+                    await prisma.auditLog.deleteMany({ where: { entityId: { in: bookingIds } } });
+                }
+
+                await prisma.service.deleteMany({ where: { id: { in: [...serviceIds] } } });
             }
 
             // Order matters here in a way it did not for partners and users.
@@ -329,6 +388,8 @@ export const createTracker = () => {
             transferFleetVehicleIds.clear();
             transferBookingIds.clear();
             tourIds.clear();
+            serviceIds.clear();
+            packageIds.clear();
         }
     };
 };
@@ -925,4 +986,33 @@ export const makeTourOption = async (
     }
 
     return option;
+};
+
+/**
+ * A priced service, ACTIVE and B2C, on the TIERED template (percent-of-total
+ * rules, which is what a service may use). Net 100.00 per unit by default.
+ */
+export const makeService = async (tracker, { destination = null, ...overrides } = {}) => {
+    const policy = await prisma.cancellationPolicy.findFirst({ where: { hotelId: null, kind: 'TIERED' } });
+
+    return tracker.service(
+        await prisma.service.create({
+            data: {
+                slug: unique('service'),
+                name: 'Kosher dinner delivery',
+                status: 'ACTIVE',
+                category: 'KOSHER_MEAL_DELIVERY',
+                destinationId: destination?.id ?? null,
+                basis: 'PER_PERSON',
+                netCents: 10_000,
+                currency: 'GEL',
+                cancellationPolicyId: policy.id,
+                noticeHours: 24,
+                isKosher: true,
+                summary: 'A hot kosher dinner brought to the hotel.',
+                b2cEnabled: true,
+                ...overrides
+            }
+        })
+    );
 };

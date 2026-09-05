@@ -37,6 +37,8 @@ import {
     tourBookingRoutes
 } from './tours.bookings.routes.js';
 import { adminTourRoutes } from './admin.tours.routes.js';
+import { serviceRoutes } from './services.routes.js';
+import { adminServiceBookingRoutes, adminServiceRoutes, serviceBookingRoutes } from './admin.services.routes.js';
 
 /**
  * Everything under /api. Mounted as one router so app.js keeps saying what the
@@ -64,6 +66,8 @@ routes.use('/search/tours', tourSearchRoutes);
 routes.use('/search', hotelSearchRoutes);
 routes.use('/tours/bookings', tourBookingRoutes);
 routes.use('/tours', tourRoutes);
+routes.use('/services', serviceRoutes);
+routes.use('/service-bookings', serviceBookingRoutes);
 routes.use('/hotels', hotelRoutes);
 routes.use('/bookings', bookingRoutes);
 // Transfers keep their bookings under their own prefix rather than joining
@@ -90,6 +94,8 @@ routes.use('/admin/transfers/dispatch', adminDispatchRoutes);
 routes.use('/admin/transfers', adminTransferRoutes);
 routes.use('/admin/tours/bookings', adminTourBookingRoutes);
 routes.use('/admin/tours', adminTourRoutes);
+routes.use('/admin/services/bookings', adminServiceBookingRoutes);
+routes.use('/admin/services', adminServiceRoutes);
 routes.use('/partner/tours/bookings', partnerTourBookingRoutes);
 routes.use('/partner/hotels', partnerHotelRoutes);
 routes.use('/partner/bookings', partnerBookingRoutes);

@@ -113,6 +113,15 @@ export const partnerDocumentSchema = z.object({
 // cannot land in a column the panel will try to read keys from.
 const openObjectSchema = z.record(z.string(), z.unknown());
 
+/** A festival window on a kosher package: date-only bounds and a label. */
+const restDaySchema = z
+    .object({
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        label: z.string().trim().min(1).max(120)
+    })
+    .strict();
+
 // Which Json field on which model is validated by which schema. The Prisma
 // extension in db/index.js walks this map on every write.
 export const jsonFieldSchemas = {
@@ -162,6 +171,24 @@ export const jsonFieldSchemas = {
         tourSnapshot: openObjectSchema,
         priceLines: z.array(openObjectSchema),
         cancellationSchedule: openObjectSchema
+    },
+    ServiceBooking: {
+        serviceSnapshot: openObjectSchema,
+        cancellationSchedule: openObjectSchema
+    },
+    Package: {
+        gallery: gallerySchema
+    },
+    PackageComponent: {
+        // Soft preferences the resolver may read; never indexed, never trusted
+        // for anything a real column decides.
+        constraints: openObjectSchema
+    },
+    KosherPackageProfile: {
+        extraRestDays: z.array(restDaySchema)
+    },
+    Order: {
+        packageSnapshot: openObjectSchema
     },
     Experience: {
         gallery: gallerySchema,

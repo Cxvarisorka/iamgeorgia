@@ -42,6 +42,7 @@ const requiredInProduction = [
     'TRANSFER_QUOTE_TOKEN_SECRET',
     // And again for tour offers, with their own secret for the same reason.
     'TOUR_OFFER_TOKEN_SECRET',
+    'PACKAGE_OFFER_TOKEN_SECRET',
     // And for the rating links emailed after a transfer: a guessable secret
     // would let anyone rate any driver.
     'TRANSFER_RATING_TOKEN_SECRET',
@@ -361,6 +362,36 @@ export const config = {
         maxBulkDays: numberEnv('TOUR_MAX_BULK_DAYS', 730),
         unlimitedUnits: numberEnv('TOUR_UNLIMITED_UNITS', 99),
         bookingHorizonDays: numberEnv('TOUR_BOOKING_HORIZON_DAYS', 540)
+    },
+
+    service: {
+        // Applied to a service's net price when no pricing rule matches.
+        defaultMarkupBps: numberEnv('SERVICE_DEFAULT_MARKUP_BPS', 1500),
+        // The operator's answer window on an on-request service, as for tours.
+        onRequestSlaHours: numberEnv('SERVICE_ON_REQUEST_SLA_HOURS', 48),
+        bookingHorizonDays: numberEnv('SERVICE_BOOKING_HORIZON_DAYS', 540)
+    },
+
+    package: {
+        // Signs the composite package offer tokens. Its own secret so it can
+        // be rotated without touching the hotel, transfer or tour signers.
+        offerTokenSecret: process.env.PACKAGE_OFFER_TOKEN_SECRET || 'development-package-secret',
+        offerTokenTtlMs: numberEnv('PACKAGE_OFFER_TOKEN_TTL_MS', 30 * 60 * 1000),
+        // How many hotels a slot with no fixed property considers.
+        maxCandidates: numberEnv('PACKAGE_MAX_CANDIDATES', 5),
+        // How often the cached "from" price on package cards is refreshed.
+        priceFromSweepIntervalMs: numberEnv('PACKAGE_PRICE_FROM_SWEEP_INTERVAL_MS', 24 * 60 * 60 * 1000)
+    },
+
+    order: {
+        // The one multi-product transaction on the platform. Everything slow
+        // happens before it opens; this is the budget for the claims and
+        // inserts alone, with a margin.
+        txTimeoutMs: numberEnv('ORDER_TX_TIMEOUT_MS', 15_000),
+        txMaxWaitMs: numberEnv('ORDER_TX_MAX_WAIT_MS', 5_000),
+        // How often pending orders past their deadline are reported.
+        requestSweepIntervalMs: numberEnv('ORDER_REQUEST_SWEEP_INTERVAL_MS', 10 * 60 * 1000),
+        completionSweepIntervalMs: numberEnv('ORDER_COMPLETION_SWEEP_INTERVAL_MS', 60 * 60 * 1000)
     },
 
     media: {
