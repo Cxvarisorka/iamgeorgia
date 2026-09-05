@@ -381,6 +381,100 @@ export const templates = {
         })
     }),
 
+
+    /** The order voucher: one mail listing every part, sent once the whole order is confirmed. */
+    orderConfirmed: ({ reference, packageName, startDate, endDate, leadName, totalCents, currency, items }) => ({
+        subject: `Confirmed: ${reference}, ${packageName}`,
+        text: plain([
+            `Dear ${leadName}, your order ${reference} for ${packageName} (${startDate} to ${endDate}) is confirmed.`,
+            ...items.map((item) => `${item.label}: ${item.reference} (${item.status})`),
+            `Total: ${formatMoney(totalCents, currency)}.`,
+            'Each part carries its own reference; quote the order reference for anything about the whole trip.'
+        ]),
+        html: layout({
+            heading: 'Your order is confirmed',
+            paragraphs: [
+                `<strong>${escapeHtml(reference)}</strong> &mdash; ${escapeHtml(packageName)}, ${escapeHtml(startDate)} to ${escapeHtml(endDate)}.`,
+                ...items.map((item) => `${escapeHtml(item.label)}: <strong>${escapeHtml(item.reference)}</strong> (${escapeHtml(item.status)})`),
+                `Total: <strong>${escapeHtml(formatMoney(totalCents, currency))}</strong>.`
+            ],
+            footer: 'I am Georgia &middot; packages'
+        })
+    }),
+
+    /** Part of the order is waiting for a supplier's answer. */
+    orderRequested: ({ reference, packageName, startDate, leadName, pending, requestDeadlineAt }) => ({
+        subject: `Request received: ${reference}, ${packageName}`,
+        text: plain([
+            `Dear ${leadName}, your order ${reference} for ${packageName} starting ${startDate} has been received.`,
+            `Awaiting confirmation: ${pending.map((item) => item.label).join(', ')}. You will hear by ${formatDate(requestDeadlineAt)} UTC.`,
+            'Nothing is charged for a request that cannot be honoured, and you may cancel it meanwhile at no charge.'
+        ]),
+        html: layout({
+            heading: 'Your request has been received',
+            paragraphs: [
+                `<strong>${escapeHtml(reference)}</strong> &mdash; ${escapeHtml(packageName)}, starting ${escapeHtml(startDate)}.`,
+                `Awaiting confirmation: ${pending.map((item) => escapeHtml(item.label)).join(', ')}. You will hear by <strong>${escapeHtml(formatDate(requestDeadlineAt))} UTC</strong>.`,
+                'Nothing is charged for a request that cannot be honoured, and you may cancel it meanwhile at no charge.'
+            ],
+            footer: 'I am Georgia &middot; packages'
+        })
+    }),
+
+    /** An optional part could not be honoured; the rest stands. */
+    orderItemDeclined: ({ reference, packageName, leadName, label, reason, totalCents, currency }) => ({
+        subject: `${label} is not available on ${reference}`,
+        text: plain([
+            `Dear ${leadName}, the supplier could not honour "${label}" on your order ${reference} (${packageName}): ${reason}.`,
+            `The rest of the order stands. Your total is now ${formatMoney(totalCents, currency)}.`
+        ]),
+        html: layout({
+            heading: 'One part of your order is not available',
+            paragraphs: [
+                `The supplier could not honour <strong>${escapeHtml(label)}</strong> on <strong>${escapeHtml(reference)}</strong> (${escapeHtml(packageName)}): ${escapeHtml(reason)}.`,
+                `The rest of the order stands. Your total is now <strong>${escapeHtml(formatMoney(totalCents, currency))}</strong>.`
+            ],
+            footer: 'I am Georgia &middot; packages'
+        })
+    }),
+
+    orderCancelled: ({ reference, packageName, leadName, chargeCents, currency, reason }) => ({
+        subject: `Cancelled: ${reference}, ${packageName}`,
+        text: plain([
+            `Dear ${leadName}, your order ${reference} for ${packageName} has been cancelled${reason ? ` (${reason})` : ''}.`,
+            chargeCents > 0
+                ? `${formatMoney(chargeCents, currency)} is chargeable under the terms agreed at booking.`
+                : 'Nothing is chargeable.'
+        ]),
+        html: layout({
+            heading: 'Your order has been cancelled',
+            paragraphs: [
+                `<strong>${escapeHtml(reference)}</strong> &mdash; ${escapeHtml(packageName)}${reason ? ` (${escapeHtml(reason)})` : ''}.`,
+                chargeCents > 0
+                    ? `<strong>${escapeHtml(formatMoney(chargeCents, currency))}</strong> is chargeable under the terms agreed at booking.`
+                    : 'Nothing is chargeable.'
+            ],
+            footer: 'I am Georgia &middot; packages'
+        })
+    }),
+
+    /** An order with a request nobody has answered in time. */
+    orderRequestOverdue: ({ reference, packageName, pending, partnerName, requestDeadlineAt }) => ({
+        subject: `Unanswered request: ${reference}, ${packageName}`,
+        text: plain([
+            `Order ${reference} (${packageName}${partnerName ? `, booked by ${partnerName}` : ''}) has passed its answer deadline of ${formatDate(requestDeadlineAt)} UTC with ${pending.map((item) => item.label).join(', ')} still pending.`,
+            'Confirm or decline from the orders register.'
+        ]),
+        html: layout({
+            heading: 'An order request is overdue',
+            paragraphs: [
+                `<strong>${escapeHtml(reference)}</strong> (${escapeHtml(packageName)}${partnerName ? `, booked by ${escapeHtml(partnerName)}` : ''}) has passed its answer deadline with ${pending.map((item) => escapeHtml(item.label)).join(', ')} still pending.`,
+                'Confirm or decline from the orders register.'
+            ],
+            footer: 'I am Georgia &middot; packages'
+        })
+    }),
+
     /** Password reset, which falls out of the same token machinery. */
     passwordReset: ({ url, expiresAt }) => ({
         subject: 'Reset your I am Georgia password',

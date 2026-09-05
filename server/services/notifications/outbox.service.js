@@ -133,6 +133,43 @@ const driverLine = (assignment) =>
 
 // --- Handlers -------------------------------------------------------------------
 
+/** An order with enough of its children to write a mail about it. */
+const loadOrderForMail = (orderId) =>
+    prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+            partner: { select: { name: true } },
+            items: {
+                orderBy: { slotIndex: 'asc' },
+                include: {
+                    hotelBooking: { select: { reference: true, status: true } },
+                    transferBooking: { select: { reference: true, status: true } },
+                    tourBooking: { select: { reference: true, status: true } },
+                    serviceBooking: { select: { reference: true, status: true } }
+                }
+            }
+        }
+    });
+
+const orderMailData = (order) => {
+    const child = (item) => item.hotelBooking ?? item.transferBooking ?? item.tourBooking ?? item.serviceBooking;
+    const items = order.items.map((item) => ({ label: item.label, reference: child(item)?.reference ?? '—', status: item.status }));
+
+    return {
+        reference: order.reference,
+        packageName: order.packageSnapshot?.name ?? 'Package',
+        startDate: order.startDate.toISOString().slice(0, 10),
+        endDate: order.endDate.toISOString().slice(0, 10),
+        leadName: order.leadName,
+        totalCents: order.sellTotalCents,
+        currency: order.currency,
+        items,
+        pending: items.filter((item) => item.status === 'REQUESTED'),
+        partnerName: order.partner?.name ?? null,
+        requestDeadlineAt: order.requestDeadlineAt
+    };
+};
+
 const handlers = {
     [TOPICS.ASSIGNMENT_OFFERED]: async ({ legId, driverId, assignmentId, onBehalf }) => {
         const [leg, driver] = await Promise.all([legWithContext(legId), driverWithUser(driverId)]);
@@ -330,6 +367,72 @@ const handlers = {
 
         if (config.transfer.dispatch.opsEmail) {
             await sendMailQuietly({ to: config.transfer.dispatch.opsEmail, template: 'tourRequestOverdue', data });
+        }
+    },
+
+
+    // --- orders ---------------------------------------------------------------
+
+    [TOPICS.ORDER_CONFIRMED]: async ({ orderId }) => {
+        const order = await loadOrderForMail(orderId);
+
+        if (!order || order.status !== 'CONFIRMED') return;
+
+        await sendMailQuietly({ to: order.leadEmail, template: 'orderConfirmed', data: orderMailData(order) });
+    },
+
+    [TOPICS.ORDER_REQUESTED]: async ({ orderId }) => {
+        const order = await loadOrderForMail(orderId);
+
+        if (!order || order.status !== 'PENDING_CONFIRMATION') return;
+
+        await sendMailQuietly({ to: order.leadEmail, template: 'orderRequested', data: orderMailData(order) });
+    },
+
+    [TOPICS.ORDER_ITEM_DECLINED]: async ({ orderId, slotIndex, reason }) => {
+        const order = await loadOrderForMail(orderId);
+
+        if (!order) return;
+
+        const item = order.items.find((candidate) => candidate.slotIndex === slotIndex);
+
+        await sendMailQuietly({
+            to: order.leadEmail,
+            template: 'orderItemDeclined',
+            data: { ...orderMailData(order), label: item?.label ?? 'A part of the order', reason }
+        });
+    },
+
+    [TOPICS.ORDER_CANCELLED]: async ({ orderId, chargeCents, reason }) => {
+        const order = await loadOrderForMail(orderId);
+
+        if (!order) return;
+
+        await sendMailQuietly({
+            to: order.leadEmail,
+            template: 'orderCancelled',
+            data: { ...orderMailData(order), chargeCents: chargeCents ?? order.cancellationChargeCents ?? 0, reason: reason ?? null }
+        });
+    },
+
+    [TOPICS.ORDER_REQUEST_OVERDUE]: async ({ orderId }) => {
+        const order = await loadOrderForMail(orderId);
+
+        if (!order || order.status !== 'PENDING_CONFIRMATION') return;
+
+        const data = orderMailData(order);
+
+        await notify(await opsUserIds(), {
+            kind: 'ORDER_REQUEST_OVERDUE',
+            title: `${order.reference} is waiting for a supplier`,
+            body: `${data.packageName} · ${data.pending.map((item) => item.label).join(', ')} unanswered past the deadline`,
+            payload: { orderId, orderReference: order.reference },
+            entityType: 'Order',
+            entityId: orderId
+        });
+
+        if (config.transfer.dispatch.opsEmail) {
+            await sendMailQuietly({ to: config.transfer.dispatch.opsEmail, template: 'orderRequestOverdue', data });
         }
     },
 

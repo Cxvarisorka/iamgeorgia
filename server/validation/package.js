@@ -250,6 +250,20 @@ export const packageQuoteQuerySchema = z.object({
     locale: z.enum(SUPPORTED_LOCALES).default('en')
 });
 
+/** "Complete your trip" for one hotel or one tour, over a stay. */
+export const recommendationQuerySchema = z
+    .object({
+        hotel: z.string().trim().min(1).max(120).optional(),
+        tour: z.string().trim().min(1).max(120).optional(),
+        checkIn: dateOnlyField,
+        checkOut: dateOnlyField.optional(),
+        adults: z.coerce.number().int().min(1).max(60).default(2),
+        childAges: childAgesField,
+        locale: z.enum(SUPPORTED_LOCALES).default('en')
+    })
+    .refine((value) => Boolean(value.hotel) !== Boolean(value.tour), { message: 'Give a hotel or a tour, not both', path: ['hotel'] })
+    .refine((value) => !value.checkOut || value.checkOut > value.checkIn, { message: 'checkOut must be after checkIn', path: ['checkOut'] });
+
 export const packageOfferTokenSchema = z.object({ token: z.string().min(20).max(20_000) }).strict();
 
 export const attachPackageImageSchema = z

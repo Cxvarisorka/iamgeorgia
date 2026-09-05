@@ -557,6 +557,23 @@ const CANCELLABLE_STATUSES = ['PENDING', 'CONFIRMED'];
  * for the platform walking away rather than the traveller — a package whose
  * supplier declined — and records a zero charge without reading the schedule.
  */
+
+/**
+ * A booking that belongs to an order is cancelled through the order, whose
+ * roll-up and clawback must not be bypassed. 409 with the order reference.
+ */
+const assertNotInOrder = async (client, column, bookingId) => {
+    const item = await client.orderItem.findUnique({ where: { [column]: bookingId }, include: { order: { select: { reference: true } } } });
+
+    if (item) {
+        throw new ConflictError('This booking is part of an order; cancel it from the order', {
+            reason: 'PART_OF_ORDER',
+            orderReference: item.order.reference,
+            slotIndex: item.slotIndex
+        });
+    }
+};
+
 export const cancelTransferBookingInTx = async (tx, booking, { reason, waiveCharges = false } = {}, actor, req) => {
     if (!CANCELLABLE_STATUSES.includes(booking.status)) {
         throw new ConflictError('That booking cannot be cancelled', {
@@ -607,6 +624,8 @@ export const cancelTransferBookingInTx = async (tx, booking, { reason, waiveChar
 
 export const cancelTransferBooking = async (reference, { reason, email } = {}, actor, req) => {
     const booking = await findTransferBookingOr404(reference, actor, { email });
+
+    await assertNotInOrder(prisma, 'transferBookingId', booking.id);
 
     return prisma.$transaction((tx) => cancelTransferBookingInTx(tx, booking, { reason }, actor, req));
 };
@@ -667,3 +686,6 @@ export const amendTransferBooking = async (reference, input, actor, req) => {
 };
 
 export { bookingInclude, assertMayRead };
+
+/** The include an order needs to read this product's bookings by the same shape. */
+export const transferBookingInclude = bookingInclude;

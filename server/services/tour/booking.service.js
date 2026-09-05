@@ -459,6 +459,23 @@ const CANCELLABLE_STATUSES = ['PENDING', 'CONFIRMED'];
  * the units back. `waiveCharges` is for the platform walking away — a
  * declined request, a package whose supplier failed — and records zero.
  */
+
+/**
+ * A booking that belongs to an order is cancelled through the order, whose
+ * roll-up and clawback must not be bypassed. 409 with the order reference.
+ */
+const assertNotInOrder = async (client, column, bookingId) => {
+    const item = await client.orderItem.findUnique({ where: { [column]: bookingId }, include: { order: { select: { reference: true } } } });
+
+    if (item) {
+        throw new ConflictError('This booking is part of an order; cancel it from the order', {
+            reason: 'PART_OF_ORDER',
+            orderReference: item.order.reference,
+            slotIndex: item.slotIndex
+        });
+    }
+};
+
 export const cancelTourBookingInTx = async (tx, booking, { reason, waiveCharges = false } = {}, actor, req) => {
     if (!CANCELLABLE_STATUSES.includes(booking.status)) {
         throw new ConflictError('That booking cannot be cancelled', {
@@ -520,6 +537,8 @@ export const cancelTourBooking = async (reference, { reason, email } = {}, actor
         if (!booking) {
             throw new NotFoundError('Booking not found');
         }
+
+        await assertNotInOrder(tx, 'tourBookingId', booking.id);
 
         assertMayRead(booking, actor, { email });
 

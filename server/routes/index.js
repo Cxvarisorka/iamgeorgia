@@ -39,7 +39,9 @@ import {
 import { adminTourRoutes } from './admin.tours.routes.js';
 import { serviceRoutes } from './services.routes.js';
 import { packageRoutes } from './packages.routes.js';
+import { recommendationRoutes } from './recommendations.routes.js';
 import { adminPackageRoutes } from './admin.packages.routes.js';
+import { adminOrderRoutes, orderRoutes, partnerOrderRoutes } from './orders.routes.js';
 import { adminServiceBookingRoutes, adminServiceRoutes, serviceBookingRoutes } from './admin.services.routes.js';
 
 /**
@@ -70,6 +72,8 @@ routes.use('/tours/bookings', tourBookingRoutes);
 routes.use('/tours', tourRoutes);
 routes.use('/services', serviceRoutes);
 routes.use('/packages', packageRoutes);
+routes.use('/recommendations', recommendationRoutes);
+routes.use('/orders', orderRoutes);
 routes.use('/service-bookings', serviceBookingRoutes);
 routes.use('/hotels', hotelRoutes);
 routes.use('/bookings', bookingRoutes);
@@ -100,7 +104,9 @@ routes.use('/admin/tours', adminTourRoutes);
 routes.use('/admin/services/bookings', adminServiceBookingRoutes);
 routes.use('/admin/services', adminServiceRoutes);
 routes.use('/admin/packages', adminPackageRoutes);
+routes.use('/admin/orders', adminOrderRoutes);
 routes.use('/partner/tours/bookings', partnerTourBookingRoutes);
+routes.use('/partner/orders', partnerOrderRoutes);
 routes.use('/partner/hotels', partnerHotelRoutes);
 routes.use('/partner/bookings', partnerBookingRoutes);
 routes.use('/partner/transfers/bookings', partnerTransferBookingRoutes);

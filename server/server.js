@@ -9,6 +9,9 @@ import { drainOutbox } from './services/notifications/outbox.service.js';
 import { sweepReminders } from './services/transfer/reminder.service.js';
 import { auditTourSweep, sweepExpiredTourHolds } from './services/tour/availability.service.js';
 import { sweepCompletedTourBookings, sweepOverdueTourRequests } from './services/tour/booking.service.js';
+import { sweepCompletedServiceBookings } from './services/service/booking.service.js';
+import { sweepCompletedOrders, sweepOverdueOrderRequests } from './services/order/order.service.js';
+import { sweepPackagePriceFrom } from './services/package/priceFrom.service.js';
 
 const start = async () => {
     await connect();
@@ -112,6 +115,32 @@ const start = async () => {
     }, config.tour.requestSweepIntervalMs);
 
     tourRequestSweeper.unref();
+
+    /** Orders: the on-request queue's overdue alert, and completion once every part has finished. */
+    const orderRequestSweeper = setInterval(() => {
+        sweepOverdueOrderRequests().catch((err) => logger.error({ err }, 'Order request sweep failed'));
+    }, config.order.requestSweepIntervalMs);
+
+    orderRequestSweeper.unref();
+
+    const orderCompletionSweeper = setInterval(() => {
+        sweepCompletedServiceBookings()
+            .then(() => sweepCompletedOrders())
+            .catch((err) => logger.error({ err }, 'Order completion sweep failed'));
+    }, config.order.completionSweepIntervalMs);
+
+    orderCompletionSweeper.unref();
+
+    /** The indicative "from" price on package cards: a few sample dates, refreshed daily and once soon after boot. */
+    const refreshPackagePrices = () =>
+        sweepPackagePriceFrom()
+            .then(({ refreshed, total }) => logger.info({ refreshed, total }, 'Package prices refreshed'))
+            .catch((err) => logger.error({ err }, 'Package price sweep failed'));
+    const packagePriceKickoff = setTimeout(refreshPackagePrices, 30_000);
+    const packagePriceSweeper = setInterval(refreshPackagePrices, config.package.priceFromSweepIntervalMs);
+
+    packagePriceKickoff.unref();
+    packagePriceSweeper.unref();
 
     let shuttingDown = false;
 

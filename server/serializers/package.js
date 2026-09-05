@@ -3,6 +3,8 @@ import { isAdmin } from '../middleware/auth.js';
 import { localise } from './localise.js';
 import { toImageAsset } from './media.js';
 import { PACKAGE_TRANSLATABLE_FIELDS } from '../services/package/package.service.js';
+import { toOffer, toPoint } from './transfer.js';
+import { toTourSearchResult } from './tour.js';
 
 /**
  * Package responses.
@@ -259,3 +261,37 @@ export const toPackageQuote = (quote, locale, viewer) => {
         ...(quote.priceChanged === undefined ? {} : { priceChanged: quote.priceChanged, quotedTotalCents: quote.quotedTotalCents })
     };
 };
+
+// --- recommendations -------------------------------------------------------------
+
+const toRecommendedTransfer = (leg, viewer) =>
+    leg
+        ? {
+              date: leg.date,
+              from: toPoint(leg.from),
+              to: toPoint(leg.to),
+              offer: toOffer(leg.offer, viewer)
+          }
+        : null;
+
+/** The "complete your trip" rail: each card carries enough to render and a way into its own product. */
+export const toRecommendations = (recommendations, locale, viewer) => ({
+    anchor: recommendations.anchor,
+    stay: recommendations.stay,
+    transfers: {
+        arrival: toRecommendedTransfer(recommendations.transfers.arrival, viewer),
+        departure: toRecommendedTransfer(recommendations.transfers.departure, viewer)
+    },
+    tours: recommendations.tours.map((result) => toTourSearchResult(result, locale, viewer)),
+    packages: recommendations.packages.map(({ package: pkg, quote }) => ({
+        ...toPackageSummary(pkg, locale, viewer),
+        quote: {
+            startDate: quote.startDate,
+            endDate: quote.endDate,
+            currency: quote.currency,
+            totalCents: quote.totals.totalCents,
+            adjustmentCents: quote.totals.adjustmentCents,
+            ...(isAdmin(viewer) ? { marginCents: quote.totals.marginCents } : {})
+        }
+    }))
+});

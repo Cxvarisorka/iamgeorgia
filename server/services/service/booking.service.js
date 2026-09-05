@@ -339,6 +339,23 @@ export const quoteServiceCancellation = (booking, at = new Date()) => {
     return { chargeCents: refund.chargeCents, refundCents: refund.refundCents, currency: booking.currency };
 };
 
+
+/**
+ * A booking that belongs to an order is cancelled through the order, whose
+ * roll-up and clawback must not be bypassed. 409 with the order reference.
+ */
+const assertNotInOrder = async (client, column, bookingId) => {
+    const item = await client.orderItem.findUnique({ where: { [column]: bookingId }, include: { order: { select: { reference: true } } } });
+
+    if (item) {
+        throw new ConflictError('This booking is part of an order; cancel it from the order', {
+            reason: 'PART_OF_ORDER',
+            orderReference: item.order.reference,
+            slotIndex: item.slotIndex
+        });
+    }
+};
+
 export const cancelServiceBookingInTx = async (tx, booking, { reason, waiveCharges = false } = {}, actor, req) => {
     if (!CANCELLABLE_STATUSES.includes(booking.status)) {
         throw new ConflictError('That booking cannot be cancelled', { reason: 'NOT_CANCELLABLE', status: booking.status });
@@ -382,6 +399,8 @@ export const cancelServiceBookingInTx = async (tx, booking, { reason, waiveCharg
 export const cancelServiceBooking = async (reference, { reason, email } = {}, actor, req) =>
     prisma.$transaction(async (tx) => {
         const booking = await findServiceBookingOr404(reference, actor, { email });
+
+        await assertNotInOrder(tx, 'serviceBookingId', booking.id);
 
         return cancelServiceBookingInTx(tx, booking, { reason }, actor, req);
     });

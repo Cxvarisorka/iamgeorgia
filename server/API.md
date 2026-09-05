@@ -663,6 +663,116 @@ All under `/admin/tours`, admin only.
 
 Seeding: `node scripts/seed-tours.js` reads the ten editorial tours in `db/seed/tours.js` (prose in four languages), gives each a shared and a private option, a year of price sheets and departures, and publishes them. Requires `seed-reference.js` and `seed-catalogue.js` first.
 
+## Services
+
+A **service** is a priced thing without inventory: kosher meal delivery, Shabbat meals, a mashgiach, a synagogue transfer, a guide, equipment. It is sold through packages in this release; the standalone endpoints exist for partners and staff, and there is no public checkout page for one.
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET | `/services` | Browse. `?search&destinationSlug&category&kosher&locale&page&pageSize`. `unitPrice` is the buyer's own price for one unit of the service's `basis`. |
+| GET | `/services/:slug` | Detail. `?locale=` |
+| POST | `/service-bookings` | Partner or staff. `{ serviceId, date, time?, days?, quantity?, pax?, lead: { name, email, phone? }, notes?, source? }`. 201, or 200 on replay (`Idempotency-Key`). 409 `TOO_SOON` inside `noticeHours`, 422 `PAST` / `BEYOND_HORIZON` / `QUANTITY`. |
+| GET | `/service-bookings`, `/service-bookings/:reference` | Own bookings (`SVC-000001`). `?status&serviceId&from&to&search&page&pageSize` |
+| GET | `/service-bookings/:reference/cancellation-quote` · `POST …/cancel` | Off the frozen schedule; a pending request cancels at nothing. |
+
+Basis: `PER_PERSON` (units = pax), `PER_GROUP` (1), `PER_DAY` (days), `PER_PERSON_PER_DAY` (pax × days). A service with `confirmationMode: ON_REQUEST` is written `PENDING` with a 48 h deadline; operations confirm or decline it from the register.
+
+### Admin → Services
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET / POST | `/admin/services` | Register and create a DRAFT. `category`, `basis`, `netCents`, `sellCents?` (fixed sell), `currency`, `cancellationPolicyId` (percent-of-total template), `noticeHours`, `confirmationMode`, `isKosher`, `kosherAuthority?`, `supplierId?`, `destinationId?`. |
+| GET / PATCH / DELETE | `/admin/services/:serviceId` | Detail with `publishChecklist`; delete refuses 409 `HAS_BOOKINGS` / `IN_PACKAGE`. |
+| POST | `…/publish` · `/unpublish` · `/archive` | Publish answers 422 with `details.missing` until the checklist is clear. |
+| GET / PUT | `…/translations`, `…/translations/:locale` | Prose only. |
+| GET | `/admin/services/bookings` · `/:reference` · `…/cancellation-quote` | Every service booking. |
+| POST | `/admin/services/bookings/:reference/confirm` · `/decline` (`{ reason }`) · `/cancel` | The operator's answer to a request, and cancellation. |
+
+## Packages
+
+A package is an **admin-defined template with typed slots** — a hotel stay, a transfer, a tour, a service — each constrained to what the admin allows (a hotel and its room types, a journey and its vehicle classes, a tour and its options, one service). It has no price of its own: a quote for one start date and one party resolves every slot through that product's own engine, applies the package adjustment, and signs the lot. Everything in one currency; no FX.
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET | `/packages` | Browse. `?search&destinationSlug&destinationPath&kosher&minNights&maxNights&featured&locale&page&pageSize`. `priceFrom` is indicative (refreshed daily from sample dates); `kosher` is the declared profile. |
+| GET | `/packages/:slug` | Detail: components with their constraints, gallery, kosher profile. |
+| GET | `/packages/:slug/quote` | `?startDate&adults&childAges&rooms&choices&exclude&locale`. `choices` is a JSON object `{ "<slotIndex>": { ratePlanId \| hotelId \| vehicleId \| tourOptionId } }`; `exclude` lists optional slots to drop. |
+| POST | `/packages/quotes/revalidate` | `{ token }` — re-prices a package offer; a moved price answers with `priceChanged`. |
+
+A quote:
+
+```jsonc
+{
+  "available": true, "unavailableReason": null,      // COMPONENT_UNAVAILABLE | ADJUSTMENT_BELOW_COST | KOSHER_INELIGIBLE
+  "startDate": "2027-06-04", "endDate": "2027-06-06", "party": { … }, "currency": "GEL",
+  "components": [{
+    "slotIndex": 0, "componentType": "HOTEL_STAY", "label": "Two nights", "required": true, "included": true,
+    "resolved": { "sellCents": 44000, "hotel": { … }, "roomType": { … }, "ratePlan": { … }, "token": "…" },
+    "alternatives": [ … ],                            // other allowed choices for the slot, each with its own token
+    "adjustmentCents": -4400, "lineTotalCents": 39600
+  }, …],
+  "adjustment": { "kind": "DISCOUNT_BPS", "value": 1000, "appliesTo": "REQUIRED_ONLY", "appliedCents": -8600 },
+  "totals": { "componentsSellCents": 130000, "adjustmentCents": -8600, "totalCents": 121400 },   // staff also see net and margin
+  "kosher": { "blockers": [], "warnings": [ … ], "overridden": false } | null,
+  "token": "…"                                        // the composite offer; expires with its youngest child (30 min)
+}
+```
+
+The adjustment (`NONE`, `DISCOUNT_BPS`, `FIXED_SELL`, `PER_PERSON_FIXED`, over `REQUIRED_ONLY` or `ALL_ITEMS`) is allocated across the eligible lines by largest remainder, so lines sum to the total exactly; the allocation is frozen onto the order and is what a partial cancellation reads.
+
+**Kosher packages** are ordinary packages with a `kosher` profile: minimum hotel service level and certification, required meal codes, hotel request codes attached to every hotel component automatically, and Shabbat rules (`SOLAR` sunset from the hotel's coordinates, `FIXED_HOURS`, or `NONE`; no transfers in Shabbat, no tours on a rest day, extra rest days for festivals). The profile is validated when the template is saved (422 `KOSHER_INELIGIBLE` with per-slot `problems`), at every quote and again at confirmation; a certificate expiring mid-stay is a blocker, one expiring soon after is a warning frozen into the order.
+
+### Recommendations
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET | `/recommendations` | `?hotel=<slug>` or `?tour=<slug>`, `checkIn`, `checkOut?`, `adults`, `childAges`. Transfers to and from the nearest airport (cheapest class each way), tours with a departure during the stay (cheapest first), and active packages that contain the anchor, priced for those dates. Every card carries a real offer or is absent. |
+
+### Admin → Packages
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET / POST | `/admin/packages` | Register (`?status&destinationId&kosher&search`) and create a DRAFT with its `components[]`. Components are always written whole; 422 `{ problems: [{ slotIndex, code }] }` names a slot that is `OUTSIDE_PACKAGE`, `NOT_FOUND`, `INACTIVE`, in another `CURRENCY`, or missing `ENDPOINTS` / `TOUR` / `OPTIONS`. |
+| GET / PATCH / DELETE | `/admin/packages/:packageId` | Detail with `publishChecklist`; delete refuses 409 `HAS_ORDERS`. |
+| POST | `…/publish` · `/unpublish` · `/archive` | |
+| GET | `…/preview-quote?startDate&adults&childAges&rooms&choices` | The real quote for a draft, with staff figures — what a partner would see. |
+| PUT / DELETE | `…/kosher` | The kosher profile; creating it is the switch. 422 `KOSHER_INELIGIBLE` lists the slots in the way. |
+| PUT | `…/kosher/override` | `{ until, reason }` — sells past a blocker until a date, audited as `PACKAGE_KOSHER_OVERRIDDEN`; never silent. |
+| GET / PUT | `…/translations`, `…/translations/:locale` | |
+| POST / PUT / PATCH / DELETE | `…/images`, `…/images/order`, `…/images/:imageId` | The gallery. |
+| PUT | `/admin/tours/:tourId/kosher` | `{ kosherMealsAvailable, operatesOnShabbat, notes? }` — what a kosher package may ask of a tour. |
+
+## Orders
+
+An **order** (`ORD-000001`) is a package booked as one thing: one transaction writes a hotel booking, a transfer booking, a tour booking and a service booking — each with its own reference, snapshot and cancellation terms — and one `OrderItem` per slot pointing at exactly one of them. Either every part is written or none is; the outcome is 201, a 409 that names every slot in the way, or a rolled-back 5xx. Children are readable on their own registers but **cannot be cancelled there** (409 `PART_OF_ORDER` with the order reference): the order is the only door.
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| POST | `/orders/holds` | `{ packageToken }` → `{ holdTokens: { "<slot>": token }, expiresAt }` — a hotel hold and a tour hold per such slot (15 min). |
+| DELETE | `/orders/holds` | `{ holdTokens }`. Always 204. |
+| POST | `/orders` | `{ packageToken, holdTokens?, leadGuest, travellers?, specialRequests?, requests?, flightNumber?, pickupAddress?, preferredDriverId?, source? }`. 201, or 200 on replay (`Idempotency-Key`). 409 `PRICE_CHANGED` `{ quotedCents, currentCents, components: [{ slotIndex, label, quotedCents, currentCents }] }`; 409 `UNAVAILABLE` `{ slots: [{ slotIndex, label, reason }] }`; 409 `KOSHER_INELIGIBLE`; 409 `PACKAGE_CHANGED` / `NOT_ON_SALE`; 410 spent token. |
+| GET | `/orders/:reference` | Detail: items with their child bookings. A guest reads with `?email=`. |
+| GET | `/orders/:reference/cancellation-quote` | Per item `{ chargeCents, refundCents, clawbackCents }` and totals, off frozen data. |
+| PATCH | `/orders/:reference` | Paperwork only: `leadGuest`, `specialRequests`. |
+| POST | `/orders/:reference/cancel` | `{ reason?, email? }` — every live part, in one transaction. |
+| POST | `/orders/:reference/items/:slotIndex/cancel` | One optional part. A required part answers 409 `REQUIRED_COMPONENT` unless the caller is staff. |
+| GET | `/partner/orders` | Own orders. `?status&packageId&from&to&search&page&pageSize` |
+
+**Money.** `totalCents` is what the buyer pays; each item carries `sellCents` (its standalone price), `adjustmentCents` (its share of the package discount) and `lineTotalCents`. Cancelling a part refunds `max(0, sellCents − childCharge + adjustmentCents)`: the child's own frozen terms on its standalone price, less the discount share, which is forfeited (`clawbackCents`). Declining by a supplier charges nothing.
+
+**On request.** An order with an `ON_REQUEST` tour or service is `PENDING_CONFIRMATION`: the child is `PENDING` with its seats claimed, the item `REQUESTED`, and `requestDeadlineAt` is the earliest deadline (48 h). The buyer may cancel it meanwhile at no charge. Once every part is answered the order becomes `CONFIRMED` and one voucher goes out listing every child reference. Declining an **optional** part drops it and shrinks the total; declining a **required** part cancels the whole order at no charge. Operations are alerted once when a deadline passes; nothing auto-declines.
+
+Status: `PENDING_CONFIRMATION → CONFIRMED → PARTIALLY_CANCELLED | CANCELLED | COMPLETED`. Item status mirrors its child: `REQUESTED | CONFIRMED | DECLINED | CANCELLED | COMPLETED | NO_SHOW`.
+
+### Admin → Orders
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET | `/admin/orders` | Every order; `?status=PENDING_CONFIRMATION` is the on-request queue, earliest deadline first. Rows carry `pendingCount`. `?status&packageId&partnerId&from&to&search&page&pageSize` |
+| GET | `/admin/orders/:reference` · `…/cancellation-quote` | With net, margin and the frozen allocation. |
+| POST | `/admin/orders/:reference/cancel` | `{ reason? }` |
+| POST | `/admin/orders/:reference/items/:slotIndex/confirm` · `/decline` (`{ reason }`) · `/cancel` | The operator's answer to a request, and the override that cancels a required part on its own. |
+
 ## Admin
 
 All under `/admin/*`, guarded by `authenticate + requireAdmin`.
@@ -810,7 +920,7 @@ Detaching is a 409 while a verified certificate points at it.
 | GET/DELETE | `/admin/media/:id`, `GET /admin/media/:id/url` (signed, private only) |
 | GET | `/admin/bookings`, `/admin/bookings/:reference` |
 | POST | `/admin/bookings/:reference/cancel` |
-| GET/POST | `/admin/pricing-rules`, `GET /admin/pricing-rules/explain?partnerId&hotelId` |
+| GET/POST | `/admin/pricing-rules`, `GET /admin/pricing-rules/explain?partnerId&hotelId&tourId&serviceId&packageId&productType&destinationId` — a rule names at most one product (`hotelId` / `tourId` / `serviceId` / `packageId`) and optionally a `productType` (`HOTEL` `TRANSFER` `TOUR` `SERVICE` `PACKAGE`); specificity is partner 8 + named product 4 + destination 2 + product type 1 |
 | PUT/DELETE | `/admin/pricing-rules/:id` |
 
 Media categories decide visibility, not the caller: `HOTEL_IMAGE`, `ROOM_IMAGE`,
@@ -875,4 +985,19 @@ TransferBookingStatus PENDING CONFIRMED CANCELLED COMPLETED NO_SHOW
 TransferTripType      ONE_WAY RETURN
 TransferExtraBasis    FIXED PER_PASSENGER PER_HOUR PERCENT
 TransferFeature       airConditioning wifi childSeat englishDriver meetGreet flightTracking bottledWater freeWaiting
+
+ServiceCategory       KOSHER_MEAL_DELIVERY SHABBAT_MEALS MASHGIACH SYNAGOGUE_TRANSFER GUIDE EQUIPMENT OTHER
+ServiceBasis          PER_PERSON PER_GROUP PER_DAY PER_PERSON_PER_DAY
+ServiceStatus         DRAFT ACTIVE INACTIVE ARCHIVED
+ServiceBookingStatus  PENDING CONFIRMED CANCELLED COMPLETED NO_SHOW
+PackageStatus         DRAFT ACTIVE INACTIVE ARCHIVED
+PackageComponentType  HOTEL_STAY TRANSFER TOUR SERVICE
+PackageAdjustmentKind NONE DISCOUNT_BPS FIXED_SELL PER_PERSON_FIXED
+PackageAdjustmentScope REQUIRED_ONLY ALL_ITEMS
+PackageQuantityRule   ONE PER_PERSON PER_ROOM
+ShabbatMode           SOLAR FIXED_HOURS NONE
+OrderStatus           PENDING_CONFIRMATION CONFIRMED PARTIALLY_CANCELLED CANCELLED COMPLETED
+OrderItemStatus       REQUESTED CONFIRMED DECLINED CANCELLED COMPLETED NO_SHOW
+OrderItemFulfilment   INTERNAL ON_REQUEST EXTERNAL
+PricingProductType    HOTEL TRANSFER TOUR SERVICE PACKAGE
 ```

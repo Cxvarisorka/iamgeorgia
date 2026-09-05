@@ -37,7 +37,7 @@ import {
  *      record the hotel can edit afterwards.
  */
 
-const bookingInclude = {
+export const bookingInclude = {
     // `supplierId` is selected so the serializer can tell whether the viewer
     // owns this property, which decides whether it sees the net side.
     hotel: {
@@ -608,6 +608,23 @@ export const quoteCancellation = (booking, at = new Date()) => {
  * the guest, is walking away — a package component the supplier declined —
  * and records a zero charge without consulting the schedule at all.
  */
+
+/**
+ * A booking that belongs to an order is cancelled through the order, whose
+ * roll-up and clawback must not be bypassed. 409 with the order reference.
+ */
+const assertNotInOrder = async (client, column, bookingId) => {
+    const item = await client.orderItem.findUnique({ where: { [column]: bookingId }, include: { order: { select: { reference: true } } } });
+
+    if (item) {
+        throw new ConflictError('This booking is part of an order; cancel it from the order', {
+            reason: 'PART_OF_ORDER',
+            orderReference: item.order.reference,
+            slotIndex: item.slotIndex
+        });
+    }
+};
+
 export const cancelHotelBookingInTx = async (tx, booking, { reason, waiveCharges = false } = {}, actor, req) => {
     if (booking.status === 'CANCELLED') {
         throw new ConflictError('This booking is already cancelled', { status: booking.status });
@@ -678,6 +695,8 @@ export const cancelBooking = async (reference, { reason, email } = {}, actor, re
         if (!booking) {
             throw new NotFoundError('Booking not found');
         }
+
+        await assertNotInOrder(tx, 'hotelBookingId', booking.id);
 
         assertMayRead(booking, actor, { email });
 
@@ -966,3 +985,6 @@ export const holdOffer = async (token, actor, req) => {
 
     return { hold, priced };
 };
+
+/** The include an order needs to read this product's bookings by the same shape. */
+export const hotelBookingInclude = bookingInclude;
