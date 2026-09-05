@@ -58,6 +58,9 @@ import {
     toTourTranslation
 } from '../serializers/tour.js';
 import { toCancellationPolicy } from '../serializers/ratePlan.js';
+import { tourKosherProfileSchema } from '../validation/package.js';
+import { upsertTourKosherProfile } from '../services/package/package.service.js';
+import { toTourKosherProfile } from '../serializers/package.js';
 
 /**
  * Tour administration.
@@ -147,6 +150,11 @@ adminTourRoutes.delete('/:tourId', validate({ params: tourParamSchema }), async 
     await deleteTour(req.valid.params.tourId, req.user, req);
 
     res.status(204).end();
+});
+
+/** What a kosher package needs to know about this tour. */
+adminTourRoutes.put('/:tourId/kosher', validate({ params: tourParamSchema, body: tourKosherProfileSchema }), async (req, res) => {
+    res.json(toTourKosherProfile(await upsertTourKosherProfile(req.valid.params.tourId, req.valid.body, req.user, req)));
 });
 
 adminTourRoutes.get('/:tourId/translations', validate({ params: tourParamSchema }), async (req, res) => {
