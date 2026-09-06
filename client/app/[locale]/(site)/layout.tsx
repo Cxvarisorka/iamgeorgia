@@ -1,6 +1,7 @@
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
 import { getI18n } from "@/lib/i18n/server";
+import { JsonLd, organizationSchema, webSiteSchema } from "@/lib/seo/jsonLd";
 
 /**
  * Public site chrome.
@@ -10,10 +11,16 @@ import { getI18n } from "@/lib/i18n/server";
  * sits outside it and supplies its own shell instead of this header and footer.
  */
 export default async function SiteLayout({ children }: { children: React.ReactNode }) {
-  const { t } = await getI18n();
+  const { t, locale } = await getI18n();
 
   return (
     <>
+      {/*
+        Who publishes this site, once, on every public page. The admin panel and
+        the driver app sit outside this group and get none of it, which is
+        correct — neither is a page a search engine should ever hold.
+      */}
+      <JsonLd data={[organizationSchema(), webSiteSchema(locale)]} />
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:start-4 focus:z-200 focus:rounded-sm focus:bg-brand focus:px-4 focus:py-2.5 focus:text-sm focus:text-on-dark"

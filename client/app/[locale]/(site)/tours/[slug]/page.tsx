@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound, unstable_rethrow } from "next/navigation";
+import { notFound } from "next/navigation";
+import { Suspense } from "react";
 import { Check, Clock, Gauge, MapPin, Minus, Users } from "lucide-react";
 
-import { Reveal } from "@/components/motion/Reveal";
-import { TourCard } from "@/components/tours/TourCard";
+import { CompleteYourTrip } from "@/components/packages/CompleteYourTrip";
+import { RelatedTours } from "@/components/tours/RelatedTours";
 import { TourDepartures } from "@/components/tours/TourDepartures";
 import { TourPanel } from "@/components/tours/TourPanel";
 import { TourSearchForm } from "@/components/tours/TourSearchForm";
@@ -15,17 +16,18 @@ import { Container } from "@/components/ui/Container";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { MediaGallery } from "@/components/ui/MediaGallery";
 import { Rating } from "@/components/ui/Rating";
-import { SectionHeading } from "@/components/ui/SectionHeading";
 import { ShareSave } from "@/components/ui/ShareSave";
 import { ApiError } from "@/lib/api/client";
-import { getPublicTour, getTourAvailability, listPublicTours } from "@/lib/api/tours";
+import { getPublicTour, getTourAvailability } from "@/lib/api/tours";
 import { formatStayDate } from "@/lib/booking/stay";
 import { plural } from "@/lib/i18n/plural";
 import { getI18n } from "@/lib/i18n/server";
-import { formatMoney } from "@/lib/money";
+import { formatMoney, roundToWholeUnits } from "@/lib/money";
+import { JsonLd, breadcrumbSchema, tourSchema } from "@/lib/seo/jsonLd";
+import { pageMetadata } from "@/lib/seo/metadata";
 import { cheapestTourOffer, tourStayFromParams, tourWindowFor, type TourStay } from "@/lib/tours/query";
 import type { GalleryImage } from "@/types/common";
-import type { Tour, TourAvailability, TourCategory, TourSummary } from "@/types/tour";
+import type { Tour, TourAvailability, TourCategory } from "@/types/tour";
 
 /**
  * Landscape-led tours carry the green accent instead of the brand orange, so
@@ -83,19 +85,22 @@ const galleryOf = (tour: Tour): GalleryImage[] =>
 export async function generateMetadata(props: PageProps<"/[locale]/tours/[slug]">): Promise<Metadata> {
   const [{ slug }, { t, locale }] = await Promise.all([props.params, getI18n()]);
   const tour = await loadTour(slug, locale);
-  if (!tour) return { title: t.tours.notFound };
+  if (!tour) return { title: t.tours.notFound, robots: { index: false, follow: true } };
 
   const image = galleryOf(tour)[0]?.src ?? tour.image;
 
-  return {
+  /*
+   * The canonical is the clean journey URL: the dated variants a visitor
+   * arrives with — `?date=…&adults=2` — consolidate onto one address instead of
+   * splitting the page across a calendar.
+   */
+  return pageMetadata({
+    path: `/tours/${tour.slug}`,
     title: tour.title,
     description: tour.summary,
-    openGraph: {
-      title: tour.title,
-      description: tour.summary,
-      images: image ? [{ url: image }] : [],
-    },
-  };
+    image,
+    imageAlt: `${tour.title}, ${tour.location}`,
+  });
 }
 
 export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[slug]">) {
@@ -126,27 +131,6 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
         .join(" · ")
     : "";
 
-  // Other journeys the viewer may actually buy, same place first. Guarded,
-  // because the rail is a suggestion and not the page.
-  let related: TourSummary[] = [];
-
-  try {
-    const { data: others } = await listPublicTours({
-      destinationSlug: tour.destination?.slug,
-      locale,
-      pageSize: 4,
-    });
-    related = others.filter((candidate) => candidate.slug !== tour.slug).slice(0, 3);
-
-    if (related.length === 0) {
-      const { data: byCategory } = await listPublicTours({ category: tour.category, locale, pageSize: 4 });
-      related = byCategory.filter((candidate) => candidate.slug !== tour.slug).slice(0, 3);
-    }
-  } catch (error) {
-    unstable_rethrow(error);
-    console.error("Related tours failed:", error);
-  }
-
   const facts = [
     { icon: Clock, label: t.tours.duration, value: tour.durationLabel },
     { icon: Users, label: t.tours.groupSize, value: tour.groupSize },
@@ -154,15 +138,71 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
     { icon: MapPin, label: t.tours.region, value: tour.location },
   ];
 
+  /* One trail, rendered twice — as the visible breadcrumb and as the
+     `BreadcrumbList` a crawler reads, so the two cannot drift apart. */
+  const crumbs = [
+    { name: t.common.home, href: path("/") },
+    { name: t.nav.tours, href: path("/tours") },
+    { name: tour.title },
+  ];
+
+  /*
+   * The price the page shows, from the same integer cents it formats.
+   *
+   * With a date that is the cheapest live quote and the departure is known to
+   * be sellable; without one it is the indicative "from" figure and nothing is
+   * claimed about availability, because an undated page has not asked.
+   */
+  const offer = cheapest
+    ? {
+        priceCents: cheapest.quote.totals.totalCents,
+        currency: cheapest.quote.currency,
+        url: path(`/tours/${tour.slug}`),
+        available: true,
+      }
+    : tour.priceFrom
+      ? {
+          // Rounded to whole lari, because that is how the panel prints it.
+          priceCents: roundToWholeUnits(tour.priceFrom.amountCents, tour.priceFrom.currency),
+          currency: tour.priceFrom.currency,
+          url: path(`/tours/${tour.slug}`),
+          ...(stay ? { available: hasDepartures } : {}),
+        }
+      : null;
+
   return (
     <>
+      <JsonLd
+        data={[
+          breadcrumbSchema(crumbs),
+          tourSchema({
+            name: tour.title,
+            description: tour.summary,
+            url: path(`/tours/${tour.slug}`),
+            images: galleryOf(tour)
+              .slice(0, 6)
+              .map((image) => image.src),
+            location: tour.location,
+            durationDays: tour.durationDays,
+            // The day-by-day the page renders, and no more.
+            itinerary: tour.itinerary.map((day) => ({
+              name: day.title,
+              description: day.description,
+            })),
+            // The five-star figure beside the title, only when reviews exist.
+            rating:
+              tour.reviewCount > 0
+                ? { value: tour.rating, count: tour.reviewCount, best: 5 }
+                : null,
+            offer,
+            locale,
+          }),
+        ]}
+      />
+
       <Container className="pt-8 pb-6">
         <Breadcrumbs
-          items={[
-            { label: t.common.home, href: path("/") },
-            { label: t.nav.tours, href: path("/tours") },
-            { label: tour.title },
-          ]}
+          items={crumbs.map((crumb) => ({ label: crumb.name, href: crumb.href }))}
         />
 
         <div className="mt-6 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
@@ -409,24 +449,27 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
         </div>
       </div>
 
-      {related.length > 0 && (
-        <section className="border-t border-line bg-surface-earth/60 py-20 pb-32 lg:py-24">
-          <Container>
-            <Reveal>
-              <SectionHeading
-                eyebrow={t.tours.relatedEyebrow}
-                title={t.tours.relatedTitle}
-                action={{ label: t.actions.allTours, href: path("/tours") }}
-              />
-            </Reveal>
-            <div className="mt-12 grid gap-x-8 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
-              {related.map((item) => (
-                <TourCard key={item.id} tour={item} />
-              ))}
-            </div>
-          </Container>
-        </section>
+      {/* Both rails depend on a second API call and stream in rather than
+          holding the journey behind them. The cross-sell needs a real date to
+          price against, so it appears only once the visitor has chosen one. */}
+      {stay && (
+        <Suspense fallback={null}>
+          <CompleteYourTrip
+            tour={tour.slug}
+            checkIn={stay.date}
+            adults={stay.adults}
+            childAges={stay.childAges}
+          />
+        </Suspense>
       )}
+
+      <Suspense fallback={null}>
+        <RelatedTours
+          destinationSlug={tour.destination?.slug}
+          category={tour.category}
+          excludeSlug={tour.slug}
+        />
+      </Suspense>
     </>
   );
 }

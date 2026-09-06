@@ -97,7 +97,7 @@ export function describeError(error: unknown, fallback = GENERIC_ERROR_MESSAGE):
  */
 const DEFAULT_TIMEOUT_MS = 15_000;
 
-interface RequestOptions extends Omit<RequestInit, "body"> {
+export interface RequestOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
   /** Overrides the default request timeout, for calls known to be slow. */
   timeoutMs?: number;

@@ -16,7 +16,9 @@ import {
   listTransferRoutesForBuild,
 } from "@/lib/api/transfers";
 import { getI18n } from "@/lib/i18n/server";
-import { formatMoney } from "@/lib/money";
+import { formatMoney, toMajorUnits } from "@/lib/money";
+import { JsonLd, ORGANIZATION_ID, breadcrumbSchema } from "@/lib/seo/jsonLd";
+import { pageMetadata } from "@/lib/seo/metadata";
 import { emptyQuery, formatDuration, serializeTransferQuery } from "@/lib/transfers/query";
 
 /**
@@ -66,7 +68,8 @@ export async function generateMetadata(
       route.title ??
       fill(t.transfers.routes.metaTitle, { from: route.from.name, to: route.to.name });
 
-    return {
+    return pageMetadata({
+      path: `/transfers/routes/${slug}`,
       title,
       description:
         route.summary ??
@@ -75,9 +78,11 @@ export async function generateMetadata(
           to: route.to.name,
           distance: String(route.distanceKm),
         }),
-    };
+      image: route.heroImage,
+      imageAlt: title,
+    });
   } catch {
-    return { title: t.transfers.detail.notFound };
+    return { title: t.transfers.detail.notFound, robots: { index: false, follow: true } };
   }
 }
 
@@ -115,6 +120,13 @@ export default async function TransferRoutePage(
     minute: t.common.minuteShort,
   });
 
+  /* One trail, rendered twice — visible breadcrumb and `BreadcrumbList`. */
+  const crumbs = [
+    { name: t.common.home, href: path("/") },
+    { name: t.nav.transfers, href: path("/transfers") },
+    { name: `${route.from.name} → ${route.to.name}` },
+  ];
+
   /**
    * Structured data for the journey.
    *
@@ -122,6 +134,15 @@ export default async function TransferRoutePage(
    * and the price is a "from" figure that depends on the vehicle. Omitted
    * entirely when the route has no curated price, because a marked-up price
    * that the search then contradicts is worse than none.
+   *
+   * No `availability`. This page never checks whether a car can be had on a
+   * date — the search does — so the `InStock` that used to sit here was an
+   * unverified claim on every route in the catalogue. Saying nothing is both
+   * honest and, for a rich result, no worse.
+   *
+   * `provider` references the `Organization` node the site layout already
+   * emits, rather than restating the brand with a different name than the one
+   * `constants/site.ts` holds.
    */
   const jsonLd = {
     "@context": "https://schema.org",
@@ -130,14 +151,13 @@ export default async function TransferRoutePage(
     name: route.title ?? `${route.from.name} to ${route.to.name}`,
     description: route.summary ?? undefined,
     areaServed: { "@type": "Country", name: "Georgia" },
-    provider: { "@type": "Organization", name: "I am Georgia" },
+    provider: { "@id": ORGANIZATION_ID },
     ...(route.startingFromCents !== null
       ? {
           offers: {
             "@type": "Offer",
-            price: (route.startingFromCents / 100).toFixed(2),
+            price: toMajorUnits(route.startingFromCents, "GEL"),
             priceCurrency: "GEL",
-            availability: "https://schema.org/InStock",
           },
         }
       : {}),
@@ -145,11 +165,7 @@ export default async function TransferRoutePage(
 
   return (
     <>
-      <script
-        type="application/ld+json"
-        // The payload is built here from typed fields, never from user input.
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      />
+      <JsonLd data={[breadcrumbSchema(crumbs), jsonLd]} />
 
       <PageHero
         eyebrow={t.transfers.routes.eyebrow}
@@ -168,11 +184,7 @@ export default async function TransferRoutePage(
 
       <Container className="pt-8">
         <Breadcrumbs
-          items={[
-            { label: t.common.home, href: path("/") },
-            { label: t.nav.transfers, href: path("/transfers") },
-            { label: `${route.from.name} → ${route.to.name}` },
-          ]}
+          items={crumbs.map((crumb) => ({ label: crumb.name, href: crumb.href }))}
         />
       </Container>
 

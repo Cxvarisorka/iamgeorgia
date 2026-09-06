@@ -1,4 +1,4 @@
-import { apiFetch, serverFetch } from "./client";
+import { apiFetch, serverFetch, type RequestOptions } from "./client";
 import { toQueryString, type QueryValue } from "./query";
 import type { CancellationPolicy } from "@/types/catalogue";
 import type { Paginated } from "@/types/partner";
@@ -54,6 +54,16 @@ export interface PublicTourQuery extends Record<string, QueryValue> {
 
 export const listPublicTours = (query: PublicTourQuery = {}) =>
   serverFetch<Paginated<TourSummary>>(`/api/tours${toQueryString(query)}`);
+
+/**
+ * The same programme, without forwarding cookies — for the sitemap, which has
+ * no viewer and must publish only what an anonymous visitor can open. See the
+ * note on `listPublicHotelsAnonymous`.
+ */
+export const listPublicToursAnonymous = (
+  query: PublicTourQuery = {},
+  init: RequestOptions = {},
+) => apiFetch<Paginated<TourSummary>>(`/api/tours${toQueryString(query)}`, init);
 
 export const getPublicTour = (slug: string, query: { locale?: string } = {}) =>
   serverFetch<Tour>(`/api/tours/${slug}${toQueryString(query)}`);
@@ -150,6 +160,13 @@ export const listTours = (query: AdminTourQuery = {}) =>
 
 export const getTour = (id: string, query: { locale?: string } = {}) =>
   serverFetch<TourWithChecklist>(`/api/admin/tours/${id}${toQueryString(query)}`);
+
+/** The same two reads from the browser, for the admin pickers. */
+export const listToursClient = (query: AdminTourQuery = {}) =>
+  apiFetch<Paginated<TourSummary>>(`/api/admin/tours${toQueryString(query)}`);
+
+export const getTourClient = (id: string) =>
+  apiFetch<TourWithChecklist>(`/api/admin/tours/${id}`);
 
 export interface CreateTourInput {
   slug: string;

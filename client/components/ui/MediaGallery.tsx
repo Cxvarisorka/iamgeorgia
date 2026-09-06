@@ -57,6 +57,19 @@ export function MediaGallery({ images, label, className, priority }: MediaGaller
 
   const [lead, ...supporting] = images;
 
+  /*
+   * The rail and the mosaic are two DOM trees for the same photographs, one
+   * hidden at each breakpoint — and `display: none` does not stop an image
+   * loading. It only stops a lazy one, because a hidden element never
+   * intersects the viewport. The lead is not lazy: with `priority` it is
+   * eager and preloaded in *both* trees, so a mismatched `sizes` had the
+   * browser fetch two different widths of the same file on every detail page —
+   * on a desktop viewport the wasted one was the 1600px variant, competing
+   * with the LCP image for bandwidth. One `sizes` for both leads means both
+   * preloads resolve to the same URL and the second is a cache hit.
+   */
+  const leadSizes = "(min-width: 1024px) 50vw, 85vw";
+
   return (
     <div className={className}>
       {/* Mobile: horizontal swipe rail. */}
@@ -73,7 +86,7 @@ export function MediaGallery({ images, label, className, priority }: MediaGaller
               alt={image.alt}
               fill
               priority={priority && index === 0}
-              sizes="85vw"
+              sizes={index === 0 ? leadSizes : "85vw"}
               className="object-cover"
             />
           </button>
@@ -93,7 +106,7 @@ export function MediaGallery({ images, label, className, priority }: MediaGaller
             alt={lead.alt}
             fill
             priority={priority}
-            sizes="50vw"
+            sizes={leadSizes}
             className="object-cover transition-transform duration-700 ease-(--ease-out-soft) group-hover:scale-[1.03]"
           />
         </button>

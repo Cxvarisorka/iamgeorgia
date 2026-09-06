@@ -1,4 +1,4 @@
-import { apiFetch, serverFetch } from "./client";
+import { apiFetch, serverFetch, type RequestOptions } from "./client";
 import { toQueryString, type QueryValue } from "./query";
 import type { HotelAvailability, Offer, SearchResponse, StayQuery } from "@/types/booking";
 import type {
@@ -62,6 +62,18 @@ export const quoteOffer = (token: string) =>
 
 export const listPublicHotels = (query: Record<string, QueryValue> = {}) =>
   serverFetch<Paginated<HotelSummary>>(`/api/hotels${toQueryString(query)}`);
+
+/**
+ * The same catalogue, without forwarding cookies.
+ *
+ * For the sitemap and any prerender list: neither has a viewer, and both must
+ * see exactly what an anonymous visitor sees. Forwarding a partner's session
+ * here would publish B2B-only properties as indexable URLs.
+ */
+export const listPublicHotelsAnonymous = (
+  query: Record<string, QueryValue> = {},
+  init: RequestOptions = {},
+) => apiFetch<Paginated<HotelSummary>>(`/api/hotels${toQueryString(query)}`, init);
 
 export const getPublicHotel = (slug: string, query: { locale?: string } = {}) =>
   serverFetch<Hotel>(`/api/hotels/${slug}${toQueryString(query)}`);

@@ -168,6 +168,8 @@ export interface TransferRoute {
   description: string[];
   heroImage: string | null;
   featured: boolean;
+  /** ISO timestamp of the last change, for the sitemap's `lastModified`. */
+  updatedAt: string;
   stops: TransferRouteStop[];
   /**
    * The cheapest curated fare, for a "from" price on a card. Null when the

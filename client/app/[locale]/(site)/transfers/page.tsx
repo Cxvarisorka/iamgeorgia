@@ -11,16 +11,19 @@ import { PageHero } from "@/components/ui/PageHero";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { plural } from "@/lib/i18n/plural";
 import { getI18n } from "@/lib/i18n/server";
+import { pageMetadata } from "@/lib/seo/metadata";
 import { listTransferPoints, listTransferRoutes, listTransferVehicles } from "@/lib/api/transfers";
 import { emptyQuery, formatDuration, serializeTransferQuery } from "@/lib/transfers/query";
 import { formatMoney } from "@/lib/money";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
-  return {
+
+  return pageMetadata({
+    path: "/transfers",
     title: t.transfers.metaTitle,
     description: t.transfers.metaDescription,
-  };
+  });
 }
 
 /**

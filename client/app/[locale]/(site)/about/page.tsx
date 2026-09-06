@@ -7,12 +7,19 @@ import { Container } from "@/components/ui/Container";
 import { PageHero } from "@/components/ui/PageHero";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { credentials, site } from "@/constants/site";
+import { getI18n } from "@/lib/i18n/server";
+import { pageMetadata } from "@/lib/seo/metadata";
 
-export const metadata: Metadata = {
-  title: "About",
-  description:
-    "I'am Georgia is a travel studio in Tbilisi designing private journeys across the Caucasus, run by Georgian guides, drivers and winemakers.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getI18n();
+
+  return pageMetadata({
+    path: "/about",
+    title: t.about.metaTitle,
+    description: t.about.metaDescription,
+    image: "/images/about/team.jpg",
+  });
+}
 
 const values = [
   {

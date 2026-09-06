@@ -1,4 +1,4 @@
-import { apiFetch, serverFetch } from "./client";
+import { apiFetch, serverFetch, type RequestOptions } from "./client";
 import { toQueryString } from "./query";
 import type { AvailableDrivers } from "@/types/driver";
 import type { Paginated } from "@/types/partner";
@@ -94,8 +94,10 @@ export const listTransferRoutes = (query: TransferRouteQuery = {}) =>
  * is public, so there is nothing to forward anyway; this is the read a
  * prerender list should have been making all along.
  */
-export const listTransferRoutesForBuild = (query: TransferRouteQuery = {}) =>
-  apiFetch<Paginated<TransferRoute>>(`/api/transfers/routes${toQueryString(query)}`);
+export const listTransferRoutesForBuild = (
+  query: TransferRouteQuery = {},
+  init: RequestOptions = {},
+) => apiFetch<Paginated<TransferRoute>>(`/api/transfers/routes${toQueryString(query)}`, init);
 
 export const getTransferRoute = (slug: string, locale?: string) =>
   serverFetch<TransferRoute>(`/api/transfers/routes/${slug}${toQueryString({ locale })}`);
@@ -220,6 +222,20 @@ export const getAdminTransferVehicle = (id: string) =>
 
 export const listAdminTransferPoints = (query: { search?: string } = {}) =>
   serverFetch<{ data: TransferPoint[] }>(`/api/admin/transfers/points${toQueryString(query)}`);
+
+/**
+ * The same two catalogues, read from the browser.
+ *
+ * The admin pickers search as an operator types, which cannot go through
+ * `serverFetch` — that one reads `next/headers`. They are separate exports
+ * rather than a flag on the calls above so a Server Component cannot pick the
+ * browser variant by accident and lose its forwarded session.
+ */
+export const listAdminTransferPointsClient = (query: { search?: string } = {}) =>
+  apiFetch<{ data: TransferPoint[] }>(`/api/admin/transfers/points${toQueryString(query)}`);
+
+export const listAdminTransferRoutesClient = (query: TransferRouteQuery = {}) =>
+  apiFetch<Paginated<TransferRoute>>(`/api/admin/transfers/routes${toQueryString(query)}`);
 
 export const listAdminTransferExtras = () =>
   serverFetch<{ data: TransferExtra[] }>("/api/admin/transfers/extras");

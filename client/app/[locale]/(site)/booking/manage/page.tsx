@@ -8,7 +8,16 @@ import { getI18n } from "@/lib/i18n/server";
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
 
-  return { title: t.booking.manage.metaTitle, description: t.booking.manage.description };
+  /*
+   * A credential form, not a page anyone searches for — and the only thing
+   * behind it is somebody's booking. `follow`, so the crawler still walks the
+   * links back into the site from here.
+   */
+  return {
+    title: t.booking.manage.metaTitle,
+    description: t.booking.manage.description,
+    robots: { index: false, follow: true },
+  };
 }
 
 /**

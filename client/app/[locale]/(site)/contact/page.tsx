@@ -6,12 +6,18 @@ import { ContactForm } from "@/components/contact/ContactForm";
 import { Reveal } from "@/components/motion/Reveal";
 import { Container } from "@/components/ui/Container";
 import { site } from "@/constants/site";
+import { getI18n } from "@/lib/i18n/server";
+import { pageMetadata } from "@/lib/seo/metadata";
 
-export const metadata: Metadata = {
-  title: "Contact",
-  description:
-    "Talk to a trip planner at I'am Georgia. Tell us how long you have and what you like, and we will send back a route.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getI18n();
+
+  return pageMetadata({
+    path: "/contact",
+    title: t.contact.metaTitle,
+    description: t.contact.metaDescription,
+  });
+}
 
 export default function ContactPage() {
   const details = [

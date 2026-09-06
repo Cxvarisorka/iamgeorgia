@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import "../globals.css";
 import { site } from "@/constants/site";
 import { getDictionary } from "@/lib/i18n/dictionaries";
-import { isLocale, locales, localeMeta, localePath } from "@/lib/i18n/config";
+import { isLocale, locales, localeMeta } from "@/lib/i18n/config";
 import { LocaleProvider } from "@/lib/i18n/provider";
 
 /** Editorial display face for headlines. */
@@ -69,31 +69,37 @@ export async function generateMetadata(
       template: `%s — ${site.name}`,
     },
     description: t.meta.description,
-    /**
-     * Tells search engines these four URLs are the same page in different
-     * languages, so the right one is served rather than treating them as
-     * duplicates. `x-default` points at English.
+    /*
+     * Deliberately no `alternates` here.
+     *
+     * Next inherits metadata down the segment tree, so a canonical set on the
+     * layout is inherited by every page that does not override it — and a
+     * layout can only name the home page. That would tell search engines that
+     * /tours, /hotels and every property page are duplicates of the front page,
+     * which is a far worse failure than emitting no canonical at all. Each page
+     * builds its own self-referencing set through `pageMetadata`
+     * (`lib/seo/metadata.ts`), and the home page is no exception.
      */
-    alternates: {
-      canonical: localePath(locale, "/"),
-      languages: {
-        ...Object.fromEntries(
-          locales.map((code) => [localeMeta[code].htmlLang, localePath(code, "/")]),
-        ),
-        "x-default": "/",
-      },
-    },
     openGraph: {
       type: "website",
       siteName: site.name,
       title,
       description: t.meta.description,
       locale: localeMeta[locale].intlLocale.replace("-", "_"),
+      images: [
+        {
+          url: site.seo.image,
+          alt: site.seo.imageAlt,
+          width: site.seo.imageWidth,
+          height: site.seo.imageHeight,
+        },
+      ],
     },
     twitter: {
       card: "summary_large_image",
       title,
       description: t.meta.description,
+      images: [site.seo.image],
     },
   };
 }

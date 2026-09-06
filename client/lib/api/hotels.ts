@@ -72,6 +72,32 @@ export const listRatePlans = (hotelId: string, roomTypeId: string) =>
     `/api/admin/hotels/${hotelId}/room-types/${roomTypeId}/rate-plans`,
   );
 
+/**
+ * Browser-side reads for the admin pickers.
+ *
+ * A picker searches while somebody types, so it cannot use `serverFetch`,
+ * which reads `next/headers` and only exists inside a request.
+ */
+export const listHotelsClient = (query: HotelQuery = {}) =>
+  apiFetch<Paginated<HotelSummary>>(`/api/admin/hotels${toQueryString(query)}`);
+
+export const listRoomTypesClient = (hotelId: string, query: Record<string, QueryValue> = {}) =>
+  apiFetch<{ data: RoomTypeSummary[] }>(
+    `/api/admin/hotels/${hotelId}/room-types${toQueryString(query)}`,
+  );
+
+/**
+ * Every rate plan in the hotel, each naming the room it belongs to.
+ *
+ * The nested listing needs a room type id; a slot constrained to "the
+ * refundable plans" is chosen across the property, so the server carries a
+ * flat listing for exactly this.
+ */
+export const listHotelRatePlansClient = (hotelId: string) =>
+  apiFetch<{ data: (RatePlan & { roomType: { id: string; code: string; name: string } })[] }>(
+    `/api/admin/hotels/${hotelId}/rate-plans`,
+  );
+
 export const getChildPolicy = (hotelId: string) =>
   serverFetch<ChildPolicy | null>(`/api/admin/hotels/${hotelId}/child-policy`);
 

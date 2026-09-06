@@ -61,6 +61,22 @@ export const toMinorUnits = (value: string | number, currency = "GEL"): number |
   return Math.round(parsed * minorUnits(currency));
 };
 
+/**
+ * An amount rounded to whole major units, still expressed in minor units.
+ *
+ * Indicative "from" prices are rendered across the site with
+ * `maximumFractionDigits: 0` — a browse page shows ₾2,142, never ₾2,142.45,
+ * because a figure that depends on the party and the date has no business
+ * claiming a precision it does not have. Structured data must state the number
+ * the visitor can see, so anything marking up a "from" price rounds it the same
+ * way first. A dated quote is exact on the page and stays exact in the markup.
+ */
+export const roundToWholeUnits = (amountCents: number, currency = "GEL"): number => {
+  const divisor = minorUnits(currency);
+
+  return Math.round(amountCents / divisor) * divisor;
+};
+
 /** Minor units to a plain major-unit string, for populating a form field. */
 export const toMajorUnits = (amountCents: number | null | undefined, currency = "GEL"): string => {
   if (amountCents === null || amountCents === undefined) return "";

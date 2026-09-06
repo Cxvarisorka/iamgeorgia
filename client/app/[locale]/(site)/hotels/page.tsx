@@ -14,12 +14,30 @@ import { nightsBetween, stayFromParams, stayToParams } from "@/lib/booking/stay"
 import { formatStayDate } from "@/lib/booking/stay";
 import { plural } from "@/lib/i18n/plural";
 import { getI18n } from "@/lib/i18n/server";
+import { pageMetadata } from "@/lib/seo/metadata";
 
-export const metadata: Metadata = {
-  title: "Hotels",
-  description:
-    "Boutique houses, mountain lodges and vineyard retreats across Georgia, chosen one by one.",
-};
+/**
+ * One indexable address for the catalogue, and only one.
+ *
+ * The dated form and the client-side filters both write to the query string,
+ * and every combination of dates, party, destination and amenity is a distinct
+ * URL over near-identical content — the facet explosion that buries a booking
+ * site. A dated URL is a private search result and says `noindex, follow`; an
+ * undated one is the catalogue and canonicalises to itself. Either way there is
+ * exactly one `/hotels` in the index.
+ */
+export async function generateMetadata(
+  props: PageProps<"/[locale]/hotels">,
+): Promise<Metadata> {
+  const [searchParams, { t }] = await Promise.all([props.searchParams, getI18n()]);
+
+  return pageMetadata({
+    path: "/hotels",
+    title: t.hotels.metaTitle,
+    description: t.hotels.metaDescription,
+    index: Object.keys(searchParams).length === 0,
+  });
+}
 
 /**
  * Two pages behind one route, and the difference is dates.
@@ -43,7 +61,36 @@ export default async function HotelsPage(props: PageProps<"/[locale]/hotels">) {
   const requested = searchParams.destinationSlug;
   const destinationSlug = Array.isArray(requested) ? requested[0] : requested;
 
-  const { data: destinationTree } = await getPublicDestinations();
+  /*
+   * Both calls leave together.
+   *
+   * The destination list feeds the search form in the hero and is needed on
+   * every path; the second call feeds the body and differs by branch. Awaited
+   * one after the other they put two full API round-trips in front of the
+   * first byte of the page — and the hero image is the LCP element, so that
+   * latency lands squarely on it.
+   *
+   * The dated search is allowed to refuse a stay outright — a check-in already
+   * past, a date beyond the booking horizon, a stay over the night cap. Those
+   * are answers rather than failures, so the refusal is folded into the
+   * resolved value here instead of rejecting the pair and taking the
+   * destination list down with it.
+   */
+  const [{ data: destinationTree }, search, catalogue] = await Promise.all([
+    getPublicDestinations(),
+    stay
+      ? searchHotels({ ...stayToParams(stay), destinationSlug, locale, pageSize: 24 }).then(
+          (page) => ({ page, issue: null }),
+          (error: unknown) => {
+            const issue = stayWindowIssue(error);
+            if (!issue) throw error;
+            return { page: null, issue };
+          },
+        )
+      : null,
+    stay ? null : listPublicHotels({ destinationSlug, pageSize: 50 }),
+  ]);
+
   const flatDestinations = destinationTree.flatMap((root) => [root, ...root.children]);
 
   const hero = (
@@ -75,25 +122,13 @@ export default async function HotelsPage(props: PageProps<"/[locale]/hotels">) {
   // --- dated search -------------------------------------------------------
   if (stay) {
     /*
-     * The server refuses some stays outright — a check-in already past, a date
-     * beyond the booking horizon, a stay over the night cap. Those are answers,
-     * not failures, and each wants different advice: "try a nearer date" is
-     * useless for a stay that is merely full, and "shift it by a night" is
-     * useless for one we do not sell that far out.
+     * Each refusal wants different advice: "try a nearer date" is useless for
+     * a stay that is merely full, and "shift it by a night" is useless for one
+     * we do not sell that far out.
      */
-    let page: Awaited<ReturnType<typeof searchHotels>>;
+    const { page, issue } = search!;
 
-    try {
-      page = await searchHotels({
-        ...stayToParams(stay),
-        destinationSlug,
-        locale,
-        pageSize: 24,
-      });
-    } catch (error) {
-      const issue = stayWindowIssue(error);
-      if (!issue) throw error;
-
+    if (issue) {
       return (
         <>
           {hero}
@@ -168,8 +203,7 @@ export default async function HotelsPage(props: PageProps<"/[locale]/hotels">) {
   }
 
   // --- catalogue ----------------------------------------------------------
-  const { data: apiHotels } = await listPublicHotels({ destinationSlug, pageSize: 50 });
-  const hotels = apiHotels.map(adaptHotelSummary);
+  const hotels = catalogue!.data.map(adaptHotelSummary);
 
   return (
     <>

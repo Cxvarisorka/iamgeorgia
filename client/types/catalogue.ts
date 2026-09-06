@@ -553,6 +553,8 @@ export interface HotelSummary {
   longitude: number | null;
   currency: string;
   featured: boolean;
+  /** ISO timestamp of the last change, for the sitemap's `lastModified`. */
+  updatedAt: string;
   coverImage: ImageAsset | null;
   destination: DestinationSummary | null;
   /** An un-dated "from" price. Not an offer — never quote or book from it. */

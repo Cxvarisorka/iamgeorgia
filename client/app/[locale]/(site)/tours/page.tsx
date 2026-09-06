@@ -14,11 +14,23 @@ import { listPublicTours, searchTours } from "@/lib/api/tours";
 import { formatStayDate } from "@/lib/booking/stay";
 import { plural } from "@/lib/i18n/plural";
 import { getI18n } from "@/lib/i18n/server";
+import { pageMetadata } from "@/lib/seo/metadata";
 import { tourStayFromParams } from "@/lib/tours/query";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const { t } = await getI18n();
-  return { title: t.tours.metaTitle, description: t.tours.metaDescription };
+/**
+ * One indexable address for the programme. A dated URL is one traveller's
+ * search and says `noindex, follow`; the clean listing canonicalises to itself.
+ * See the same note on `/hotels`.
+ */
+export async function generateMetadata(props: PageProps<"/[locale]/tours">): Promise<Metadata> {
+  const [searchParams, { t }] = await Promise.all([props.searchParams, getI18n()]);
+
+  return pageMetadata({
+    path: "/tours",
+    title: t.tours.metaTitle,
+    description: t.tours.metaDescription,
+    index: Object.keys(searchParams).length === 0,
+  });
 }
 
 /**

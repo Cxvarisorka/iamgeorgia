@@ -21,12 +21,25 @@ export const site = {
     { label: "YouTube", href: "https://youtube.com" },
     { label: "Pinterest", href: "https://pinterest.com" },
   ],
-  languages: [
-    { code: "EN", label: "English" },
-    { code: "KA", label: "ქართული" },
-    { code: "RU", label: "Русский" },
-    { code: "DE", label: "Deutsch" },
-  ],
+  /**
+   * Brand-level search defaults. Per-page titles and descriptions come from the
+   * locale dictionaries; only what is the same in every language belongs here.
+   */
+  seo: {
+    /** Fallback Open Graph / Twitter card image, resolved against `url`. */
+    image: "/images/home/hero.jpg",
+    imageAlt: "The Greater Caucasus above a Georgian valley at first light",
+    /** 1200×630 is the card size both Facebook and X crop to. */
+    imageWidth: 1200,
+    imageHeight: 630,
+    /** Legal entity name for `Organization`, which wants the registered one. */
+    legalName: "I am Georgia LLC",
+    /** ISO 3166 pieces of `contact.address`, for `PostalAddress`. */
+    addressLocality: "Tbilisi",
+    addressCountry: "GE",
+    postalCode: "0105",
+    streetAddress: "12 Erekle II Street, Old Tbilisi",
+  },
 } as const;
 
 /** Trust signals reused by the header ribbon, about page and footer. */

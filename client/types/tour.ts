@@ -84,6 +84,8 @@ export interface TourSummary {
   rating: number;
   reviewCount: number;
   featured: boolean;
+  /** ISO timestamp of the last change, for the sitemap's `lastModified`. */
+  updatedAt: string;
   destination: TourDestinationRef | null;
   /** staff only */
   status?: TourStatus;
