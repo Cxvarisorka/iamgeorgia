@@ -79,6 +79,9 @@ export const toTourSummary = (tour, locale, viewer) => {
         rating: tour.rating,
         reviewCount: tour.reviewCount,
         featured: tour.featured,
+        // Public so the client's sitemap can carry a real `lastModified` per
+        // URL rather than a hand-set date that goes stale in a week.
+        updatedAt: tour.updatedAt,
         destination: destinationOf(tour.destination, locale)
     };
 

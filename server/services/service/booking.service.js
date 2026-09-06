@@ -3,10 +3,11 @@ import { createHash } from 'node:crypto';
 import { prisma } from '../../db/index.js';
 import { config } from '../../config.js';
 import { ConflictError, ForbiddenError, NotFoundError, UnprocessableEntityError } from '../../lib/errors.js';
+import { assertReplayOwner } from '../../lib/idempotency.js';
 import { recordAudit, AUDIT_ENTITY } from '../../lib/audit.js';
 import { nextServiceBookingReference } from '../../lib/reference.js';
 import { addDays, dateOnlyToUtc, nightsBetween, todayInTimezone, zonedTimeToInstant } from '../../lib/time.js';
-import { isAdmin } from '../../middleware/auth.js';
+import { isAdmin, isTrade } from '../../middleware/auth.js';
 import { buildCancellationSchedule, calculateRefund } from '../hotel/policy.service.js';
 import { resolveMarkup } from '../hotel/pricingRule.service.js';
 import { quoteService } from './pricing.service.js';
@@ -75,7 +76,7 @@ export const prepareServiceBooking = async (input, actor, { strict = true, now =
         throw new NotFoundError('That service is no longer available');
     }
 
-    const trade = Boolean(actor?.partnerId) || Boolean(actor?.role);
+    const trade = isTrade(actor);
 
     if (!trade && !service.b2cEnabled) {
         throw new NotFoundError('That service is no longer available');
@@ -236,8 +237,16 @@ export const confirmServiceBooking = async (input, actor, req) => {
 
     const existing = await prisma.serviceBooking.findUnique({ where: { idempotencyKey }, include: serviceBookingInclude });
 
+    // A replay is a read of the original, and is gated like one: the key
+    // alone does not prove the caller made the request it names.
+    const replayOf = (booking) => {
+        assertReplayOwner(() => assertMayRead(booking, actor, { email: input.lead?.email }));
+
+        return { booking, replayed: true };
+    };
+
     if (existing) {
-        return { booking: existing, replayed: true };
+        return replayOf(existing);
     }
 
     const prepared = await prepareServiceBooking(input, actor);
@@ -253,7 +262,7 @@ export const confirmServiceBooking = async (input, actor, req) => {
             const winner = await prisma.serviceBooking.findUnique({ where: { idempotencyKey }, include: serviceBookingInclude });
 
             if (winner) {
-                return { booking: winner, replayed: true };
+                return replayOf(winner);
             }
         }
 

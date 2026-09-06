@@ -14,6 +14,7 @@ import { quoteService } from '../service/pricing.service.js';
 import { serviceInclude } from '../service/service.service.js';
 import { findPackageOr404 } from './package.service.js';
 import { kosherHotelInclude, validateKosherQuote } from './kosherEligibility.service.js';
+import { isTrade } from '../../middleware/auth.js';
 
 /**
  * Quoting a package: every slot resolved through the product's own engine.
@@ -33,8 +34,6 @@ import { kosherHotelInclude, validateKosherQuote } from './kosherEligibility.ser
  */
 
 const MAX_ALTERNATIVES = 6;
-
-const isTrade = (viewer) => Boolean(viewer?.partnerId) || Boolean(viewer?.role);
 
 const reasonOf = (error) => {
     if (error instanceof HttpError) {

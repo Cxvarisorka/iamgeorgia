@@ -108,7 +108,10 @@ export const errorHandler = (err, req, res, next) => {
     res.status(status).json({
         error: {
             message,
-            ...(err.details ? { details: err.details } : {}),
+            // `details` is our own HttpError convention. A third-party error
+            // that happens to carry a property of that name is not ours to
+            // describe to a client, whatever it contains.
+            ...(err instanceof HttpError && err.details ? { details: err.details } : {}),
             ...(config.nodeEnv === 'development' && status >= 500 ? { stack: err.stack } : {})
         }
     });

@@ -1,7 +1,14 @@
 import { Router } from 'express';
 
-import { authenticate, optionalAuthenticate, requirePartner, requireTransferOps } from '../middleware/auth.js';
+import {
+    authenticate,
+    optionalAuthenticate,
+    requireApprovedPartner,
+    requirePartner,
+    requireTransferOps
+} from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
+import { idempotencyKeyFrom } from '../lib/idempotency.js';
 import {
     amendTransferSchema,
     cancelTransferSchema,
@@ -50,7 +57,7 @@ transferBookingRoutes.post('/', validate({ body: confirmTransferSchema }), async
     const { booking, replayed } = await confirmTransferBooking(
         {
             ...req.valid.body,
-            idempotencyKey: req.get('idempotency-key') ?? req.valid.body.idempotencyKey
+            idempotencyKey: idempotencyKeyFrom(req)
         },
         req.user,
         req
@@ -138,7 +145,9 @@ transferBookingRoutes.post(
 /** A partner's own transfer bookings, scoped in the query rather than after. */
 export const partnerTransferBookingRoutes = Router();
 
-partnerTransferBookingRoutes.use(authenticate, requirePartner);
+// Approved partners only, as every other partner register: a partner still
+// waiting for approval has a login, not a portal.
+partnerTransferBookingRoutes.use(authenticate, requirePartner, requireApprovedPartner);
 
 partnerTransferBookingRoutes.get(
     '/',

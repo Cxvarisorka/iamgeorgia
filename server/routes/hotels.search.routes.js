@@ -1,8 +1,7 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
 
-import { config } from '../config.js';
 import { optionalAuthenticate } from '../middleware/auth.js';
+import { searchLimiter } from '../middleware/rateLimit.js';
 import { validate } from '../middleware/validate.js';
 import { availabilityQuerySchema, offerQuoteSchema, searchQuerySchema } from '../validation/search.js';
 import { slugParamSchema } from '../validation/hotel.js';
@@ -24,16 +23,6 @@ import { toOffer, toRoomAvailability, toSearchResult } from '../serializers/sear
  * rather than by anything in the request.
  */
 export const hotelSearchRoutes = Router();
-
-// Search is the most expensive read in the system: a windowed aggregate over
-// the two largest tables. The global limiter allows 100/minute across
-// everything; this one keeps a scraper from spending all of it here.
-const searchLimiter = rateLimit({
-    windowMs: 60 * 1000,
-    limit: config.isTest ? 10_000 : 30,
-    standardHeaders: true,
-    legacyHeaders: false
-});
 
 hotelSearchRoutes.use(optionalAuthenticate);
 

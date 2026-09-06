@@ -32,7 +32,7 @@ export const TOUR_TRANSLATABLE_FIELDS = [
     'groupSize'
 ];
 
-const summaryInclude = (locale) => ({
+export const summaryInclude = (locale) => ({
     destination: { include: { translations: translationInclude(locale) } },
     supplier: { select: { id: true, reference: true, name: true } },
     images: {

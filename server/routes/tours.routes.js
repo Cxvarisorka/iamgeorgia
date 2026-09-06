@@ -1,7 +1,7 @@
 import { Router } from 'express';
 
 import { validate } from '../middleware/validate.js';
-import { optionalAuthenticate } from '../middleware/auth.js';
+import { isTrade, optionalAuthenticate } from '../middleware/auth.js';
 import {
     publicTourQuerySchema,
     tourAvailabilityQuerySchema,
@@ -32,8 +32,6 @@ import {
  * sees the whole ACTIVE catalogue.
  */
 const PUBLIC_STATUSES = ['ACTIVE'];
-
-const isTrade = (viewer) => Boolean(viewer?.partnerId) || Boolean(viewer?.role);
 
 export const tourRoutes = Router();
 

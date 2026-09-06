@@ -36,6 +36,9 @@ import {
 import { hotelGallery } from '../services/hotel/gallery.service.js';
 import { adminChildPolicyRoutes, adminRoomTypeRoutes } from './admin.roomTypes.routes.js';
 import { adminHotelMealPlanRoutes, adminPolicyRoutes } from './admin.ratePlans.routes.js';
+import { listHotelRatePlans } from '../services/hotel/ratePlan.service.js';
+import { hotelScopedParamSchema } from '../validation/ratePlan.js';
+import { toRatePlan } from '../serializers/ratePlan.js';
 import { adminTaxFeeRoutes } from './admin.inventory.routes.js';
 import { adminKosherRoutes } from './admin.hotels.kosher.routes.js';
 import { adminHotelDocumentRoutes } from './admin.hotels.documents.routes.js';
@@ -66,6 +69,25 @@ adminHotelRoutes.use('/:hotelId/tax-fees', adminTaxFeeRoutes);
 // treatment `status` gets, and for the same reason.
 adminHotelRoutes.use('/:hotelId/kosher', adminKosherRoutes);
 adminHotelRoutes.use('/:hotelId/documents', adminHotelDocumentRoutes);
+
+/**
+ * Every rate plan in the property, flat.
+ *
+ * The nested `/:hotelId/room-types/:roomTypeId/rate-plans` listing stays the
+ * one that manages plans; this one exists for the pickers that constrain a
+ * package slot, which choose across a hotel rather than within one room. Each
+ * row names its room type, because "Refundable" on its own identifies nothing.
+ */
+adminHotelRoutes.get('/:hotelId/rate-plans', validate({ params: hotelScopedParamSchema }), async (req, res) => {
+    const ratePlans = await listHotelRatePlans(req.valid.params.hotelId);
+
+    res.json({
+        data: ratePlans.map((ratePlan) => ({
+            ...toRatePlan(ratePlan),
+            roomType: { id: ratePlan.roomType.id, code: ratePlan.roomType.code, name: ratePlan.roomType.name }
+        }))
+    });
+});
 
 adminHotelRoutes.get('/', validate({ query: hotelQuerySchema }), async (req, res) => {
     const { locale } = req.valid.query;

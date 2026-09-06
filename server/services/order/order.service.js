@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { prisma } from '../../db/index.js';
 import { config } from '../../config.js';
 import { ConflictError, ForbiddenError, GoneError, HttpError, NotFoundError, UnprocessableEntityError } from '../../lib/errors.js';
+import { assertReplayOwner } from '../../lib/idempotency.js';
 import { recordAudit, AUDIT_ENTITY } from '../../lib/audit.js';
 import { enqueueEvent, TOPICS } from '../../lib/outbox.js';
 import { nextOrderReference } from '../../lib/reference.js';
@@ -12,7 +13,7 @@ import { readOfferToken } from '../../lib/hotel/offerToken.js';
 import { readTourOfferToken } from '../../lib/tour/offerToken.js';
 import { impliedOrderStatus, LIVE_ITEM_STATUSES, orderMachine } from '../../lib/order/machines.js';
 import { ACTOR } from '../../lib/transfer/machines.js';
-import { isAdmin } from '../../middleware/auth.js';
+import { isAdmin, isTrade } from '../../middleware/auth.js';
 import {
     cancelHotelBookingInTx,
     confirmHotelBookingInTx,
@@ -255,7 +256,7 @@ const snapshotPackage = (pkg, decoded, slots, kosher) => ({
  */
 export const prepareOrder = async (input, actor, { now = new Date() } = {}) => {
     const decoded = readPackageOfferToken(input.packageToken);
-    const trade = Boolean(actor?.partnerId) || Boolean(actor?.role);
+    const trade = isTrade(actor);
     const pkg = await findPackageOr404(decoded.packageId, { statuses: ['ACTIVE'], b2cOnly: !trade });
     const today = todayInTimezone(pkg.timezone, now);
 
@@ -455,8 +456,16 @@ export const confirmOrder = async (input, actor, req) => {
 
     const existing = await prisma.order.findUnique({ where: { idempotencyKey }, include: orderInclude });
 
+    // A replay is a read of the original, and is gated like one: the key
+    // alone does not prove the caller made the request it names.
+    const replayOf = (order) => {
+        assertReplayOwner(() => assertMayRead(order, actor, { email: input.leadGuest?.email }));
+
+        return { order, replayed: true };
+    };
+
     if (existing) {
-        return { order: existing, replayed: true };
+        return replayOf(existing);
     }
 
     try {
@@ -557,7 +566,7 @@ export const confirmOrder = async (input, actor, req) => {
             const winner = await prisma.order.findUnique({ where: { idempotencyKey }, include: orderInclude });
 
             if (winner) {
-                return { order: winner, replayed: true };
+                return replayOf(winner);
             }
         }
 

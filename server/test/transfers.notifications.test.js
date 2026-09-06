@@ -110,8 +110,21 @@ describe('notifications', { skip: dbAvailable ? false : 'Postgres is not reachab
         assert.equal(mine[0].readAt, null);
         assert.ok(notices.body.unreadCount >= 1);
 
-        const again = await drainOutbox({ limit: 100 });
-        assert.equal(again.processed + again.failed, 0, 'a processed event is not processed twice');
+        // Scoped to this booking's own events: the drain claims from the whole
+        // table, and suites run in parallel, so "the drain found nothing" would
+        // be a race. What must hold is that *these* rows are not touched again.
+        const stamps = new Map((await eventsFor(booking.legs[0].id)).map((event) => [event.id, event.processedAt]));
+
+        await drainOutbox({ limit: 100 });
+
+        for (const event of await eventsFor(booking.legs[0].id)) {
+            assert.deepEqual(event.processedAt, stamps.get(event.id), 'a processed event is not processed twice');
+        }
+
+        const resent = outbox.filter(
+            (entry) => entry.template === 'transferAssignmentOffered' && entry.to === driverUser.email
+        );
+        assert.equal(resent.length, 1, 'the driver is not emailed twice');
 
         const read = await request(app).post(`/api/driver/notifications/${mine[0].id}/read`).set('Cookie', driverCookie);
         assert.equal(read.status, 200);

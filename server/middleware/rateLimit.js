@@ -281,6 +281,26 @@ export const globalLimiter = rateLimit({
 });
 
 /**
+ * Dated hotel search, the most expensive read in the system: a windowed
+ * aggregate over the two largest tables. The global limiter allows 100 a
+ * minute across everything; this one keeps a scraper from spending all of it
+ * here.
+ *
+ * Built here on `base` and the shared store like every other limiter, rather
+ * than inline in the route file where it used to live: declared there it
+ * counted in process memory whatever REDIS_URL said, so two instances behind
+ * a load balancer each allowed the full thirty, and it rejected with the
+ * library's plain-text body instead of the error envelope.
+ */
+export const searchLimiter = rateLimit({
+    ...base,
+    store: store('search'),
+    windowMs: 60 * 1000,
+    limit: config.isTest ? 10_000 : 30,
+    handler: handler('Too many searches. Try again shortly.')
+});
+
+/**
  * Closes the shared store, so a shutdown is not held open by it.
  *
  * The test is `isReady`, not `isOpen`. `isOpen` is still true for a client

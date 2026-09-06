@@ -32,9 +32,13 @@ export const readRatingToken = (token) => {
         throw new BadRequestError('That rating link is not valid');
     }
 
-    const expected = sign(payload);
+    const expected = Buffer.from(sign(payload));
+    const provided = Buffer.from(signature);
 
-    if (signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    // Compared as bytes, not characters: a multi-byte character makes the two
+    // string lengths agree while the buffers differ, and timingSafeEqual throws
+    // on a byte-length mismatch rather than returning false.
+    if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
         throw new BadRequestError('That rating link is not valid');
     }
 

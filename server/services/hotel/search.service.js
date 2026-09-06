@@ -3,6 +3,7 @@ import { config } from '../../config.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../../lib/errors.js';
 import { eachNight, nightsBetween, todayInTimezone } from '../../lib/time.js';
 import { issueOfferToken } from '../../lib/hotel/offerToken.js';
+import { isTrade } from '../../middleware/auth.js';
 import { defaultProvider } from './providers/index.js';
 import { DEFAULT_CHILD_POLICY, categorise, resolveOccupancy } from './occupancy.service.js';
 import { quoteStay } from './pricing.service.js';
@@ -179,6 +180,8 @@ const buildOffer = ({ candidate, ratePlan, hotel, rates, stay, party, markupBps 
         checkInTime: hotel.checkInFrom ?? '14:00',
         timezone: hotel.timezone,
         nightlyCents: quote.nights.map((night) => night.sellCents),
+        // Per room, as the booking will freeze it.
+        includedTaxCents: Math.floor(quote.totals.taxIncludedCents / stay.rooms),
         currency: quote.currency
     });
 
@@ -254,8 +257,8 @@ export const searchHotels = async (criteria, viewer) => {
         // travels on `amenity` above, because they are amenities.
         kosherMinLevel: criteria.kosher ?? null,
         kosherCertified: criteria.kosherCertified ?? false,
-        includePartnerOnly: Boolean(viewer?.partnerId) || Boolean(viewer?.role),
-        b2cOnly: !viewer?.partnerId && !viewer?.role,
+        includePartnerOnly: isTrade(viewer),
+        b2cOnly: !isTrade(viewer),
         today
     });
 
@@ -389,8 +392,8 @@ export const hotelAvailability = async (slugOrId, criteria, viewer) => {
         children: party.children.length + party.infants.length,
         guests: party.adults + party.children.length,
         hotelIds: [hotel.id],
-        includePartnerOnly: Boolean(viewer?.partnerId) || Boolean(viewer?.role),
-        b2cOnly: !viewer?.partnerId && !viewer?.role,
+        includePartnerOnly: isTrade(viewer),
+        b2cOnly: !isTrade(viewer),
         today
     });
 
@@ -460,8 +463,15 @@ export const revalidateOffer = async (
     { strict = true, requireAvailability = true } = {}
 ) => {
     const offer = token;
+
+    // The token proves the offer was quoted, not that it was quoted for this
+    // caller. A partner's token for a trade-only hotel or a PARTNER_ONLY rate
+    // must not become a public booking in someone else's hands, so the sales
+    // channel is checked here exactly as search checked it when the token was
+    // issued — the price comparison below is not an access check.
+    const trade = isTrade(viewer);
     const hotel = await prisma.hotel.findFirst({
-        where: { id: offer.hotelId, status: 'ACTIVE' },
+        where: { id: offer.hotelId, status: 'ACTIVE', ...(trade ? {} : { b2cEnabled: true }) },
         include: {
             childPolicy: { include: { bands: { orderBy: { minAge: 'asc' } } } },
             taxFees: true,
@@ -495,7 +505,8 @@ export const revalidateOffer = async (
             children: party.children.length + party.infants.length,
             guests: party.adults + party.children.length,
             hotelIds: [hotel.id],
-            includePartnerOnly: true,
+            includePartnerOnly: trade,
+            b2cOnly: !trade,
             today
         });
 
@@ -521,6 +532,14 @@ export const revalidateOffer = async (
             roomType: { include: { beds: { include: { bedType: true } } } }
         }
     });
+
+    // Reached without the candidate query when a hold is being confirmed, so
+    // the rate plan's own channel is checked here rather than trusted.
+    if (!ratePlan || ratePlan.status !== 'ACTIVE' || (!trade && ratePlan.visibility !== 'PUBLIC')) {
+        throw new ConflictError('That offer is no longer available for these dates', {
+            reason: 'UNAVAILABLE'
+        });
+    }
 
     const ratesByPlan = await provider.loadRates([offer.ratePlanId], offer.checkIn, offer.checkOut);
     const { markupBps } = await resolveMarkup({ partner: viewer?.partner, hotel });

@@ -129,6 +129,8 @@ export const toRoute = (route, viewer) => ({
     description: route.description ?? [],
     heroImage: route.heroImage ?? null,
     featured: route.featured,
+    // Public so the client's sitemap can carry a real `lastModified` per URL.
+    updatedAt: route.updatedAt,
     stops: (route.stops ?? []).map(toRouteStop),
     // The cheapest curated fare, for a "from" price on a card. Absent when the
     // route has no prices at all, because the distance engine's answer depends

@@ -159,7 +159,13 @@ describe('child charge modes', () => {
 });
 
 describe('taxes and fees', () => {
-    const base = { nights: 3, roomNetCents: 60_000, guests: { total: 3, adults: 2 }, rooms: 1 };
+    // One room, three nights at 20,000 sell each: a 60,000 room total.
+    const pricedNights = (count, sellCents = 20_000) =>
+        Array.from({ length: count }, (unused, index) => ({
+            date: `2026-12-${String(20 + index).padStart(2, '0')}`,
+            sellCents
+        }));
+    const base = { nights: pricedNights(3), guests: { total: 3, adults: 2 }, rooms: 1 };
 
     it('applies a percentage of the room total', () => {
         const taxes = priceTaxes({
@@ -215,6 +221,73 @@ describe('taxes and fees', () => {
 
         assert.equal(taxes.includedCents, 10_800);
         assert.equal(taxes.payableAtPropertyCents, 1_000);
+    });
+
+    // Two of the four bases used to ignore `rooms`, so a three-room booking
+    // paid VAT and city tax on one room while the room total tripled.
+    it('multiplies every basis by the number of rooms', () => {
+        const taxes = priceTaxes({
+            ...base,
+            rooms: 3,
+            taxFees: [
+                { name: 'VAT', basis: 'PERCENT', value: 1_800, includedInRate: true, currency: 'GEL' },
+                { name: 'City', basis: 'PER_NIGHT_PER_PERSON', value: 500, includedInRate: false, currency: 'GEL' },
+                { name: 'Resort', basis: 'PER_NIGHT_PER_ROOM', value: 500, includedInRate: false, currency: 'GEL' },
+                { name: 'Cleaning', basis: 'PER_STAY', value: 1_000, includedInRate: false, currency: 'GEL' }
+            ]
+        });
+
+        const byName = Object.fromEntries(taxes.applied.map((fee) => [fee.name, fee.amountCents]));
+
+        assert.equal(byName.VAT, 32_400, '18% of 60,000 x 3 rooms');
+        assert.equal(byName.City, 13_500, '500 x 3 nights x 3 guests x 3 rooms');
+        assert.equal(byName.Resort, 4_500, '500 x 3 nights x 3 rooms');
+        assert.equal(byName.Cleaning, 3_000, '1,000 x 3 rooms');
+    });
+
+    it('charges a seasonal fee only on the nights inside its window', () => {
+        const taxes = priceTaxes({
+            ...base,
+            taxFees: [
+                // In force on the middle night only. Both bounds inclusive.
+                {
+                    name: 'Festival',
+                    basis: 'PER_NIGHT_PER_ROOM',
+                    value: 500,
+                    startDate: '2026-12-21',
+                    endDate: '2026-12-21',
+                    includedInRate: false,
+                    currency: 'GEL'
+                },
+                // A percentage is taken on the sell of the nights it covers.
+                {
+                    name: 'Peak VAT',
+                    basis: 'PERCENT',
+                    value: 1_800,
+                    startDate: new Date('2026-12-21T00:00:00Z'),
+                    endDate: null,
+                    includedInRate: true,
+                    currency: 'GEL'
+                },
+                // Summer only: not in force for a December stay, so not applied.
+                {
+                    name: 'Resort',
+                    basis: 'PER_STAY',
+                    value: 1_000,
+                    startDate: '2027-06-01',
+                    endDate: '2027-09-30',
+                    includedInRate: false,
+                    currency: 'GEL'
+                }
+            ]
+        });
+
+        const byName = Object.fromEntries(taxes.applied.map((fee) => [fee.name, fee.amountCents]));
+
+        assert.equal(byName.Festival, 500, 'one night in the window');
+        assert.equal(byName['Peak VAT'], 7_200, '18% of the two nights from the 21st');
+        assert.equal('Resort' in byName, false, 'a fee with no night in its window is not applied');
+        assert.equal(taxes.applied.length, 2);
     });
 });
 
@@ -321,6 +394,30 @@ describe('quoting a stay', () => {
         });
 
         assert.equal(double.totals.sellCents, single.totals.sellCents * 2);
+    });
+
+    it('taxes every room, not the first one', () => {
+        const stay = (rooms) =>
+            quoteStay({
+                nights: nightsOf(2),
+                ratePlan: ratePlan(),
+                adults: 2,
+                bands: BANDS,
+                markupBps: 0,
+                rooms,
+                taxFees: [
+                    { name: 'VAT', basis: 'PERCENT', value: 1_800, includedInRate: true, currency: 'GEL' },
+                    { name: 'City', basis: 'PER_NIGHT_PER_PERSON', value: 300, includedInRate: true, currency: 'GEL' }
+                ]
+            });
+
+        const one = stay(1);
+        const three = stay(3);
+
+        // 40,000 x 18% = 7,200 VAT; 300 x 2 nights x 2 adults = 1,200 city.
+        assert.equal(one.totals.taxIncludedCents, 8_400);
+        assert.equal(three.totals.taxIncludedCents, 25_200);
+        assert.equal(three.totals.totalCents, 120_000 + 25_200);
     });
 });
 

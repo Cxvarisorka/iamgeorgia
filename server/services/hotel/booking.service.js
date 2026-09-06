@@ -7,6 +7,7 @@ import {
     NotFoundError,
     UnprocessableEntityError
 } from '../../lib/errors.js';
+import { assertReplayOwner } from '../../lib/idempotency.js';
 import { recordAudit, AUDIT_ENTITY } from '../../lib/audit.js';
 import { nextHotelBookingReference } from '../../lib/reference.js';
 import { dateOnlyToUtc, nightsBetween, toDateOnly } from '../../lib/time.js';
@@ -239,6 +240,9 @@ export const prepareHotelBooking = async (input, actor, { strict = true } = {}) 
         checkInTime: hotel.checkInFrom ?? '14:00',
         timezone: hotel.timezone,
         nightlyCents: priced.quote.nights.map((night) => night.sellCents),
+        // The schedule is per room; the tax was priced for the whole stay.
+        // Rounded down so that, across rooms, nothing is refunded twice.
+        includedTaxCents: Math.floor(priced.quote.totals.taxIncludedCents / rooms),
         currency: priced.quote.currency,
         bookedAt: new Date()
     });
@@ -449,8 +453,16 @@ export const confirmBooking = async (input, actor, req) => {
         include: bookingInclude
     });
 
+    // A replay is a read of the original, and is gated like one: the key
+    // alone does not prove the caller made the request it names.
+    const replayOf = (booking) => {
+        assertReplayOwner(() => assertMayRead(booking, actor, { email: input.leadGuest?.email }));
+
+        return { booking, replayed: true };
+    };
+
     if (existing) {
-        return { booking: existing, replayed: true };
+        return replayOf(existing);
     }
 
     const prepared = await prepareHotelBooking(input, actor);
@@ -471,7 +483,7 @@ export const confirmBooking = async (input, actor, req) => {
             });
 
             if (winner) {
-                return { booking: winner, replayed: true };
+                return replayOf(winner);
             }
         }
 
@@ -535,14 +547,23 @@ export const findBookingOr404 = async (reference, viewer, options = {}) => {
     return booking;
 };
 
-export const listBookings = async (query, viewer) => {
+/**
+ * Lists bookings for a viewer.
+ *
+ * `propertyScope` is the supplier extranet's door: the caller has already
+ * proved it owns that hotel, and the list is then every booking at it,
+ * whichever partner made it. It replaces the partner scoping, never widens
+ * beyond the one property, and is the only way a non-admin reads bookings it
+ * did not make.
+ */
+export const listBookings = async (query, viewer, { propertyScope = null } = {}) => {
     const { status, hotelId, partnerId, from, to, search, page, pageSize } = query;
 
     const where = {
         // A partner's list is scoped in the query, not filtered afterwards.
-        ...(isAdmin(viewer) ? {} : { partnerId: viewer?.partnerId ?? '__none__' }),
+        ...(isAdmin(viewer) || propertyScope ? {} : { partnerId: viewer?.partnerId ?? '__none__' }),
         ...(status ? { status: { in: Array.isArray(status) ? status : [status] } } : {}),
-        ...(hotelId ? { hotelId } : {}),
+        ...(propertyScope ? { hotelId: propertyScope } : hotelId ? { hotelId } : {}),
         ...(isAdmin(viewer) && partnerId ? { partnerId } : {}),
         ...(from || to
             ? {
@@ -655,15 +676,26 @@ export const cancelHotelBookingInTx = async (tx, booking, { reason, waiveCharges
         data: { status: 'CANCELLED' }
     });
 
-    const cancelled = await tx.hotelBooking.update({
-        where: { id: booking.id },
-        data: {
-            status: 'CANCELLED',
-            cancelledAt: new Date(),
-            cancellationChargeCents: quote.chargeCents,
-            cancellationReason: reason ?? null
-        }
-    });
+    // The status the charge was computed against is part of the WHERE, so two
+    // cancellations racing past the check above cannot both write: the second
+    // finds no row and is refused instead of recording a second charge.
+    const cancelled = await tx.hotelBooking
+        .update({
+            where: { id: booking.id, status: { notIn: ['CANCELLED', 'COMPLETED'] } },
+            data: {
+                status: 'CANCELLED',
+                cancelledAt: new Date(),
+                cancellationChargeCents: quote.chargeCents,
+                cancellationReason: reason ?? null
+            }
+        })
+        .catch((err) => {
+            if (err?.code === 'P2025') {
+                throw new ConflictError('This booking can no longer be cancelled', { reason: 'STATUS_CHANGED' });
+            }
+
+            throw err;
+        });
 
     await recordAudit(tx, {
         action: 'BOOKING_CANCELLED',

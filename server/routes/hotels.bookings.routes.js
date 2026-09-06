@@ -8,6 +8,7 @@ import {
     requirePartner
 } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
+import { idempotencyKeyFrom } from '../lib/idempotency.js';
 import {
     amendBookingSchema,
     answerBookingRequestSchema,
@@ -78,7 +79,7 @@ bookingRoutes.delete('/holds/:token', validate({ params: holdTokenParamSchema })
  */
 bookingRoutes.post('/', validate({ body: confirmBookingSchema }), async (req, res) => {
     const { booking, replayed } = await confirmBooking(
-        { ...req.valid.body, idempotencyKey: req.get('idempotency-key') ?? req.valid.body.idempotencyKey },
+        { ...req.valid.body, idempotencyKey: idempotencyKeyFrom(req) },
         req.user,
         req
     );

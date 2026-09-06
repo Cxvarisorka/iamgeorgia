@@ -64,6 +64,37 @@ export const listRatePlans = async (hotelId, roomTypeId, { status, includePartne
 };
 
 /**
+ * Every rate plan in a property, across all of its room types.
+ *
+ * The nested listing above needs a room type id, which is exactly what a
+ * picker does not have: an operator constraining a package slot to "the
+ * refundable plans" is choosing from the hotel, not from one room. Fetching
+ * this by looping the room types would be one request per room, so it is one
+ * query here instead, and each plan carries the room it belongs to because two
+ * hotels routinely name two plans the same thing.
+ *
+ * Archived plans are left out — they cannot be sold, so offering one as a
+ * constraint would only produce a slot that never resolves.
+ */
+export const listHotelRatePlans = async (hotelId, { includePartnerOnly = true } = {}) => {
+    const hotel = await prisma.hotel.findUnique({ where: { id: hotelId }, select: { id: true } });
+
+    if (!hotel) {
+        throw new NotFoundError('Hotel not found');
+    }
+
+    return prisma.ratePlan.findMany({
+        where: {
+            roomType: { hotelId },
+            status: { not: 'ARCHIVED' },
+            ...(includePartnerOnly ? {} : { visibility: 'PUBLIC' })
+        },
+        include: { ...ratePlanInclude, roomType: { select: { id: true, code: true, name: true } } },
+        orderBy: [{ roomType: { sortOrder: 'asc' } }, { sortOrder: 'asc' }, { name: 'asc' }]
+    });
+};
+
+/**
  * Resolves the meal plan and both policies, refusing anything this hotel is not
  * entitled to reference.
  *

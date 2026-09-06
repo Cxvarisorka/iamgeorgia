@@ -1,7 +1,7 @@
 import { Router } from 'express';
 
 import { validate } from '../middleware/validate.js';
-import { optionalAuthenticate } from '../middleware/auth.js';
+import { isTrade, optionalAuthenticate } from '../middleware/auth.js';
 import {
     packageOfferTokenSchema,
     packageQuoteQuerySchema,
@@ -22,8 +22,6 @@ import { toPackageDetail, toPackageQuote, toPackageSummary } from '../serializer
 export const packageRoutes = Router();
 
 packageRoutes.use(optionalAuthenticate);
-
-const isTrade = (viewer) => Boolean(viewer?.partnerId) || Boolean(viewer?.role);
 const PUBLIC_STATUSES = ['ACTIVE'];
 
 packageRoutes.get('/', validate({ query: publicPackageQuerySchema }), async (req, res) => {

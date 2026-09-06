@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { prisma } from '../../db/index.js';
 import { AUDIT_ENTITY, recordAudit } from '../../lib/audit.js';
 import { BadRequestError, ConflictError, NotFoundError, UnprocessableEntityError } from '../../lib/errors.js';
+import { assertReplayOwner } from '../../lib/idempotency.js';
 import { sqlStateOf } from '../../middleware/errors.js';
 import { nextTransferBookingReference } from '../../lib/reference.js';
 import { dateOnlyToUtc } from '../../lib/time.js';
@@ -381,8 +382,16 @@ export const confirmTransferBooking = async (input, actor, req) => {
         include: bookingInclude
     });
 
+    // A replay is a read of the original, and is gated like one: the key
+    // alone does not prove the caller made the request it names.
+    const replayOf = (booking) => {
+        assertReplayOwner(() => assertMayRead(booking, actor, { email: input.leadPassenger?.email }));
+
+        return { booking, replayed: true };
+    };
+
     if (existing) {
-        return { booking: existing, replayed: true };
+        return replayOf(existing);
     }
 
     const prepared = await prepareTransferBooking(input, actor);
@@ -403,7 +412,7 @@ export const confirmTransferBooking = async (input, actor, req) => {
             });
 
             if (raced) {
-                return { booking: raced, replayed: true };
+                return replayOf(raced);
             }
         }
 
@@ -594,16 +603,28 @@ export const cancelTransferBookingInTx = async (tx, booking, { reason, waiveChar
 
     await cascadeBookingCancellation(tx, booking.id, actor, req);
 
-    const result = await tx.transferBooking.update({
-        where: { id: booking.id },
-        data: {
-            status: 'CANCELLED',
-            cancelledAt: new Date(),
-            cancellationChargeCents: quote.chargeCents,
-            cancellationReason: reason ?? null
-        },
-        include: bookingInclude
-    });
+    // The status the charge was computed against is part of the WHERE, so a
+    // cancellation racing a second cancellation, or a driver completing the
+    // trip, cannot write over a row that has moved on: the update finds no
+    // row and the whole transaction, cascade included, is rolled back.
+    const result = await tx.transferBooking
+        .update({
+            where: { id: booking.id, status: { in: CANCELLABLE_STATUSES } },
+            data: {
+                status: 'CANCELLED',
+                cancelledAt: new Date(),
+                cancellationChargeCents: quote.chargeCents,
+                cancellationReason: reason ?? null
+            },
+            include: bookingInclude
+        })
+        .catch((err) => {
+            if (err?.code === 'P2025') {
+                throw new ConflictError('That booking cannot be cancelled', { reason: 'NOT_CANCELLABLE' });
+            }
+
+            throw err;
+        });
 
     await recordAudit(tx, {
         action: 'TRANSFER_BOOKING_CANCELLED',
@@ -622,13 +643,27 @@ export const cancelTransferBookingInTx = async (tx, booking, { reason, waiveChar
     return { booking: result, quote };
 };
 
-export const cancelTransferBooking = async (reference, { reason, email } = {}, actor, req) => {
-    const booking = await findTransferBookingOr404(reference, actor, { email });
+/**
+ * Cancels a booking by reference.
+ *
+ * Read, checked and written inside one transaction, as the hotel module does
+ * it: a booking read before the transaction opened is a booking whose status
+ * may have moved by the time the charge is written against it.
+ */
+export const cancelTransferBooking = async (reference, { reason, email } = {}, actor, req) =>
+    prisma.$transaction(async (tx) => {
+        const booking = await tx.transferBooking.findUnique({ where: { reference }, include: bookingInclude });
 
-    await assertNotInOrder(prisma, 'transferBookingId', booking.id);
+        if (!booking) {
+            throw new NotFoundError('That booking does not exist');
+        }
 
-    return prisma.$transaction((tx) => cancelTransferBookingInTx(tx, booking, { reason }, actor, req));
-};
+        assertMayRead(booking, actor, { email });
+
+        await assertNotInOrder(tx, 'transferBookingId', booking.id);
+
+        return cancelTransferBookingInTx(tx, booking, { reason }, actor, req);
+    });
 
 const AMENDABLE_STATUSES = ['PENDING', 'CONFIRMED'];
 

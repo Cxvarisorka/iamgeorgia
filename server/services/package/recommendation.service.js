@@ -7,6 +7,7 @@ import { quotesForJourney } from '../transfer/quote.service.js';
 import { searchTours } from '../tour/search.service.js';
 import { summaryInclude } from './package.service.js';
 import { quotePackage } from './quote.service.js';
+import { isTrade } from '../../middleware/auth.js';
 
 /**
  * "Complete your trip": what goes with a hotel stay or a tour.
@@ -21,8 +22,6 @@ import { quotePackage } from './quote.service.js';
  * The seam for a curated or learned ranking is this file; the response shape
  * does not change when one arrives.
  */
-
-const isTrade = (viewer) => Boolean(viewer?.partnerId) || Boolean(viewer?.role);
 
 const MAX_TOUR_DAYS = 5;
 const MAX_TOURS = 6;

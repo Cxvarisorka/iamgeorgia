@@ -31,6 +31,34 @@ export const isAdmin = (viewer) => Boolean(viewer) && ADMIN_ROLES.includes(viewe
 /** Whether a viewer may run transfer operations: every admin, plus dispatchers. */
 export const isTransferOps = (viewer) => Boolean(viewer) && TRANSFER_OPS_ROLES.includes(viewer.role);
 
+/**
+ * Whether a viewer buys at trade.
+ *
+ * Trade means the non-public side of the catalogue: hotels, tours and services
+ * not switched on for B2C, rate plans and options marked PARTNER_ONLY. Two
+ * kinds of account qualify — an approved partner, and platform admins reading
+ * as the platform. Nobody else: a driver, a dispatcher or a partner still
+ * waiting for approval has a role and a session, and none of those is a
+ * commercial agreement.
+ *
+ * This used to be `Boolean(viewer?.role)`, which every signed-in account
+ * satisfies because `User.role` is not nullable, so "trade" quietly meant
+ * "logged in". The partner check reads the relation when the session loaded
+ * it (it always does); a bare `{ partnerId }` viewer built without one — a
+ * system caller, a test — is taken at its word.
+ */
+export const isTrade = (viewer) => {
+    if (isAdmin(viewer)) {
+        return true;
+    }
+
+    if (!viewer?.partnerId) {
+        return false;
+    }
+
+    return viewer.partner ? viewer.partner.status === 'APPROVED' : true;
+};
+
 /** Roles that may edit a supplier's own inventory, rates and content. */
 export const SUPPLIER_MANAGE_ROLES = ['PARTNER_OWNER', 'PARTNER_ADMIN'];
 

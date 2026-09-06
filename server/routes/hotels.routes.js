@@ -2,7 +2,7 @@ import { Router } from 'express';
 
 import { prisma } from '../db/index.js';
 import { validate } from '../middleware/validate.js';
-import { optionalAuthenticate } from '../middleware/auth.js';
+import { isTrade, optionalAuthenticate } from '../middleware/auth.js';
 import { publicHotelQuerySchema, slugParamSchema } from '../validation/hotel.js';
 import { findHotelOr404, listHotels } from '../services/hotel/hotel.service.js';
 import { resolveMarkup } from '../services/hotel/pricingRule.service.js';
@@ -26,13 +26,6 @@ import { toHotelDetail, toHotelSummary } from '../serializers/hotel.js';
  * dated search quotes something bookable.
  */
 const PUBLIC_STATUSES = ['ACTIVE'];
-
-/**
- * Whether the viewer buys at trade. A signed-in partner or a member of staff
- * sees the whole ACTIVE catalogue; everyone else sees only what has been
- * switched on for B2C.
- */
-const isTrade = (viewer) => Boolean(viewer?.partnerId) || Boolean(viewer?.role);
 
 const applyBps = (amountCents, bps) => Math.round((amountCents * (10_000 + bps)) / 10_000);
 
@@ -92,12 +85,26 @@ hotelRoutes.get(
          * whole property, not one per room — and clearly labelled indicative,
          * because a price without dates is not an offer.
          */
+        //
+        // Only rates this viewer could actually buy: a public visitor must not
+        // see a "from" built on a trade rate they cannot reach, and nobody
+        // should see one built on a night with no room left to sell. The
+        // channel and inventory predicates are the same ones dated search
+        // applies in `providers/manual.js`.
+        const trade = isTrade(req.user);
         const cheapest = await prisma.$queryRaw`
             SELECT rt.id AS "roomTypeId", min(r.net_cents)::int AS "netCents"
               FROM room_types rt
               JOIN rate_plans rp ON rp.room_type_id = rt.id AND rp.status = 'ACTIVE'
               JOIN rates r ON r.rate_plan_id = rp.id AND r.closed = false
+              JOIN room_inventory inv
+                   ON inv.room_type_id = rt.id
+                  AND inv.date = r.date
+                  AND inv.stop_sell = false
+                  AND inv.total_units - inv.blocked_units - inv.booked_units - inv.held_units > 0
              WHERE rt.hotel_id = ${hotel.id}
+               AND rt.status = 'ACTIVE'
+               AND (${trade}::boolean OR rp.visibility = 'PUBLIC')
                AND r.date BETWEEN CURRENT_DATE AND CURRENT_DATE + 120
              GROUP BY rt.id
         `;

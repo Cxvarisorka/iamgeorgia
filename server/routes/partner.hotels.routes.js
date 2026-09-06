@@ -4,6 +4,7 @@ import { authenticate, requireApprovedPartner, requirePartner } from '../middlew
 import { hotelScopeFor, requireHotelAccess } from '../middleware/hotelAccess.js';
 import { validate } from '../middleware/validate.js';
 import { hotelQuerySchema, idParamSchema } from '../validation/hotel.js';
+import { bookingQuerySchema } from '../validation/booking.js';
 import { calendarQuerySchema, inventoryRangeSchema, rateRangeSchema } from '../validation/inventory.js';
 import { roomTypeQuerySchema } from '../validation/roomType.js';
 import { ratePlanParamSchema, roomTypeScopedParamSchema } from '../validation/ratePlan.js';
@@ -110,15 +111,28 @@ partnerHotelRoutes.put(
     }
 );
 
-/** Reservations against this supplier's own property. */
-partnerHotelRoutes.get('/:hotelId/bookings', requireHotelAccess(), async (req, res) => {
-    const { bookings, ...page } = await listBookings(
-        { hotelId: req.hotel.id, page: 1, pageSize: 50 },
-        // Read as the platform for this one property: a supplier sees the
-        // reservations at its own hotel regardless of which partner booked
-        // them, which is the whole point of an extranet arrivals list.
-        { role: 'ADMIN' }
-    );
+/**
+ * Reservations against this supplier's own property.
+ *
+ * A supplier sees every reservation at its own hotel regardless of which
+ * partner booked it — that is the whole point of an extranet arrivals list —
+ * so the list is scoped to the property rather than to the caller's partner.
+ * The scope is passed as an explicit option, not by handing the service a
+ * forged admin viewer: the real viewer is what serialises, and the day
+ * `listBookings` learns to do anything else on the strength of `isAdmin`, a
+ * forged one would have become a privilege escalation.
+ */
+partnerHotelRoutes.get(
+    '/:hotelId/bookings',
+    requireHotelAccess(),
+    validate({ query: bookingQuerySchema }),
+    async (req, res) => {
+        const { bookings, ...page } = await listBookings(
+            { ...req.valid.query, hotelId: req.hotel.id },
+            req.user,
+            { propertyScope: req.hotel.id }
+        );
 
-    res.json({ data: bookings.map((booking) => toBookingSummary(booking, req.user)), ...page });
-});
+        res.json({ data: bookings.map((booking) => toBookingSummary(booking, req.user)), ...page });
+    }
+);

@@ -80,6 +80,10 @@ export const toHotelSummary = (hotel, locale, viewer) => {
         // information" are the same absence — which is the truth. Enough for
         // one honest line on a card and no more.
         ...(hotel.kosher ? { kosher: toKosherSummary(hotel) } : {}),
+        // When the record last changed. Public because the client's sitemap
+        // needs a real `lastModified` per URL — a hand-set date goes stale in a
+        // week and teaches crawlers to ignore the field.
+        updatedAt: value.updatedAt,
         // A "from" price with no dates is not an offer and is never used to
         // quote or to book — it exists so an un-dated browse page can sort.
         priceFrom:

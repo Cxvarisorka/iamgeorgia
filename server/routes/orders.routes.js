@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import { authenticate, optionalAuthenticate, requireAdmin, requireApprovedPartner, requirePartner } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
+import { idempotencyKeyFrom } from '../lib/idempotency.js';
 import {
     amendOrderSchema,
     cancelOrderSchema,
@@ -51,7 +52,7 @@ orderRoutes.delete('/holds', validate({ body: orderReleaseSchema }), async (req,
 
 orderRoutes.post('/', validate({ body: confirmOrderSchema }), async (req, res) => {
     const { order, replayed } = await confirmOrder(
-        { ...req.valid.body, idempotencyKey: req.get('idempotency-key') ?? req.valid.body.idempotencyKey },
+        { ...req.valid.body, idempotencyKey: idempotencyKeyFrom(req) },
         req.user,
         req
     );

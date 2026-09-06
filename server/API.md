@@ -110,6 +110,28 @@ are **staff** only.
 Errors: `409 { reason: 'PRICE_CHANGED', quotedCents, currentCents }`,
 `409 { reason: 'UNAVAILABLE' }`, `410` for an expired token.
 
+An offer token is re-checked against the caller's sales channel when it is
+quoted, held or booked, not only when it was issued: a token for a hotel that
+is not `b2cEnabled`, or for a `PARTNER_ONLY` rate plan, is `409 UNAVAILABLE`
+to anyone who is not trade. Trade means an **approved** partner or an admin —
+a `DRIVER`, a `DISPATCHER` or a partner still awaiting approval buys as the
+public does. The same rule applies to tour offer tokens.
+
+### Idempotency
+
+Every confirm endpoint (`POST /bookings`, `/transfers/bookings`,
+`/tours/bookings`, `/service-bookings`, `/orders`) accepts an
+`Idempotency-Key` header, or `idempotencyKey` in the body; the header wins.
+Either form must be 8–200 characters (`400` otherwise); a blank header is
+treated as absent. Without one the key is derived from the token and the lead
+traveller, so an identical retry still replays.
+
+A replay is a read of the original record and is authorised like one: the
+caller must be able to read the booking the key names (an admin, its partner,
+or a guest whose lead email matches). A key that names somebody else's booking
+is `409 { reason: 'IDEMPOTENCY_KEY_REUSED' }` with nothing about that booking.
+Send unguessable keys — the shipped client sends UUIDs.
+
 ## Bookings
 
 | Method | Path | Notes |
@@ -268,6 +290,13 @@ staff, in `quote.legs[].source`.
 
 `legs[].netCents`, `legs[].source`, `totals.netCents`, `markupBps`,
 `marginCents` and the vehicle's `fallbackPricing` are **staff** only.
+
+A vehicle tariff and a curated one-way price are rack prices: what the public
+pays, at the platform's default markup. A signed-in partner is quoted net plus
+its own commission (`Partner.commissionRateBps`, or a matching pricing rule),
+so the same journey prices differently for a partner and for a guest, while
+the recorded `netCents` is the same whoever buys. Extras are the listed price
+for everyone.
 
 `closed: true` with an empty `offers` array means the road is shut for those
 dates — a real answer, not an error.
@@ -941,7 +970,7 @@ the caller's own properties. Another supplier's id returns **404, not 403**.
 | GET | `…/room-types/:id/inventory/calendar` | any |
 | PUT | `…/room-types/:id/inventory` | **OWNER / ADMIN only** |
 | PUT | `…/rate-plans/:id/rates` | **OWNER / ADMIN only** |
-| GET | `/partner/hotels/:hotelId/bookings` | any |
+| GET | `/partner/hotels/:hotelId/bookings` | any. Every reservation at the property, whichever partner made it. `?status&from&to&search&page&pageSize`, as `/partner/bookings` |
 
 A `PARTNER_AGENT` gets 403 on the two writes.
 

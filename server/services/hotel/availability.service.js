@@ -165,15 +165,47 @@ export const commitHold = async (tx, hold, bookingId) => {
     });
 };
 
+/**
+ * Reports a release that did not reach every night.
+ *
+ * A release is best effort by design: refusing to cancel because a counter
+ * has already drifted would trap the guest to protect a number that is
+ * already wrong. But it must not be *silent* — the nights it missed stay
+ * occupied until `reconcileInventory` recomputes them, and nobody runs that
+ * for a problem they cannot see. Logged at error level with everything the
+ * reconciler needs.
+ */
+const reportShortRelease = ({ claimed, expected }, { roomTypeId, checkIn, checkOut, quantity, from }) => {
+    if (claimed.length === expected) {
+        return;
+    }
+
+    const released = new Set(claimed.map((row) => toDateOnly(row.date)));
+
+    logger.error(
+        {
+            roomTypeId,
+            checkIn,
+            checkOut,
+            quantity,
+            from,
+            missed: eachNight(checkIn, checkOut).filter((night) => !released.has(night))
+        },
+        'Inventory release did not reach every night; run reconcileInventory'
+    );
+};
+
 /** Gives the units back. Used by explicit release and by the sweeper. */
 export const releaseHold = async (tx, hold, status = 'RELEASED') => {
-    await moveUnits(tx, {
+    const move = {
         roomTypeId: hold.roomTypeId,
         checkIn: toDateOnly(hold.checkIn),
         checkOut: toDateOnly(hold.checkOut),
         quantity: hold.quantity,
         from: 'held'
-    });
+    };
+
+    reportShortRelease(await moveUnits(tx, move), move);
 
     return tx.bookingHold.update({ where: { id: hold.id }, data: { status } });
 };
@@ -192,14 +224,20 @@ export const releaseHoldByToken = async (token) =>
     });
 
 /** booked -> released, when a booking is cancelled. */
-export const releaseBookedUnits = (tx, { roomTypeId, checkIn, checkOut, quantity }) =>
-    moveUnits(tx, {
+export const releaseBookedUnits = async (tx, { roomTypeId, checkIn, checkOut, quantity }) => {
+    const move = {
         roomTypeId,
         checkIn: toDateOnly(checkIn),
         checkOut: toDateOnly(checkOut),
         quantity,
         from: 'booked'
-    });
+    };
+    const result = await moveUnits(tx, move);
+
+    reportShortRelease(result, move);
+
+    return result;
+};
 
 /**
  * Returns expired holds to the pool.

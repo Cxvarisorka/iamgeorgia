@@ -209,6 +209,82 @@ describe('rate plans', { skip: dbAvailable ? false : 'Postgres is not reachable'
         });
     });
 
+    // The flat listing the admin pickers choose from: a package slot is
+    // constrained to a plan across the whole property, not within one room.
+    describe('every plan in the hotel', () => {
+        const hotelPlansPath = (h = hotel.id) => `/api/admin/hotels/${h}/rate-plans`;
+
+        it('lists plans from every room, each naming the room it belongs to', async () => {
+            const property = await makeHotel(tracker, { destination: await makeDestination(tracker) });
+            const rooms = [];
+
+            for (const name of ['Standard', 'Suite']) {
+                rooms.push(
+                    await prisma.roomType.create({
+                        data: {
+                            hotelId: property.id,
+                            code: unique('rt').slice(0, 40),
+                            name,
+                            maxOccupancy: 2,
+                            maxAdults: 2
+                        }
+                    })
+                );
+            }
+
+            for (const room of rooms) {
+                assert.equal((await createPlan({ name: 'Refundable' }, room.id, property.id)).status, 201);
+            }
+
+            const response = await asAdmin('get', hotelPlansPath(property.id));
+
+            assert.equal(response.status, 200);
+            assert.equal(response.body.data.length, 2);
+            // Both are called "Refundable", which is exactly why the room
+            // travels with the row: the name alone identifies nothing.
+            assert.deepEqual(
+                response.body.data.map((plan) => plan.roomType.name).sort(),
+                ['Standard', 'Suite']
+            );
+        });
+
+        it('leaves out archived plans, which cannot be sold', async () => {
+            const property = await makeHotel(tracker, { destination: await makeDestination(tracker) });
+            const room = await prisma.roomType.create({
+                data: {
+                    hotelId: property.id,
+                    code: unique('rt').slice(0, 40),
+                    name: 'Standard',
+                    maxOccupancy: 2,
+                    maxAdults: 2
+                }
+            });
+
+            const kept = await createPlan({ name: 'Kept' }, room.id, property.id);
+            const retired = await createPlan({ name: 'Retired' }, room.id, property.id);
+
+            await asAdmin(
+                'post',
+                `/api/admin/hotels/${property.id}/room-types/${room.id}/rate-plans/${retired.body.id}/archive`
+            );
+
+            const response = await asAdmin('get', hotelPlansPath(property.id));
+
+            assert.deepEqual(
+                response.body.data.map((plan) => plan.id),
+                [kept.body.id]
+            );
+        });
+
+        it('404s for a hotel that does not exist, and refuses a partner user', async () => {
+            assert.equal((await asAdmin('get', hotelPlansPath('no-such-hotel'))).status, 404);
+            assert.equal(
+                (await request(app).get(hotelPlansPath()).set('Cookie', partnerCookie)).status,
+                403
+            );
+        });
+    });
+
     describe('restrictions', () => {
         it('stores a date-ranged minimum stay', async () => {
             const plan = await createPlan();

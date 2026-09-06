@@ -1,7 +1,7 @@
 import { Router } from 'express';
 
 import { validate } from '../middleware/validate.js';
-import { optionalAuthenticate } from '../middleware/auth.js';
+import { isTrade, optionalAuthenticate } from '../middleware/auth.js';
 import { publicServiceQuerySchema, serviceSlugParamSchema } from '../validation/service.js';
 import { findServiceOr404, listServices } from '../services/service/service.service.js';
 import { resolveMarkup } from '../services/hotel/pricingRule.service.js';
@@ -17,8 +17,6 @@ import { toServiceDetail, toServiceSummary } from '../serializers/service.js';
 export const serviceRoutes = Router();
 
 serviceRoutes.use(optionalAuthenticate);
-
-const isTrade = (viewer) => Boolean(viewer?.partnerId) || Boolean(viewer?.role);
 
 const markupFor = async (viewer) => {
     const { markupBps } = await resolveMarkup({

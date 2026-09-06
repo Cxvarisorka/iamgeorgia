@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { prisma } from '../../db/index.js';
 import { config } from '../../config.js';
 import { ConflictError, NotFoundError } from '../../lib/errors.js';
+import { assertReplayOwner } from '../../lib/idempotency.js';
 import { recordAudit, AUDIT_ENTITY } from '../../lib/audit.js';
 import { enqueueEvent, TOPICS } from '../../lib/outbox.js';
 import { nextTourBookingReference } from '../../lib/reference.js';
@@ -314,8 +315,16 @@ export const confirmTourBooking = async (input, actor, req) => {
         include: tourBookingInclude
     });
 
+    // A replay is a read of the original, and is gated like one: the key
+    // alone does not prove the caller made the request it names.
+    const replayOf = (booking) => {
+        assertReplayOwner(() => assertMayRead(booking, actor, { email: input.leadTraveller?.email }));
+
+        return { booking, replayed: true };
+    };
+
     if (existing) {
-        return { booking: existing, replayed: true };
+        return replayOf(existing);
     }
 
     const prepared = await prepareTourBooking(input, actor);
@@ -334,7 +343,7 @@ export const confirmTourBooking = async (input, actor, req) => {
             });
 
             if (winner) {
-                return { booking: winner, replayed: true };
+                return replayOf(winner);
             }
         }
 

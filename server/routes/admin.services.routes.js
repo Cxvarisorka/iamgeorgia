@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import { authenticate, requireAdmin, requireApprovedPartner, requirePartner } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
+import { idempotencyKeyFrom } from '../lib/idempotency.js';
 import {
     archiveServiceSchema,
     cancelServiceBookingSchema,
@@ -181,11 +182,13 @@ adminServiceBookingRoutes.post(
  */
 export const serviceBookingRoutes = Router();
 
-serviceBookingRoutes.use(authenticate, requirePartner);
+// Approved partners only, for reading as well as booking: a partner still
+// waiting for approval has a login, not a portal.
+serviceBookingRoutes.use(authenticate, requirePartner, requireApprovedPartner);
 
-serviceBookingRoutes.post('/', requireApprovedPartner, validate({ body: confirmServiceBookingSchema }), async (req, res) => {
+serviceBookingRoutes.post('/', validate({ body: confirmServiceBookingSchema }), async (req, res) => {
     const { booking, replayed } = await confirmServiceBooking(
-        { ...req.valid.body, idempotencyKey: req.get('idempotency-key') ?? req.valid.body.idempotencyKey },
+        { ...req.valid.body, idempotencyKey: idempotencyKeyFrom(req) },
         req.user,
         req
     );

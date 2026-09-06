@@ -170,7 +170,25 @@ export const isBlackedOut = (dateOnly, blackouts = []) =>
  *   3. the extras, some of which are a proportion of it too;
  *   4. per-seat multiplication for a shared vehicle, because a shared transfer
  *      sells a seat and a private one sells the car;
- *   5. markup, applied once at the end to the net total.
+ *   5. the buyer's markup, applied to the net fare.
+ *
+ * Net and sell. A vehicle tariff and a curated one-way price are *rack*
+ * prices: what the public pays, which already carries the platform's default
+ * margin. The supplier's cost is therefore the rack price with that margin
+ * backed out — unless the route carries a `netCents`, in which case the
+ * supplier has told us and nothing is derived. The net is a property of the
+ * journey and the supplier; it does not move with who is buying.
+ *
+ * The buyer's markup is then applied to that net. At the platform default
+ * the rack price stands exactly as entered (a price is a price, not a number
+ * to round-trip through two divisions); a partner on an agreed commission
+ * pays net plus that commission, which is what the agreement means. Before
+ * this, the markup never touched the sell price at all and only bent the
+ * recorded net, so a partner paid public prices and the same journey was
+ * booked with a different "cost" depending on who bought it.
+ *
+ * Extras are pass-through at their listed price for everyone: a child seat
+ * is not marked up and not discounted.
  *
  * Rounding happens once per leg rather than once at the end, so the leg lines
  * on a voucher add up to the total printed beneath them. An invoice whose lines
@@ -186,6 +204,7 @@ export const quoteJourney = ({
 }) => {
     const perSeat = vehicle.kind === 'SHARED';
     const seatMultiplier = perSeat ? Math.max(1, passengers) : 1;
+    const rackMarkupBps = config.transfer.defaultMarkupBps;
 
     const pricedLegs = legs.map((leg) => {
         const base = legFare({
@@ -214,15 +233,22 @@ export const quoteJourney = ({
         }));
 
         const extrasCents = legExtras.reduce((sum, entry) => sum + entry.totalCents, 0);
-        const sellCents = fareCents + extrasCents;
 
-        // A curated net is what the supplier actually charges. Without one the
-        // net is backed out of the sell price, so the margin is consistent
-        // whichever tier priced the leg.
-        const netCents =
+        // The supplier side of the fare. A curated net is what the supplier
+        // actually charges; without one it is backed out of the rack fare at
+        // the platform's own margin — the same number whoever is buying.
+        const fareNetCents =
             base.netCents === null
-                ? Math.round((sellCents * 10_000) / (10_000 + markupBps))
-                : base.netCents * seatMultiplier + extrasCents;
+                ? Math.round((fareCents * 10_000) / (10_000 + rackMarkupBps))
+                : base.netCents * seatMultiplier;
+
+        // The buyer side. The rack fare is the price at the default markup and
+        // is kept exactly; any other markup is applied to the net.
+        const fareSellCents =
+            markupBps === rackMarkupBps ? fareCents : Math.round((fareNetCents * (10_000 + markupBps)) / 10_000);
+
+        const netCents = fareNetCents + extrasCents;
+        const sellCents = fareSellCents + extrasCents;
 
         return {
             direction: leg.direction,

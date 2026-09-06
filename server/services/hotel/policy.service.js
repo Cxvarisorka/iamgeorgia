@@ -23,9 +23,13 @@ const applyBps = (amountCents, bps) => Math.round((amountCents * bps) / 10_000);
  * `NIGHTS` sums the *actual* first N nights rather than N times an average:
  * cancelling a stay that starts on New Year's Eve should forfeit New Year's
  * Eve, not the mean of a week that includes it.
+ *
+ * `totalCents` is what the guest paid — the nights plus any tax included in
+ * the price — and is what a percentage-of-total and a fixed cap are read
+ * against. It defaults to the sum of the nights for callers with no tax.
  */
-export const chargeForRule = (rule, { nightlyCents }) => {
-    const total = nightlyCents.reduce((sum, cents) => sum + cents, 0);
+export const chargeForRule = (rule, { nightlyCents, totalCents }) => {
+    const total = totalCents ?? nightlyCents.reduce((sum, cents) => sum + cents, 0);
 
     switch (rule.chargeBasis) {
         case 'PERCENT_OF_TOTAL':
@@ -56,6 +60,11 @@ export const chargeForRule = (rule, { nightlyCents }) => {
  *
  * `fromAt` is inclusive, `toAt` exclusive, and the last window is open-ended so
  * that cancelling after check-in still lands somewhere.
+ *
+ * `includedTaxCents` is the tax the guest paid inside the price for this room.
+ * It belongs in the schedule's total because the refund is read off that
+ * total: a schedule built from the nights alone refunded the room and kept the
+ * VAT on a free cancellation.
  */
 export const buildCancellationSchedule = ({
     rules,
@@ -63,11 +72,12 @@ export const buildCancellationSchedule = ({
     checkInTime = '14:00',
     timezone,
     nightlyCents,
+    includedTaxCents = 0,
     currency,
     bookedAt = new Date()
 }) => {
     const checkInAt = zonedTimeToInstant(checkInDate, checkInTime, timezone);
-    const total = nightlyCents.reduce((sum, cents) => sum + cents, 0);
+    const total = nightlyCents.reduce((sum, cents) => sum + cents, 0) + includedTaxCents;
 
     // Widest deadline first: 720 hours before check-in comes before 168.
     const ordered = [...rules].sort((a, b) => b.hoursBeforeCheckIn - a.hoursBeforeCheckIn);
@@ -75,7 +85,7 @@ export const buildCancellationSchedule = ({
     const windows = ordered.map((rule) => ({
         fromAt: new Date(checkInAt.getTime() - rule.hoursBeforeCheckIn * 3_600_000).toISOString(),
         toAt: null,
-        chargeCents: chargeForRule(rule, { nightlyCents }),
+        chargeCents: chargeForRule(rule, { nightlyCents, totalCents: total }),
         basis: rule.chargeBasis,
         hoursBeforeCheckIn: rule.hoursBeforeCheckIn
     }));

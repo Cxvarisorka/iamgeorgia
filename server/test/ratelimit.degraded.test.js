@@ -38,9 +38,17 @@ const { testEmail, databaseAvailable } = await import('./support/factories.js');
 const app = createApp();
 const dbAvailable = await databaseAvailable();
 
+// A skipped suite never runs its `after` hook, and without it the client's
+// reconnect loop — a ref'd timer, whatever `unref` did to the socket — holds
+// the process open forever. Without Postgres there is nothing to test, so the
+// store is closed here and the file exits like any other skipped suite.
+if (!dbAvailable) {
+    await disconnectRateLimitStore();
+}
+
 // Let the first connection attempt fail, so the limiters are genuinely running
 // against an unreachable store rather than in the moment before they notice.
-await new Promise((resolve) => setTimeout(resolve, 1500));
+await new Promise((resolve) => setTimeout(resolve, dbAvailable ? 1500 : 0));
 
 describe('rate limiting with an unreachable store', { skip: dbAvailable ? false : 'Postgres is not reachable' }, () => {
     after(async () => {

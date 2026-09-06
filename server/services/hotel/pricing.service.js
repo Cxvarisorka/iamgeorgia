@@ -105,34 +105,64 @@ export const priceNight = ({ rate, ratePlan, party, bands, childPolicy = DEFAULT
     };
 };
 
+/** `YYYY-MM-DD` for a fee window bound, which arrives as a Date from Prisma or a string from a test. */
+const boundOf = (value) => (value instanceof Date ? value.toISOString().slice(0, 10) : value);
+
+/**
+ * Whether a fee is in force on a night.
+ *
+ * Both bounds inclusive, and a null bound is open: a resort fee from June to
+ * September is charged on 30 September and not on 1 October.
+ */
+export const feeAppliesOn = (fee, date) =>
+    (fee.startDate == null || boundOf(fee.startDate) <= date) && (fee.endDate == null || date <= boundOf(fee.endDate));
+
 /**
  * Taxes and fees for a whole stay.
+ *
+ * `nights` is the priced nights of *one* room — `{ date, sellCents }` each —
+ * and `rooms` how many identical rooms are being bought, so every basis is
+ * multiplied by the rooms it applies to. Two of the four used not to be, and
+ * a three-room booking was charged VAT on one room.
+ *
+ * A fee with a seasonal window applies only to the nights inside it. The
+ * per-night bases count those nights; PERCENT is taken on their sell; a
+ * PER_STAY fee is charged when at least one night falls in the window. A fee
+ * with no night in its window is not applied at all, so it does not appear as
+ * a zero line on the quote.
  *
  * `includedInRate` decides whether the guest has already paid it or owes it at
  * the desk. Both are returned, and the totals keep them apart, because
  * presenting a payable-at-hotel city tax as part of the price is a complaint at
  * check-out.
  */
-export const priceTaxes = ({ taxFees = [], nights, roomNetCents, guests, rooms = 1 }) => {
+export const priceTaxes = ({ taxFees = [], nights, guests, rooms = 1 }) => {
     const applied = [];
 
     for (const fee of taxFees) {
+        const inWindow = nights.filter((night) => feeAppliesOn(fee, night.date));
+
+        if (inWindow.length === 0) {
+            continue;
+        }
+
         // Defaults to true, matching the column default. Treating an absent
         // flag as false would silently exempt children from a resort tax and
         // undercharge every family booking without anything failing.
         const chargeableGuests = fee.appliesToChildren === false ? guests.adults : guests.total;
+        const roomSellCents = inWindow.reduce((sum, night) => sum + night.sellCents, 0);
 
         let amountCents;
 
         switch (fee.basis) {
             case 'PERCENT':
-                amountCents = applyBps(roomNetCents, fee.value);
+                amountCents = applyBps(roomSellCents * rooms, fee.value);
                 break;
             case 'PER_NIGHT_PER_PERSON':
-                amountCents = fee.value * nights * chargeableGuests;
+                amountCents = fee.value * inWindow.length * chargeableGuests * rooms;
                 break;
             case 'PER_NIGHT_PER_ROOM':
-                amountCents = fee.value * nights * rooms;
+                amountCents = fee.value * inWindow.length * rooms;
                 break;
             case 'PER_STAY':
                 amountCents = fee.value * rooms;
@@ -201,8 +231,7 @@ export const quoteStay = ({
 
     const taxes = priceTaxes({
         taxFees,
-        nights: nights.length,
-        roomNetCents: roomSellCents,
+        nights: priced,
         guests: { total: party.countedOccupancy, adults: party.adults },
         rooms
     });
