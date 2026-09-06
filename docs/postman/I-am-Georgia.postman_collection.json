@@ -313,6 +313,91 @@
       "value": "",
       "type": "string",
       "description": "A PENDING TUR- reference, for the confirm request. Optional."
+    },
+    {
+      "key": "serviceSlug",
+      "value": "shabbat-meals-delivered",
+      "type": "string"
+    },
+    {
+      "key": "serviceId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "serviceBookingReference",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "serviceIdempotencyKey",
+      "value": "svc-run-1",
+      "type": "string"
+    },
+    {
+      "key": "packageSlug",
+      "value": "kakheti-wine-weekend",
+      "type": "string"
+    },
+    {
+      "key": "packageStartDate",
+      "value": "2027-06-03",
+      "type": "string"
+    },
+    {
+      "key": "shabbatStartDate",
+      "value": "2027-06-04",
+      "type": "string"
+    },
+    {
+      "key": "packageToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "packageQuotedTotalCents",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "orderHoldTokens",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "tamperedPackageToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "orderReference",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "orderChildReference",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "orderIdempotencyKey",
+      "value": "ord-run-1",
+      "type": "string"
+    },
+    {
+      "key": "orderOptionalSlot",
+      "value": "0",
+      "type": "string"
+    },
+    {
+      "key": "orderRequiredSlot",
+      "value": "0",
+      "type": "string"
+    },
+    {
+      "key": "orderPendingSlot",
+      "value": "0",
+      "type": "string"
     }
   ],
   "item": [
@@ -4437,6 +4522,1347 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Confirmed, or already answered', () => pm.expect([200, 404, 409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04c · Services",
+      "description": "The service catalogue: priced things with no inventory. Seed it with `node scripts/seed-services.js`.\n\nA service is sold inside a package, so the standalone booking endpoints here are for trade and staff. The field worth watching is `basis` — it decides what one unit is, and therefore what a package slot multiplies.",
+      "item": [
+        {
+          "name": "Browse the catalogue",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/services?locale={{locale}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "services"
+              ],
+              "query": [
+                {
+                  "key": "locale",
+                  "value": "{{locale}}"
+                }
+              ]
+            },
+            "description": "**Expected: 200**\n\n`unitPrice` is the price of one unit of the service's `basis` for the calling viewer. `netCents` is absent for anyone but staff and the supplier itself."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('Returns a page', () => pm.expect(body.data).to.be.an('array'));",
+                  "pm.test('Every entry prices one unit', () => body.data.forEach(s => {",
+                  "    pm.expect(s.unitPrice.amountCents).to.be.a('number');",
+                  "    pm.expect(s.unitPrice.amountCents).to.be.above(0);",
+                  "}));",
+                  "pm.test('No supplier net for an anonymous caller', () =>",
+                  "    pm.expect(JSON.stringify(body)).to.not.include('netCents'));",
+                  "if (body.data.length) pm.collectionVariables.set('serviceSlug', body.data[0].slug);",
+                  "if (body.data.length) pm.collectionVariables.set('serviceId', body.data[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter: kosher only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/services?isKosher=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "services"
+              ],
+              "query": [
+                {
+                  "key": "isKosher",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "**Expected: 200**\n\nThe filter is `isKosher`, **not** `kosher`. An unknown query key is stripped rather than refused, so a misspelt filter silently returns everything — which is why this asserts on the contents rather than on the status."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('Every result is kosher', () =>",
+                  "    body.data.forEach(s => pm.expect(s.isKosher, s.slug).to.equal(true)));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "One service",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/services/{{serviceSlug}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "services",
+                "{{serviceSlug}}"
+              ]
+            },
+            "description": "**Expected: 200**\n\nDetail carries the prose, what is included and the cancellation terms. `noticeHours` is how close to the date it can still be booked."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test('Has a basis', () => pm.expect(['PER_PERSON','PER_GROUP','PER_DAY','PER_PERSON_PER_DAY']).to.include(s.basis));",
+                  "pm.test('Has cancellation terms', () => pm.expect(s.cancellation).to.not.equal(null));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sign in as staff",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "**Expected: 200**\n\nA service has no public checkout: the booking endpoints below are for trade and staff, and answer 401 to anyone else.\n\nThe cookie jar carries the session through the rest of the folder, so this folder runs on its own rather than only after the Auth folder.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Signed in', () => pm.response.to.have.status(200));",
+                  "pm.test('Is staff', () => pm.expect(['ADMIN','SUPER_ADMIN'])",
+                  "    .to.include(pm.response.json().user.role));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Book one directly (trade)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{serviceIdempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/service-bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "service-bookings"
+              ]
+            },
+            "description": "**Expected: 201**, or **200** on a replay of the same `Idempotency-Key`.\n\nSign in as a partner or an admin first — a service has no public checkout. Note the absence of any amount in the body: the server prices it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"{{serviceId}}\",\n  \"date\": \"{{tourDate}}\",\n  \"days\": 1,\n  \"quantity\": 2,\n  \"pax\": 2,\n  \"lead\": {\n    \"firstName\": \"Nino\",\n    \"lastName\": \"Beridze\",\n    \"email\": \"{{guestEmail}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('serviceIdempotencyKey', 'svc-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Created or replayed', () => pm.expect([200,201]).to.include(pm.response.code));",
+                  "if (pm.response.code < 300) {",
+                  "    const b = pm.response.json();",
+                  "    pm.test('Reference is SVC-', () => pm.expect(b.reference).to.match(/^SVC-\\d{6}$/));",
+                  "    pm.collectionVariables.set('serviceBookingReference', b.reference);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Too close to the date",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/service-bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "service-bookings"
+              ]
+            },
+            "description": "**Expected: 409 `TOO_SOON`**\n\nEvery service has a notice period; the mashgiach wants a week. Booking inside it is refused rather than accepted and quietly failed later.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"{{serviceId}}\",\n  \"date\": \"{{today}}\",\n  \"days\": 1,\n  \"quantity\": 1,\n  \"pax\": 1,\n  \"lead\": {\n    \"firstName\": \"Nino\",\n    \"lastName\": \"Beridze\",\n    \"email\": \"{{guestEmail}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Reason is TOO_SOON', () =>",
+                  "    pm.expect(pm.response.json().error.details.reason).to.equal('TOO_SOON'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: the register",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/services",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "services"
+              ]
+            },
+            "description": "**Expected: 200** as an admin, **403** as a partner.\n\nStaff see `netCents`, the status and the supplier."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('Staff see the supplier net', () =>",
+                  "    pm.expect(body.data.every(s => typeof s.netCents === 'number')).to.equal(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04d · Packages",
+      "description": "A package is an admin-defined template of typed slots — a hotel stay, a transfer, a tour, a service — with no price of its own. Seed three with `node scripts/seed-packages.js`, last in the chain.\n\nThe `priceFrom` on a card is a sample and can never be booked. Only a quote's `token` becomes an order.",
+      "item": [
+        {
+          "name": "Browse",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/packages?locale={{locale}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "packages"
+              ],
+              "query": [
+                {
+                  "key": "locale",
+                  "value": "{{locale}}"
+                }
+              ]
+            },
+            "description": "**Expected: 200**\n\nAn anonymous caller sees only B2C packages; a signed-in partner sees the whole ACTIVE catalogue at its own rates."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('Returns a page', () => pm.expect(body.data).to.be.an('array'));",
+                  "pm.test('No order-level net for a buyer', () =>",
+                  "    pm.expect(JSON.stringify(body)).to.not.include('componentsNetCents'));",
+                  "if (body.data.length) pm.collectionVariables.set('packageSlug', body.data[0].slug);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "One package",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/packages/{{packageSlug}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "packages",
+                "{{packageSlug}}"
+              ]
+            },
+            "description": "**Expected: 200**\n\nThe template: every slot, what may fill it, and the kosher profile if it has one. No prices — a slot has none until it is quoted for a date."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json();",
+                  "pm.test('Has components', () => pm.expect(p.components).to.be.an('array').that.is.not.empty);",
+                  "pm.test('Every slot has a type', () => p.components.forEach(c =>",
+                  "    pm.expect(['HOTEL_STAY','TRANSFER','TOUR','SERVICE']).to.include(c.componentType)));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Quote it",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/packages/{{packageSlug}}/quote?startDate={{packageStartDate}}&adults=2",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "packages",
+                "{{packageSlug}}",
+                "quote"
+              ],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "{{packageStartDate}}"
+                },
+                {
+                  "key": "adults",
+                  "value": "2"
+                }
+              ]
+            },
+            "description": "**Expected: 200**, whether or not it can be sold.\n\nThe most important assertion in the collection: the per-slot line totals must sum **exactly** to the order total. The package adjustment is allocated across the lines by largest remainder, and a penny out is a bug."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const q = pm.response.json();",
+                  "pm.test('Says whether it can be sold', () => pm.expect(q.available).to.be.a('boolean'));",
+                  "const included = q.components.filter(c => c.included && c.resolved);",
+                  "pm.test('Lines sum exactly to the total', () => {",
+                  "    const sum = included.reduce((t, c) => t + c.lineTotalCents, 0);",
+                  "    pm.expect(sum).to.equal(q.totals.totalCents);",
+                  "});",
+                  "pm.test('Adjustment is allocated, not left over', () => {",
+                  "    const allocated = included.reduce((t, c) => t + c.adjustmentCents, 0);",
+                  "    if (q.available) pm.expect(allocated).to.equal(q.totals.adjustmentCents);",
+                  "});",
+                  "if (q.token) pm.collectionVariables.set('packageToken', q.token);",
+                  "if (q.available) pm.collectionVariables.set('packageQuotedTotalCents', q.totals.totalCents);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Quote a kosher package across Shabbat",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/packages/tbilisi-shabbat/quote?startDate={{shabbatStartDate}}&adults=2",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "packages",
+                "tbilisi-shabbat",
+                "quote"
+              ],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "{{shabbatStartDate}}"
+                },
+                {
+                  "key": "adults",
+                  "value": "2"
+                }
+              ]
+            },
+            "description": "**Expected: 200 with `available: false`** when the start date pushes a tour onto Saturday.\n\nSet `{{shabbatStartDate}}` to a **Friday**. The blocker is `TOUR_ON_REST_DAY`, and the window is computed from the hotel's own coordinates by sunset — so it moves through the year."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const q = pm.response.json();",
+                  "pm.test('Refused on kosher grounds', () => {",
+                  "    pm.expect(q.available).to.equal(false);",
+                  "    pm.expect(q.unavailableReason).to.equal('KOSHER_INELIGIBLE');",
+                  "});",
+                  "pm.test('Names the rule and the date', () =>",
+                  "    pm.expect(q.kosher.blockers.map(b => b.code)).to.include('TOUR_ON_REST_DAY'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "A party the package will not take",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/packages/{{packageSlug}}/quote?startDate={{packageStartDate}}&adults=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "packages",
+                "{{packageSlug}}",
+                "quote"
+              ],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "{{packageStartDate}}"
+                },
+                {
+                  "key": "adults",
+                  "value": "60"
+                }
+              ]
+            },
+            "description": "**Expected: 422**\n\nEvery package declares its own party limits. A request outside them is refused before any engine is consulted."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sign in as staff",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "**Expected: 200**\n\nThe preview runs the engine as staff, with the supplier net beside the sell — which no buyer may see.\n\nThe cookie jar carries the session through the rest of the folder, so this folder runs on its own rather than only after the Auth folder.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Signed in', () => pm.response.to.have.status(200));",
+                  "pm.test('Is staff', () => pm.expect(['ADMIN','SUPER_ADMIN'])",
+                  "    .to.include(pm.response.json().user.role));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: preview a quote on a draft",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/packages/{{packageSlug}}/preview-quote?startDate={{packageStartDate}}&adults=2",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "packages",
+                "{{packageSlug}}",
+                "preview-quote"
+              ],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "{{packageStartDate}}"
+                },
+                {
+                  "key": "adults",
+                  "value": "2"
+                }
+              ]
+            },
+            "description": "**Expected: 200**\n\nThe real engine, run as staff, on a package that is not on sale. Net sits beside sell, so an adjustment that would put the package below cost is visible before publishing rather than after."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const q = pm.response.json();",
+                  "pm.test('Staff see the net and the margin', () => {",
+                  "    pm.expect(q.totals.componentsNetCents).to.be.a('number');",
+                  "    pm.expect(q.totals.marginCents).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04e · Orders",
+      "description": "An order is a package booked as one thing. One transaction writes a hotel booking, a transfer booking, a tour booking and a service booking, and one item per slot points at exactly one of them.\n\nRun **04d** first: this folder needs a `{{packageToken}}` from a live quote, and a token expires in thirty minutes.\n\n**It takes real inventory.** The hold step reserves rooms and seats for fifteen minutes whether or not the confirm that follows uses them, so running the folder several times in a row can exhaust a small departure and turn a later slot `SOLD_OUT`. Either leave a quarter of an hour between runs, or cancel the order at the end — the last request does exactly that.",
+      "item": [
+        {
+          "name": "Sign out first",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "**Expected: 204**\n\nEverything down to the admin queue is the buyer's own path, where proof of ownership is the `?email=` query rather than a session. An admin session left in the jar would change the answers: staff see the net, and staff may cancel a required part.\n\nAlways 204, whether or not there was a session to end."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hold the rooms and seats",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/holds",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "holds"
+              ]
+            },
+            "description": "**Expected: 201**\n\nOnly hotel and tour slots hold anything — transfers and services have no inventory to reserve — so `holdTokens` is keyed by slot index and is usually shorter than the package.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packageToken\": \"{{packageToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "const h = pm.response.json();",
+                  "pm.test('Holds are keyed by slot', () => pm.expect(h.holdTokens).to.be.an('object'));",
+                  "pm.test('Has an expiry', () => pm.expect(h.expiresAt).to.be.a('string'));",
+                  "pm.collectionVariables.set('orderHoldTokens', JSON.stringify(h.holdTokens));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm the trip",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{orderIdempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ]
+            },
+            "description": "**Expected: 201**\n\nFour bookings in one transaction. Note there is no amount in the body — the server re-prices every slot from the signed offer.\n\nA `PENDING_CONFIRMATION` status is correct, not a failure: it means a slot is on request and an operator has 48 hours.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packageToken\": \"{{packageToken}}\",\n  \"leadGuest\": {\n    \"firstName\": \"Nino\",\n    \"lastName\": \"Beridze\",\n    \"email\": \"{{guestEmail}}\",\n    \"phone\": \"+995555000111\"\n  },\n  \"travellers\": [\n    {\n      \"firstName\": \"Giorgi\",\n      \"lastName\": \"Beridze\"\n    }\n  ],\n  \"specialRequests\": \"Late arrival, around 22:00.\",\n  \"source\": \"web\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A fresh key per run. A fixed one would make every run after the",
+                  "// first a replay of an order that has since been cancelled.",
+                  "pm.collectionVariables.set('orderIdempotencyKey', 'ord-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Created', () => pm.response.to.have.status(201));",
+                  "const o = pm.response.json();",
+                  "pm.test('Reference is ORD-', () => pm.expect(o.reference).to.match(/^ORD-\\d{6}$/));",
+                  "pm.test('One item per included slot', () => pm.expect(o.items).to.be.an('array').that.is.not.empty);",
+                  "pm.test('Every item has its own child reference', () => o.items.forEach(i =>",
+                  "    pm.expect(i.booking, i.label).to.have.property('reference')));",
+                  "pm.test('Item totals sum to the order total', () =>",
+                  "    pm.expect(o.items.reduce((t, i) => t + i.lineTotalCents, 0)).to.equal(o.totalCents));",
+                  "pm.test('Total matches the quote', () => {",
+                  "    const quoted = Number(pm.collectionVariables.get('packageQuotedTotalCents'));",
+                  "    if (quoted) pm.expect(o.totalCents).to.equal(quoted);",
+                  "});",
+                  "pm.collectionVariables.set('orderReference', o.reference);",
+                  "const optional = o.items.find(i => !i.required);",
+                  "if (optional) pm.collectionVariables.set('orderOptionalSlot', String(optional.slotIndex));",
+                  "const required = o.items.find(i => i.required);",
+                  "if (required) pm.collectionVariables.set('orderRequiredSlot', String(required.slotIndex));",
+                  "const child = o.items.find(i => i.componentType === 'HOTEL_STAY');",
+                  "if (child) pm.collectionVariables.set('orderChildReference', child.booking.reference);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Replay the same key",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{orderIdempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ]
+            },
+            "description": "**Expected: 200 with the same reference.**\n\nThis is what makes a double-clicked confirm button return the first order rather than take a second set of rooms. Deliberately has **no** pre-request script: it reuses the key the confirm above minted.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packageToken\": \"{{packageToken}}\",\n  \"leadGuest\": {\n    \"firstName\": \"Nino\",\n    \"lastName\": \"Beridze\",\n    \"email\": \"{{guestEmail}}\",\n    \"phone\": \"+995555000111\"\n  },\n  \"travellers\": [\n    {\n      \"firstName\": \"Giorgi\",\n      \"lastName\": \"Beridze\"\n    }\n  ],\n  \"specialRequests\": \"Late arrival, around 22:00.\",\n  \"source\": \"web\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200, not 201', () => pm.response.to.have.status(200));",
+                  "pm.test('Same order', () => pm.expect(pm.response.json().reference)",
+                  "    .to.equal(pm.collectionVariables.get('orderReference')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "A tampered token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "tampered-{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ]
+            },
+            "description": "**Expected: 400 or 410**\n\nThe composite offer is signed, and the signature covers every slot and every price in it. Editing a character and re-sending must be refused rather than honoured — which is the whole reason a price never travels in a request body.\n\nThe pre-request script does the tampering, so this needs no manual setup.\n\nFor the *price moved* case instead: reprice a rate plan in the admin panel and re-send the untampered token, and expect `409 PRICE_CHANGED` naming every slot that moved rather than only the first.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packageToken\": \"{{tamperedPackageToken}}\",\n  \"leadGuest\": {\n    \"firstName\": \"Nino\",\n    \"lastName\": \"Beridze\",\n    \"email\": \"{{guestEmail}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Flip a character in the payload half of the token, so the",
+                  "// signature now covers something the body no longer says.",
+                  "const token = pm.collectionVariables.get('packageToken') || '';",
+                  "const middle = Math.floor(token.length / 3);",
+                  "const flipped = token.slice(0, middle) +",
+                  "    (token[middle] === 'A' ? 'B' : 'A') + token.slice(middle + 1);",
+                  "pm.collectionVariables.set('tamperedPackageToken', flipped);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Refused', () => pm.expect([400,410]).to.include(pm.response.code));",
+                  "pm.test('Nothing was booked', () =>",
+                  "    pm.expect(pm.response.text()).to.not.include('ORD-'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read it back as the guest",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/{{orderReference}}?email={{guestEmail}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "{{orderReference}}"
+              ],
+              "query": [
+                {
+                  "key": "email",
+                  "value": "{{guestEmail}}"
+                }
+              ]
+            },
+            "description": "**Expected: 200** with the right email, **403** with any other.\n\nThe reference comes from a sequence and is trivially enumerable, so it is not a credential on its own."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const o = pm.response.json();",
+                  "pm.test('No order-level net for a guest', () => {",
+                  "    pm.expect(o).to.not.have.property('componentsNetCents');",
+                  "    pm.expect(o).to.not.have.property('marginCents');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "A child cannot be cancelled on its own",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings/{{orderChildReference}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "bookings",
+                "{{orderChildReference}}",
+                "cancel"
+              ]
+            },
+            "description": "**Expected: 409 `PART_OF_ORDER`**\n\nThe hotel booking inside an order is readable on its own register but not cancellable there: the order is the only thing that can roll the status up and reallocate the discount. The refusal carries the order reference so the caller knows where to go.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{guestEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 409', () => pm.response.to.have.status(409));",
+                  "const d = pm.response.json().error.details;",
+                  "pm.test('Reason is PART_OF_ORDER', () => pm.expect(d.reason).to.equal('PART_OF_ORDER'));",
+                  "pm.test('Points at the order', () => pm.expect(d.orderReference)",
+                  "    .to.equal(pm.collectionVariables.get('orderReference')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "What cancelling would cost",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/{{orderReference}}/cancellation-quote?email={{guestEmail}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "{{orderReference}}",
+                "cancellation-quote"
+              ],
+              "query": [
+                {
+                  "key": "email",
+                  "value": "{{guestEmail}}"
+                }
+              ]
+            },
+            "description": "**Expected: 200**\n\nRead off figures frozen at confirmation, so the number here is the number that will be charged. `clawbackCents` is the share of the package discount a line forfeits by leaving — the reason a part refunds less than its ticket price."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const q = pm.response.json();",
+                  "pm.test('Per item and in total', () => {",
+                  "    pm.expect(q.items).to.be.an('array');",
+                  "    pm.expect(q.chargeCents).to.be.a('number');",
+                  "    pm.expect(q.refundCents).to.be.a('number');",
+                  "});",
+                  "pm.test('Item charges sum to the total', () =>",
+                  "    pm.expect(q.items.reduce((t, i) => t + i.chargeCents, 0)).to.equal(q.chargeCents));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "A required part, as the buyer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/{{orderReference}}/items/{{orderRequiredSlot}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "{{orderReference}}",
+                "items",
+                "{{orderRequiredSlot}}",
+                "cancel"
+              ]
+            },
+            "description": "**Expected: 409 `REQUIRED_COMPONENT`**\n\nA package without its hotel is not a package, and keeping the discounted transfer is exactly the arbitrage the allocation exists to prevent. Staff may override this; a buyer may not.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{guestEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Reason is REQUIRED_COMPONENT', () =>",
+                  "    pm.expect(pm.response.json().error.details.reason).to.equal('REQUIRED_COMPONENT'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Drop an optional part",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/{{orderReference}}/items/{{orderOptionalSlot}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "{{orderReference}}",
+                "items",
+                "{{orderOptionalSlot}}",
+                "cancel"
+              ]
+            },
+            "description": "**Expected: 200**, order status `PARTIALLY_CANCELLED`.\n\nThe rest stands. The dropped line forfeits its share of the discount, which is why its refund is less than its ticket price.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"No longer needed\",\n  \"email\": \"{{guestEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const o = pm.response.json();",
+                  "pm.test('Order is partly cancelled', () =>",
+                  "    pm.expect(['PARTIALLY_CANCELLED','CANCELLED']).to.include(o.status));",
+                  "pm.test('The child went with it', () => {",
+                  "    const slot = Number(pm.collectionVariables.get('orderOptionalSlot'));",
+                  "    const item = o.items.find(i => i.slotIndex === slot);",
+                  "    pm.expect(item.status).to.equal('CANCELLED');",
+                  "    pm.expect(item.booking.status).to.equal('CANCELLED');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sign in as staff",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "**Expected: 200**\n\nThe queue and the answer to a request are operations work.\n\nThe cookie jar carries the session through the rest of the folder, so this folder runs on its own rather than only after the Auth folder.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Signed in', () => pm.response.to.have.status(200));",
+                  "pm.test('Is staff', () => pm.expect(['ADMIN','SUPER_ADMIN'])",
+                  "    .to.include(pm.response.json().user.role));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: the on-request queue",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/orders?status=PENDING_CONFIRMATION",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "PENDING_CONFIRMATION"
+                }
+              ]
+            },
+            "description": "**Expected: 200**\n\nOrders holding a part nobody has answered. Their rooms and seats are already claimed, so a queue left standing is capacity nobody else can sell — which is what the sidebar badge counts."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('Rows say how many parts are waiting', () =>",
+                  "    body.data.forEach(o => pm.expect(o.pendingCount).to.be.a('number')));",
+                  "pm.test('Staff see the margin', () =>",
+                  "    body.data.forEach(o => pm.expect(o).to.have.property('marginCents')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: answer a request",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/orders/{{orderReference}}/items/{{orderPendingSlot}}/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "orders",
+                "{{orderReference}}",
+                "items",
+                "{{orderPendingSlot}}",
+                "confirm"
+              ]
+            },
+            "description": "**Expected: 200**\n\nThe item confirms; the order only becomes `CONFIRMED` once every request is answered, and exactly one voucher goes out on that transition. Confirming a part that is not on request is a `409`.\n\nDeclining instead (`/decline` with a `reason`) has two outcomes: an **optional** part is dropped and the total shrinks, a **required** part cancels the whole order at no charge — the failure is the supplier's, not the buyer's."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Answered', () => pm.expect([200,409]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) {",
+                  "    const o = pm.response.json();",
+                  "    pm.test('Order is confirmed or still waiting', () =>",
+                  "        pm.expect(['CONFIRMED','PENDING_CONFIRMATION']).to.include(o.status));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel the whole trip",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/{{orderReference}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "{{orderReference}}",
+                "cancel"
+              ]
+            },
+            "description": "**Expected: 200**, then **409** on a second attempt.\n\nEvery live part is released in one transaction and the charge is the sum of what each part's own frozen terms say. Afterwards `reconcileInventory` and `reconcileTourInventory` must both report zero drift.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Trip called off\",\n  \"email\": \"{{guestEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const o = pm.response.json();",
+                  "pm.test('Everything is cancelled', () => {",
+                  "    pm.expect(o.status).to.equal('CANCELLED');",
+                  "    o.items.forEach(i => pm.expect(['CANCELLED','DECLINED'], i.label).to.include(i.status));",
+                  "});",
+                  "pm.test('Reports what it cost', () => pm.expect(o.cancellation.chargeCents).to.be.a('number'));"
                 ]
               }
             }

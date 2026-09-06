@@ -183,7 +183,23 @@ node scripts/seed-fleet.js                   # demo drivers and cars, and dispat
 
 # Kosher: profiles and certificates over the hotels above.
 node scripts/seed-kosher.js
+
+# Tours: ten editorial journeys, each with a shared and a private option,
+# a year of price sheets and departures.
+node scripts/seed-tours.js
+
+# Services and packages, in that order — a package slot can only point at a
+# service that already exists.
+node scripts/seed-services.js
+node scripts/seed-packages.js
 ```
+
+The package seed is the one that proves the rest: it builds three trips out of
+the hotels, tours, transfers and services above, and prices each one. If it
+reports "not quotable on any sample date", something earlier in the chain did
+not seed. The three are deliberately different shapes — one with every slot
+pinned, one kosher, and one whose hotel slot is left open for the buyer to
+choose from.
 
 `seed-kosher.js` is written for **coverage rather than volume** — eight
 properties, arranged so that every state the feature can be in is on a screen at

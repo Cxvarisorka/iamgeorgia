@@ -1027,6 +1027,162 @@ PUT  /api/admin/tours/:tourId/translations/ka           { title: "..." }
 
 Expect: a cancellation policy with per-night rules (the Flexible template) is refused for a tour option with `400`; the Tiered template works. Reducing `totalUnits` below what is already booked answers `409 OVERSELL` naming the dates. Publishing refreshes nothing — `priceFrom` is refreshed whenever a season is written.
 
+## Part 6c — Services
+
+A service is a priced thing with no inventory: kosher meals, a mashgiach, a guide, equipment hire. Seed six of them with `node --env-file=.env.test scripts/seed-services.js` (after `seed-reference.js` and `seed-catalogue.js`). They are sold inside packages, so there is no public checkout for one — the standalone booking endpoints exist for trade and staff.
+
+### 6c.1 The catalogue
+
+```
+GET /api/services?locale=he
+GET /api/services?category=SHABBAT_MEALS&isKosher=true
+GET /api/services/mashgiach-on-site
+```
+
+Expect: `unitPrice` is the price of **one unit of the service's basis** for the calling viewer — a partner sees its own commission applied, an anonymous visitor the platform default, and `netCents` appears for nobody but staff and the service's own supplier. The filter is `isKosher`, not `kosher`; an unknown query key is stripped rather than refused, so a misspelt filter silently returns everything.
+
+`basis` is the field most worth checking, because it decides what a package slot multiplies:
+
+| basis | one unit is | `quantity` for a party of 4 over 3 days |
+| --- | --- | --- |
+| `PER_PERSON` | one traveller | 4 |
+| `PER_GROUP` | the booking | 1 |
+| `PER_DAY` | one day | 3 |
+| `PER_PERSON_PER_DAY` | one traveller-day | 12 |
+
+### 6c.2 Booking one directly
+
+```
+POST /api/service-bookings   { "serviceId": "...", "date": "2027-06-04", "days": 1, "quantity": 2, "pax": 2,
+                               "lead": { "name": "...", "email": "..." } }
+                              Idempotency-Key: any-string        → 201 SVC-000001
+GET  /api/service-bookings/SVC-000001
+GET  /api/service-bookings/SVC-000001/cancellation-quote
+POST /api/service-bookings/SVC-000001/cancel
+```
+
+Things to try: book `mashgiach-on-site` for tomorrow → `409 TOO_SOON` (it wants a week); book with `quantity: 0` → `422 QUANTITY`; book a date two years out → `422 BEYOND_HORIZON`. A service whose `confirmationMode` is `ON_REQUEST` — the Shabbat meals, the mashgiach, the guide — is written `PENDING` with a `requestDeadlineAt`, and staff answer it from `/api/admin/services/bookings`.
+
+### 6c.3 Admin
+
+```
+GET  /api/admin/services?status=DRAFT
+POST /api/admin/services            { slug, name, category, basis, netCents, currency, cancellationPolicyId, ... }
+POST /api/admin/services/:id/publish                  → 422 with details.missing until the checklist is clear
+PUT  /api/admin/services/:id/translations/ka          { name, summary }
+DELETE /api/admin/services/:id                        → 409 HAS_BOOKINGS or IN_PACKAGE
+POST /api/admin/services/bookings/SVC-000001/confirm | /decline { reason } | /cancel
+```
+
+`DELETE` answers two different refusals and they need different fixes: `IN_PACKAGE` means a template still names the service and that slot must go first; `HAS_BOOKINGS` means the record has to survive for the voucher, so archive instead.
+
+## Part 6d — Packages
+
+A package is an **admin-defined template of typed slots** — a hotel stay, a transfer, a tour, a service — each constrained to what the admin allows. It has no price of its own. Seed three with `node --env-file=.env.test scripts/seed-packages.js`, last in the chain after reference, catalogue, transfers, tours and services.
+
+The three are deliberately different shapes: `kakheti-wine-weekend` pins every slot; `tbilisi-shabbat` carries a kosher profile; `tbilisi-your-choice` leaves its hotel slot open so the resolver searches the destination.
+
+### 6d.1 Browse and quote
+
+```
+GET /api/packages?kosher=true&locale=ru
+GET /api/packages/kakheti-wine-weekend
+GET /api/packages/kakheti-wine-weekend/quote?startDate=2027-06-03&adults=2
+GET /api/packages/tbilisi-your-choice/quote?startDate=2027-06-03&adults=2&choices={"0":{"hotelId":"..."}}
+```
+
+`priceFrom` on a card is a **sample**, refreshed daily from a few dates ahead, and can never be booked. Only a quote's `token` becomes an order.
+
+A quote answers `200` even when it cannot be sold, which is the point — a date picker needs a reason, not an exception:
+
+```jsonc
+{ "available": false,
+  "unavailableReason": "COMPONENT_UNAVAILABLE",   // or ADJUSTMENT_BELOW_COST, KOSHER_INELIGIBLE
+  "components": [{ "slotIndex": 2, "included": true, "resolved": null, "reason": "SOLD_OUT", … }] }
+```
+
+Things to try: quote a party larger than the package's `maxPax` → `422`; quote a start date outside `validFrom`/`validUntil` → `422 NOT_ON_SALE`; pass `exclude=4` to drop an optional slot and watch `adjustmentCents` change, because the discount is reallocated across the lines that remain. Every line's `lineTotalCents` must sum exactly to `totals.totalCents` — that is the largest-remainder allocation, and a penny out is a bug.
+
+**The figure to check.** A slot's `sellCents` is what the buyer pays for that line, taxes included. It must equal what the order's confirmation compares against; a package containing a hotel with a tax row is the case that catches a mismatch, and it once did.
+
+### 6d.2 Kosher packages
+
+`tbilisi-shabbat` has a profile, and the profile is the switch: a package without one is judged by no kosher rule at all.
+
+```
+GET /api/packages/tbilisi-shabbat/quote?startDate=<a Thursday>&adults=2   → available, no blockers
+GET /api/packages/tbilisi-shabbat/quote?startDate=<a Friday>&adults=2     → 200, available: false
+```
+
+The Friday start pushes the optional city tour onto Saturday, and the profile forbids it: `unavailableReason: KOSHER_INELIGIBLE` with a blocker `TOUR_ON_REST_DAY` naming the date. Shabbat is computed from the hotel's own coordinates by sunset, so the window moves through the year — that is the point of `SOLAR` over fixed hours.
+
+Also worth trying: a transfer timed inside the window → `TRANSFER_IN_SHABBAT`; a hotel whose certificate lapses mid-stay → a blocker while `requireCertValidThroughStay` is on and a warning when it is off. Warnings never block and are frozen onto the order, so nobody can later say they were not told.
+
+### 6d.3 Admin
+
+```
+GET  /api/admin/packages?status=DRAFT
+POST /api/admin/packages          { slug, name, destinationId, nights, components: [ … ] }
+GET  /api/admin/packages/:id/preview-quote?startDate=…&adults=2     ← the real engine, on a DRAFT, with net beside sell
+PUT  /api/admin/packages/:id/kosher      { minServiceLevel, shabbatMode, … }
+PUT  /api/admin/packages/:id/kosher/override   { until, reason }
+POST /api/admin/packages/:id/publish
+```
+
+Components are written **whole**: sending `components` replaces the set and re-validates it, because a slot is only correct relative to its neighbours. A bad one answers `422 { problems: [{ slotIndex, code, message }] }` — `OUTSIDE_PACKAGE` for a day beyond the package length, `ENDPOINTS` for a transfer missing an end, `CURRENCY` for a product priced in another. The preview quote is the screen that matters: it runs the live engine on a draft, so a template that cannot sell is found before a partner finds it.
+
+## Part 6e — Orders
+
+An order is a package booked as one thing. One transaction writes a hotel booking, a transfer booking, a tour booking and a service booking, and one item per slot points at **exactly one** of them, enforced by a database CHECK. Either every part is written or none is.
+
+### 6e.1 Hold, confirm, replay
+
+```
+POST /api/orders/holds     { "packageToken": "<from the quote>" }   → 201 { holdTokens: { "0": "...", "2": "..." }, expiresAt }
+POST /api/orders           { "packageToken": "...", "holdTokens": { … }, "leadGuest": { … }, "travellers": [ … ] }
+                            Idempotency-Key: any-string              → 201 ORD-000001
+POST /api/orders  (same body + same key)                             → 200, same reference
+```
+
+Only hotel and tour slots hold anything — transfers and services have no inventory to reserve — so `holdTokens` is keyed by slot index and is usually shorter than the package. Confirming without holds is allowed: the orchestrator claims inside its own transaction.
+
+The refusals are the interesting part, and each names every slot involved rather than the first:
+
+```jsonc
+409 { "reason": "PRICE_CHANGED", "quotedCents": …, "currentCents": …,
+      "components": [{ "slotIndex": 0, "label": "…", "quotedCents": …, "currentCents": … }] }
+409 { "reason": "UNAVAILABLE", "slots": [{ "slotIndex": 2, "label": "…", "reason": "SOLD_OUT" }] }
+409 { "reason": "KOSHER_INELIGIBLE" | "PACKAGE_CHANGED" | "NOT_ON_SALE" }
+```
+
+**Atomicity is the thing to attack.** Set a tour's departure to zero seats between the quote and the confirm, then confirm: expect `409`, and expect `orders`, `order_items`, `hotel_bookings`, `booking_holds` and `outbox_events` to be exactly as they were, with the room counters untouched. Twenty concurrent confirmations with one idempotency key must produce one order.
+
+### 6e.2 Reading and cancelling
+
+```
+GET  /api/orders/ORD-000001?email=<lead email>
+GET  /api/orders/ORD-000001/cancellation-quote?email=…
+POST /api/orders/ORD-000001/items/4/cancel   { "reason": "…" }      ← one optional part
+POST /api/orders/ORD-000001/cancel           { "reason": "…" }      ← the whole trip
+GET  /api/partner/orders?status=CONFIRMED
+```
+
+Each item carries its **child booking's own reference**: a traveller at the hotel desk quotes `BKG-…`, not `ORD-…`. Those children are readable on their own registers but **cannot be cancelled there** — try `POST /api/bookings/BKG-…/cancel` on one and expect `409 PART_OF_ORDER` carrying the order reference. The order is the only door, because it is the only thing that can roll the status up.
+
+Cancelling one part refunds `max(0, sellCents − childCharge + adjustmentCents)`: the child's own frozen terms on its standalone price, less its share of the package discount, which is forfeited and reported as `clawbackCents`. A **required** part answers `409 REQUIRED_COMPONENT` for a partner and succeeds for staff — a package without its hotel is not a package, and keeping the discounted transfer is the arbitrage the allocation exists to prevent.
+
+### 6e.3 On request
+
+A package with an `ON_REQUEST` tour or service — `tbilisi-shabbat` has two — confirms as `PENDING_CONFIRMATION`: the child is `PENDING` with its seats already claimed, the item `REQUESTED`, and `requestDeadlineAt` is the earliest deadline across them (48 h).
+
+```
+GET  /api/admin/orders?status=PENDING_CONFIRMATION        ← the queue, earliest deadline first
+POST /api/admin/orders/ORD-000001/items/2/confirm         → the item confirms; the order waits for the rest
+POST /api/admin/orders/ORD-000001/items/2/decline  { "reason": "No caterer that night" }
+```
+
+Two decline outcomes, and they are genuinely different. Declining an **optional** part drops it, shrinks `totalCents`, and leaves the order `CONFIRMED` — a supplier saying no is not the buyer cancelling. Declining a **required** part cancels the whole order at **no charge**, because the failure is supplier-side. Confirming a part that is not on request is a `409`. The buyer may cancel a pending order at zero charge, and exactly one voucher goes out, on the transition into `CONFIRMED`.
+
 ## Part 7 — Partner portal
 
 All under `/api/partner`, all requiring a session.
@@ -1548,6 +1704,19 @@ K8. Book with `requests: [{"code": "mikvehOnSite"}]` → **422**, no hold taken
 27. `POST /api/transfers/bookings` → `201`, capture `TRF-...`
 28. Replay with the same key → `200`, same reference
 
+**Packages and orders (12 min)**
+P1. `GET /api/packages` → the three seeded packages, each with a `priceFrom`
+P2. `GET /api/packages/kakheti-wine-weekend/quote?startDate=…&adults=2` → `available: true`, and the lines sum to `totals.totalCents`
+P3. `GET /api/packages/tbilisi-shabbat/quote?startDate=<a Friday>` → `available: false`, blocker `TOUR_ON_REST_DAY`
+P4. `POST /api/orders/holds` with the token → `201`, holds only on the hotel and tour slots
+P5. `POST /api/orders` with an `Idempotency-Key` → `201 ORD-…`, one child reference per slot
+P6. **Repeat P5 unchanged → `200`, same reference**
+P7. `POST /api/bookings/<the hotel child>/cancel` → `409 PART_OF_ORDER`
+P8. `POST /api/admin/orders/ORD-…/items/<the on-request slot>/confirm` → the order becomes `CONFIRMED`
+P9. `GET /api/orders/ORD-…/cancellation-quote?email=…` → per item, with `clawbackCents` on the discounted lines
+P10. `POST /api/orders/ORD-…/items/<a required slot>/cancel` as a partner → `409 REQUIRED_COMPONENT`
+P11. `POST /api/orders/ORD-…/cancel` → every child `CANCELLED`, inventory released
+
 **Authorization (5 min)**
 29. `GET /api/admin/partners` anonymously → `401`
 30. Same as a partner → `403`
@@ -1602,10 +1771,36 @@ TransferExtraBasis    FIXED PER_PASSENGER PER_HOUR PERCENT
 TransferFeature       airConditioning wifi childSeat englishDriver meetGreet
                       flightTracking bottledWater freeWaiting
 
+ServiceCategory        KOSHER_MEAL_DELIVERY SHABBAT_MEALS MASHGIACH
+                       SYNAGOGUE_TRANSFER GUIDE EQUIPMENT OTHER
+ServiceBasis           PER_PERSON PER_GROUP PER_DAY PER_PERSON_PER_DAY
+ServiceStatus          DRAFT ACTIVE INACTIVE ARCHIVED
+ServiceBookingStatus   PENDING CONFIRMED CANCELLED COMPLETED NO_SHOW
+ConfirmationMode       INSTANT ON_REQUEST
+
+PackageStatus          DRAFT ACTIVE INACTIVE ARCHIVED
+PackageComponentType   HOTEL_STAY TRANSFER TOUR SERVICE
+PackageAdjustmentKind  NONE DISCOUNT_BPS FIXED_SELL PER_PERSON_FIXED
+PackageAdjustmentScope REQUIRED_ONLY ALL_ITEMS
+PackageQuantityRule    ONE PER_PERSON PER_ROOM
+ShabbatMode            SOLAR FIXED_HOURS NONE
+PackageUnavailable     COMPONENT_UNAVAILABLE ADJUSTMENT_BELOW_COST KOSHER_INELIGIBLE
+SlotReason             EXCLUDED UNAVAILABLE ROUTE_CLOSED SOLD_OUT PARTY_SIZE
+                       TOO_SOON BEYOND_HORIZON PAST UNPRICED QUANTITY
+                       NOT_FOUND INACTIVE CURRENCY
+
+OrderStatus            PENDING_CONFIRMATION CONFIRMED PARTIALLY_CANCELLED
+                       CANCELLED COMPLETED
+OrderItemStatus        REQUESTED CONFIRMED DECLINED CANCELLED COMPLETED NO_SHOW
+OrderItemFulfilment    INTERNAL ON_REQUEST EXTERNAL
+OrderKind              PACKAGE          (CUSTOM reserved, not yet sold)
+PricingProductType     HOTEL TRANSFER TOUR SERVICE PACKAGE
+
 UserRole              SUPER_ADMIN ADMIN PARTNER_OWNER PARTNER_ADMIN
                       PARTNER_AGENT PARTNER_FINANCE
 PartnerStatus         PENDING_APPROVAL APPROVED REJECTED SUSPENDED
-MediaCategory         HOTEL_IMAGE ROOM_IMAGE AMENITY_ICON        (public)
+MediaCategory         HOTEL_IMAGE ROOM_IMAGE TOUR_IMAGE
+                      PACKAGE_IMAGE AMENITY_ICON                (public)
                       CONTRACT RATE_SHEET INVOICE VOUCHER IMPORT
                       KOSHER_CERTIFICATE OTHER                   (private)
 Locale                en ka ru he

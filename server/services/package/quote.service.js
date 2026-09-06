@@ -480,17 +480,25 @@ export const quotePackage = async (criteria, viewer, { anyStatus = false, mode =
     const party = { adults, children: childAges.length, childAges, pax: adults + childAges.length };
     const excludedSet = new Set(excluded.map(Number));
 
-    const slots = [];
+    // Slots are independent reads into four different engines, so they resolve
+    // concurrently rather than one after another — a five-slot package was
+    // five searches deep in series. Bounded by `slotConcurrency` because each
+    // in-flight slot holds a pool connection; see the note in config.js.
+    //
+    // Results are written back by index, so the concurrency never reorders the
+    // trip: slot 3 is the third day whichever call finishes first.
+    const slots = new Array(pkg.components.length);
 
-    for (const component of pkg.components) {
+    const resolveOne = async (component, position) => {
         const included = component.required || !excludedSet.has(component.slotIndex);
-        const choice = choices[component.slotIndex] ?? choices[String(component.slotIndex)] ?? null;
 
         if (!included) {
-            slots.push({ component, included: false, resolved: null, reason: 'EXCLUDED', alternatives: [] });
-            continue;
+            slots[position] = { component, included: false, resolved: null, reason: 'EXCLUDED', alternatives: [] };
+
+            return;
         }
 
+        const choice = choices[component.slotIndex] ?? choices[String(component.slotIndex)] ?? null;
         const outcome = await RESOLVERS[component.componentType]({
             pkg,
             component,
@@ -504,7 +512,13 @@ export const quotePackage = async (criteria, viewer, { anyStatus = false, mode =
             now
         });
 
-        slots.push({ component, included: true, ...outcome });
+        slots[position] = { component, included: true, ...outcome };
+    };
+
+    for (let start = 0; start < pkg.components.length; start += config.package.slotConcurrency) {
+        const wave = pkg.components.slice(start, start + config.package.slotConcurrency);
+
+        await Promise.all(wave.map((component, offset) => resolveOne(component, start + offset)));
     }
 
     const missingRequired = slots.filter((slot) => slot.component.required && !slot.resolved);

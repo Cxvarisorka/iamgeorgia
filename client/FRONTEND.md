@@ -618,6 +618,96 @@ A tour is sold through **options** (a shared seat or a private group, per person
 - New routes need `npx next typegen` (or a build) before `PageProps<"/[locale]/…">` type-checks — the route union is generated.
 - `types/tour.ts` is now the live shape and `Tour` means the API record; the fixture `Tour` no longer exists anywhere.
 
+## 12. Packages and orders went live
+
+The fourth product, and the first that is not one thing. A **package** is an
+admin-defined template of typed slots — a hotel stay, a transfer, a tour, a
+service — with no price of its own; an **order** is what a package becomes when
+somebody books it, and it is four bookings written in one transaction.
+
+### Site
+
+- **`/packages`** browses undated, filtered in the browser (`PackageExplorer`),
+  because the whole catalogue is a page of records and a region chip should not
+  cost a round trip. A date does not change what the listing queries: pricing a
+  package means resolving four products through four engines, and doing that per
+  card would be a search page measured in seconds. The date is carried onto the
+  cards instead, so a buyer who picked one lands on a package already priced.
+- **`/packages/[slug]`** is the brochure until a start date arrives, then
+  `PackageBuilder`. Its slot rows re-quote by **rewriting the URL**, not by
+  patching a total: the package adjustment is allocated across every line, so one
+  changed room moves all of them, and only the server knows by how much. Choices
+  travel as one `choices` JSON parameter (`lib/packages/query.ts`) because a rate
+  plan for slot 0, a vehicle for slot 1 and an option for slot 2 spelled out
+  separately is a query string nobody can read.
+- **`/packages/checkout`** has nothing in the URL. A composite offer runs to
+  several thousand characters and its holds are a map rather than one string, so
+  the whole thing lives in the tab's own draft (`saveOrderCheckoutDraft`). A
+  refresh resumes it; a fresh tab says so plainly — the rooms are held against
+  the offer, not against the address bar.
+- **The refusals are the interesting screens.** A confirm can come back `409`
+  with a per-slot breakdown, and the form renders it that way: which part moved
+  and from what, or which part went. One round trip, the whole picture.
+- **`/booking/confirmation/[ref]`** and **`/booking/manage/[ref]`** branch on the
+  `ORD-` prefix, alongside `BKG-` and `TUR-`.
+- **`CompleteYourTrip`** is the cross-sell rail on the hotel and tour pages:
+  airport transfers, tours during the stay, packages containing the anchor, all
+  priced for the real dates by `/api/recommendations`. It renders only once dates
+  are chosen — undated it would be a rail of prices nobody could book — and a
+  failure renders nothing at all, because a hotel page must not 500 because the
+  transfer catalogue has no airport near the property.
+
+### Orders, read four ways
+
+`OrderDetail` is shared by the confirmation page, the guest's manage page and the
+portal, because all three show the same record and differ only in what they let
+you do to it. Each item shows **its child booking's own reference**: a traveller
+at a hotel desk quotes `BKG-…`, not `ORD-…`.
+
+Dropping an optional part states the **clawback** before you confirm it — the
+discount was given for booking the trip whole, so the share carried by that part
+is not refunded, and that belongs on the screen where the decision is made rather
+than in an email afterwards. A required part explains itself instead of offering
+a button the server would refuse with `REQUIRED_COMPONENT`.
+
+### Panel
+
+- **Operations → Orders**, badged with `pendingOrders`: orders holding a request
+  nobody has answered. Their rooms and seats are already claimed, so a queue left
+  standing is capacity nobody else can sell. The detail page confirms, declines
+  and cancels per item, and the copy distinguishes the two declines — an optional
+  part is dropped and the total shrinks, a required part cancels the whole order
+  at no charge, because the failure is the supplier's.
+- **Inventory → Packages**: register, create, and a hub with the publish
+  checklist, the kosher eligibility re-judged against live certificates on every
+  read, and six sub-screens. `PackageComponentsBuilder` writes the slot set
+  **whole** — the server replaces and re-validates it together, because a slot is
+  only correct relative to its neighbours — and renders a `422`'s per-slot
+  `problems` on the offending row. `PackagePreviewQuote` runs the real engine on a
+  draft with net beside sell, which is where a template that cannot sell should be
+  found.
+- **Inventory → Services** is one screen: a service has no inventory, no
+  departures and no gallery, so splitting four fieldsets across four routes would
+  be navigation for its own sake.
+
+### Dictionary
+
+`t.packages.*` and `t.orders.*` in all four languages, including the kosher
+vocabulary a Hebrew-reading traveller expects (הדלקת נרות, הבדלה, השגחה) rather
+than a literal rendering of the English. `nav.packages` joins the primary
+navigation, so the platform now sells four things from the header.
+
+### Gotchas
+
+- **A Server Component cannot pass a function to a Client Component.** The first
+  version of `OrderDetail` took an `itemAction` render prop and 500ed on the
+  manage page. It takes `cancel={{ quote, email }}` — serialisable data — and
+  renders the control itself.
+- New routes still need `npx next typegen` before `PageProps<"/[locale]/…">`
+  type-checks.
+- `MediaCategory` gained `PACKAGE_IMAGE`; a gallery upload silently 400s without
+  it.
+
 ---
 
 *Generated with [Claude Code](https://claude.com/claude-code)*

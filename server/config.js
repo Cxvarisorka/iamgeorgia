@@ -379,6 +379,15 @@ export const config = {
         offerTokenTtlMs: numberEnv('PACKAGE_OFFER_TOKEN_TTL_MS', 30 * 60 * 1000),
         // How many hotels a slot with no fixed property considers.
         maxCandidates: numberEnv('PACKAGE_MAX_CANDIDATES', 5),
+        // How many slots of one quote resolve at once.
+        //
+        // Bounded rather than "all of them" because each slot holds a
+        // connection while it runs, and the pool is ten: a five-slot package
+        // resolving wide would let two concurrent quotes exhaust it and stall
+        // every other request behind them. Three turns a five-slot quote into
+        // two waves instead of five serial calls, and still leaves room for
+        // three quotes in flight beside ordinary traffic.
+        slotConcurrency: numberEnv('PACKAGE_SLOT_CONCURRENCY', 3),
         // How often the cached "from" price on package cards is refreshed.
         priceFromSweepIntervalMs: numberEnv('PACKAGE_PRICE_FROM_SWEEP_INTERVAL_MS', 24 * 60 * 60 * 1000)
     },
