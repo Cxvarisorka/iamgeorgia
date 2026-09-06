@@ -6,13 +6,13 @@
  * path — components run it through `localePath` to add the locale segment.
  */
 
-import { CarFront } from "lucide-react";
+import { CarFront, Package } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { stripLocale } from "@/lib/i18n/config";
 import type { UiDictionary } from "@/lib/i18n/ui/en";
 
-export type NavKey = "tours" | "hotels" | "transfers";
+export type NavKey = "tours" | "hotels" | "transfers" | "packages";
 
 export interface NavItem {
   key: NavKey;
@@ -28,11 +28,13 @@ export interface NavItem {
 }
 
 export const primaryNavigation: NavItem[] = [
-  // The platform sells exactly three things: stays, journeys and transfers.
-  // Nothing else earns a place here — a buyer comes to book, not to browse a
-  // magazine. About and Contact stay reachable from the footer.
+  // The platform sells four things: stays, journeys, transfers, and the three
+  // of them arranged as one trip. Nothing else earns a place here — a buyer
+  // comes to book, not to browse a magazine. About and Contact stay reachable
+  // from the footer.
   { key: "hotels", href: "/hotels" },
   { key: "tours", href: "/tours" },
+  { key: "packages", href: "/packages", icon: Package },
   { key: "transfers", href: "/transfers", icon: CarFront },
 ];
 
@@ -57,6 +59,7 @@ export function footerNavigation(t: UiDictionary): FooterGroup[] {
       items: [
         { label: t.nav.hotels, href: "/hotels" },
         { label: t.nav.tours, href: "/tours" },
+        { label: t.nav.packages, href: "/packages" },
         { label: t.nav.transfers, href: "/transfers" },
       ],
     },

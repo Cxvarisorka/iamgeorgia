@@ -7,17 +7,23 @@ import { PrintButton } from "@/components/booking/PrintButton";
 import { Button } from "@/components/ui/Button";
 import { Container } from "@/components/ui/Container";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { OrderConfirmationView } from "@/components/packages/OrderConfirmationView";
 import { TourConfirmationView } from "@/components/tours/TourConfirmationView";
 import { getGuestBooking } from "@/lib/api/bookings";
 import { ApiError } from "@/lib/api/client";
+import { getGuestOrder } from "@/lib/api/orders";
 import { getGuestTourBooking } from "@/lib/api/tours";
 import { formatStayDate } from "@/lib/booking/stay";
 import { getI18n } from "@/lib/i18n/server";
 import type { Booking } from "@/types/booking";
+import type { Order } from "@/types/order";
 import type { TourBooking } from "@/types/tour";
 
 /** A TUR reference is a tour booking: a separate record with its own page. */
 const isTourReference = (reference: string) => reference.toUpperCase().startsWith("TUR-");
+
+/** An ORD reference is a package order: four bookings under one roof. */
+const isOrderReference = (reference: string) => reference.toUpperCase().startsWith("ORD-");
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -61,6 +67,17 @@ const loadTourBooking = async (reference: string, email: string | null): Promise
   }
 };
 
+const loadOrder = async (reference: string, email: string | null): Promise<Order | null> => {
+  if (!email) return null;
+
+  try {
+    return await getGuestOrder(reference, email);
+  } catch (error) {
+    if (error instanceof ApiError && [400, 403, 404].includes(error.status)) return null;
+    throw error;
+  }
+};
+
 export default async function BookingConfirmationPage(
   props: PageProps<"/[locale]/booking/confirmation/[reference]">,
 ) {
@@ -81,6 +98,12 @@ export default async function BookingConfirmationPage(
       />
     </Container>
   );
+
+  if (isOrderReference(reference)) {
+    const order = await loadOrder(reference, email);
+
+    return order ? <OrderConfirmationView order={order} /> : notFoundView;
+  }
 
   if (isTourReference(reference)) {
     const tourBooking = await loadTourBooking(reference, email);

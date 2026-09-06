@@ -6,11 +6,13 @@ import { ArrowLeft } from "lucide-react";
 import { BookingDetail } from "@/components/booking/BookingDetail";
 import { CancelBooking } from "@/components/booking/CancelBooking";
 import { PrintButton } from "@/components/booking/PrintButton";
+import { OrderManageView } from "@/components/packages/OrderManageView";
 import { PortalBookingEditor } from "@/components/partners/PortalBookingEditor";
 import { PortalTourBookingEditor } from "@/components/partners/PortalTourBookingEditor";
 import { PortalTransferBooking } from "@/components/partners/PortalTransferBooking";
 import { CancelTourBooking } from "@/components/tours/CancelTourBooking";
 import { TourBookingDetail } from "@/components/tours/TourBookingDetail";
+import { getPartnerOrder } from "@/lib/api/orders";
 import { getPartnerTourBooking, getTourCancellationQuote } from "@/lib/api/tours";
 import { getPartnerTransferBooking } from "@/lib/api/transfers";
 import { Container } from "@/components/ui/Container";
@@ -21,6 +23,7 @@ import { localePath } from "@/lib/i18n/config";
 import { getI18n, getLocale } from "@/lib/i18n/server";
 import { ADMIN_ROLES } from "@/types/auth";
 import type { Booking, CancellationQuote } from "@/types/booking";
+import type { Order } from "@/types/order";
 import type { TourBooking, TourCancellationQuote } from "@/types/tour";
 import type { TransferBooking } from "@/types/transfer";
 
@@ -156,6 +159,26 @@ export default async function PortalBookingPage(
         </div>
       </Container>
     );
+  }
+
+  // An ORD reference is the whole trip: the hotel, the transfer, the tour and
+  // the service booked as one. The children have their own references and
+  // their own pages, but they are only cancellable through the order, so this
+  // renders the same view the buyer gets rather than a portal-only variant.
+  if (reference.toUpperCase().startsWith("ORD-")) {
+    let order: Order;
+
+    try {
+      order = await getPartnerOrder(reference);
+    } catch (error) {
+      if (error instanceof ApiError && [400, 403, 404].includes(error.status)) notFound();
+      throw error;
+    }
+
+    // No email: the session proves whose trip this is, and the server stops
+    // looking at the address for a partner. The base path carries the tab so
+    // the trail returns to the register the partner came from.
+    return <OrderManageView order={order} basePath="/portal/bookings?product=orders" />;
   }
 
   let booking: Booking;

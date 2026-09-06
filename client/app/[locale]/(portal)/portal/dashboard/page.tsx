@@ -7,6 +7,7 @@ import { BookingStatusBadge } from "@/components/admin/StatusBadge";
 import { Container } from "@/components/ui/Container";
 import { ApiError, serverFetch } from "@/lib/api/client";
 import { listPartnerBookings } from "@/lib/api/bookings";
+import { listPartnerOrders } from "@/lib/api/orders";
 import { formatStay } from "@/lib/admin/bookings";
 import { formatCommission, formatPartnerDate } from "@/lib/admin/partners";
 import { localePath } from "@/lib/i18n/config";
@@ -66,6 +67,25 @@ export default async function PortalDashboardPage() {
     console.error("Portal recent bookings failed:", error);
   }
 
+  /**
+   * Orders, counted off their own register: the dashboard endpoint predates
+   * them and knows only about stays. Two queries for two totals is cheaper
+   * than a second shape on the server, and a failure shows a dash rather than
+   * taking the page down — the same treatment the list below gets.
+   */
+  let orders: { total: number; awaiting: number } | null = null;
+
+  try {
+    const [all, awaiting] = await Promise.all([
+      listPartnerOrders({ pageSize: 1 }),
+      listPartnerOrders({ status: "PENDING_CONFIRMATION", pageSize: 1 }),
+    ]);
+
+    orders = { total: all.total, awaiting: awaiting.total };
+  } catch (error) {
+    console.error("Portal order counts failed:", error);
+  }
+
   return (
     <Container className="py-12 sm:py-16">
       <p className="font-mono text-[0.8125rem] tracking-wide text-brand-text">{partner.reference}</p>
@@ -76,10 +96,18 @@ export default async function PortalDashboardPage() {
         Your account is approved and active.
       </p>
 
-      <dl className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Six tiles across three columns rather than four: the two order figures
+          are always rendered, dashed when the count could not be read, so the
+          row does not reflow depending on whether a request succeeded. */}
+      <dl className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {[
           { label: "Bookings", value: String(stats.bookings) },
           { label: "Arriving from today", value: String(stats.upcoming) },
+          { label: "Orders", value: orders ? String(orders.total) : "—" },
+          {
+            label: "Orders awaiting confirmation",
+            value: orders ? String(orders.awaiting) : "—",
+          },
           { label: "Live listings", value: String(stats.listings) },
           { label: "Commission", value: formatCommission(partner.commissionRateBps) },
         ].map((item) => (

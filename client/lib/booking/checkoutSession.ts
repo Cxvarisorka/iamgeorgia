@@ -1,7 +1,9 @@
 "use client";
 
 import type { Hold, Offer, StayQuery } from "@/types/booking";
+import type { PackageQuote } from "@/types/package";
 import type { TourHold, TourOfferAvailable, TourOption } from "@/types/tour";
+import type { PackageSearch } from "@/lib/packages/query";
 import type { TourStay } from "@/lib/tours/query";
 
 /**
@@ -68,6 +70,32 @@ export interface TourCheckoutDraft {
   /** "3 days · 2 nights" as the tour states it, for the summary. */
   durationLabel: string;
   stay: TourStay;
+  idempotencyKey: string;
+}
+
+/**
+ * The order twin: one composite offer covering up to four products.
+ *
+ * The whole quote is kept rather than a summary of it, because the checkout
+ * page has to show every slot's own line — the hotel's board, the vehicle,
+ * the departure time, the discount allocated to each — and re-quoting on
+ * arrival would risk a different price than the one the buyer clicked.
+ *
+ * `holdTokens` is keyed by slot index and covers only the slots that hold
+ * inventory. It is empty when the buyer went straight to checkout, which is
+ * allowed: the orchestrator claims inside its own transaction.
+ */
+export interface OrderCheckoutDraft {
+  /** The composite offer. Also in the URL as `?order=`, truncated to an id. */
+  packageToken: string;
+  quote: PackageQuote;
+  packageSlug: string;
+  packageName: string;
+  search: PackageSearch;
+  holdTokens: Record<string, string>;
+  holdExpiresAt: string | null;
+  /** The kosher request codes the package attaches to its hotel slot. */
+  requestableCodes?: string[];
   idempotencyKey: string;
 }
 
@@ -204,6 +232,18 @@ export const clearTourCheckoutDraft = tourStore.clear;
 export const tourCheckoutDraftSnapshot = tourStore.snapshot;
 export const tourCheckoutDraftServerSnapshot = tourStore.serverSnapshot;
 export const subscribeTourCheckoutDraft = tourStore.subscribe;
+
+// --- orders -----------------------------------------------------------------
+
+const orderStore = createDraftStore<OrderCheckoutDraft>("iag:checkout:order");
+
+export type OrderCheckoutDraftState = DraftState<OrderCheckoutDraft>;
+
+export const saveOrderCheckoutDraft = orderStore.save;
+export const clearOrderCheckoutDraft = orderStore.clear;
+export const orderCheckoutDraftSnapshot = orderStore.snapshot;
+export const orderCheckoutDraftServerSnapshot = orderStore.serverSnapshot;
+export const subscribeOrderCheckoutDraft = orderStore.subscribe;
 
 /**
  * An idempotency key for one confirmation attempt.

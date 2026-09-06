@@ -6,16 +6,22 @@ import { CancelBooking } from "@/components/booking/CancelBooking";
 import { PrintButton } from "@/components/booking/PrintButton";
 import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
 import { Container } from "@/components/ui/Container";
+import { OrderManageView } from "@/components/packages/OrderManageView";
 import { TourManageView } from "@/components/tours/TourManageView";
 import { getCancellationQuote, getGuestBooking } from "@/lib/api/bookings";
 import { ApiError } from "@/lib/api/client";
+import { getGuestOrder } from "@/lib/api/orders";
 import { getGuestTourBooking } from "@/lib/api/tours";
 import { getI18n } from "@/lib/i18n/server";
 import type { Booking, CancellationQuote } from "@/types/booking";
+import type { Order } from "@/types/order";
 import type { TourBooking } from "@/types/tour";
 
 /** A TUR reference is a tour booking: a separate record with its own page. */
 const isTourReference = (reference: string) => reference.toUpperCase().startsWith("TUR-");
+
+/** An ORD reference is a package order: four bookings under one roof. */
+const isOrderReference = (reference: string) => reference.toUpperCase().startsWith("ORD-");
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -44,6 +50,17 @@ const loadTourBooking = async (reference: string, email: string | null): Promise
 
   try {
     return await getGuestTourBooking(reference, email);
+  } catch (error) {
+    if (error instanceof ApiError && [400, 403, 404].includes(error.status)) return null;
+    throw error;
+  }
+};
+
+const loadOrder = async (reference: string, email: string | null): Promise<Order | null> => {
+  if (!email) return null;
+
+  try {
+    return await getGuestOrder(reference, email);
   } catch (error) {
     if (error instanceof ApiError && [400, 403, 404].includes(error.status)) return null;
     throw error;
@@ -83,10 +100,16 @@ export default async function ManageBookingPage(
   const email = (Array.isArray(requested) ? requested[0] : requested) ?? null;
 
   const tour = isTourReference(reference);
-  const [booking, tourBooking] = await Promise.all([
-    tour ? null : loadBooking(reference, email),
+  const order = isOrderReference(reference);
+  const [booking, tourBooking, orderRecord] = await Promise.all([
+    tour || order ? null : loadBooking(reference, email),
     tour ? loadTourBooking(reference, email) : null,
+    order ? loadOrder(reference, email) : null,
   ]);
+
+  if (orderRecord && email) {
+    return <OrderManageView order={orderRecord} email={email} />;
+  }
 
   if (tourBooking && email) {
     return <TourManageView booking={tourBooking} email={email} />;

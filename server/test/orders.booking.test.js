@@ -98,6 +98,36 @@ describe('orders', { skip: dbAvailable ? false : 'Postgres is not reachable' }, 
             where: { tourOptionId_date: { tourOptionId: tour.option.id, date: new Date(`${TOUR_DATE}T00:00:00.000Z`) } }
         });
 
+    it('books a package whose hotel charges tax, at the price it quoted', async () => {
+        const { pkg, hotel } = await makePackage();
+
+        // A city tax included in the rate. Every real hotel has one; none of
+        // the other fixtures did, which is how a package quote priced on the
+        // room alone while the order committed on room-plus-tax went unnoticed
+        // until a seeded property with a tax row was booked by hand.
+        await prisma.hotelTaxFee.create({
+            data: {
+                hotelId: hotel.hotel.id,
+                name: 'City tax',
+                basis: 'PERCENT',
+                value: 1800,
+                currency: 'GEL',
+                includedInRate: true
+            }
+        });
+
+        const quote = await quoteFor(pkg);
+        const stay = quote.components[0];
+        assert.ok(stay.resolved.sellCents > 0);
+
+        const created = await request(app)
+            .post('/api/orders')
+            .send({ packageToken: quote.token, leadGuest: lead });
+        assert.equal(created.status, 201, JSON.stringify(created.body));
+        assert.equal(created.body.totalCents, quote.totals.totalCents);
+        assert.equal(created.body.items[0].sellCents, stay.resolved.sellCents);
+    });
+
     it('confirms an order with one child per slot, atomically, and replays on the same key', async () => {
         const { pkg, hotel, tour } = await makePackage();
         const quote = await quoteFor(pkg);

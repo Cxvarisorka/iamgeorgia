@@ -97,7 +97,10 @@ const describeHotelOffer = (offer, hotel) => ({
     ratePlanId: offer.ratePlan.id,
     ratePlanName: offer.ratePlan.name,
     mealPlanCode: offer.ratePlan.mealPlan?.code ?? null,
-    sellCents: offer.quote.totals.sellCents,
+    // Both names carry the payable figure. A buyer comparing alternatives is
+    // comparing what each would cost them, and an alternative priced ex-tax
+    // beside a chosen slot priced inc-tax is a lie of about eighteen per cent.
+    sellCents: offer.quote.totals.totalCents,
     totalCents: offer.quote.totals.totalCents,
     token: offer.token
 });
@@ -167,7 +170,10 @@ const resolveHotelSlot = async ({ pkg, component, startDate, party, rooms, choic
         return { resolved: null, reason, alternatives: [] };
     }
 
-    candidates.sort((a, b) => a.offer.quote.totals.sellCents - b.offer.quote.totals.sellCents);
+    // Cheapest to the buyer, which for a hotel means after its taxes: two
+    // rate plans can carry different tax treatment, so the cheaper room is not
+    // always the cheaper stay.
+    candidates.sort((a, b) => a.offer.quote.totals.totalCents - b.offer.quote.totals.totalCents);
 
     const chosen =
         (choice?.ratePlanId && candidates.find((candidate) => candidate.offer.ratePlan.id === choice.ratePlanId)) ||
@@ -196,7 +202,10 @@ const resolveHotelSlot = async ({ pkg, component, startDate, party, rooms, choic
             rooms,
             token: chosen.offer.token,
             netCents: chosen.offer.quote.totals.netCents,
-            sellCents: chosen.offer.quote.totals.sellCents,
+            // The room plus its included taxes: what `prepareHotelBooking`
+            // compares at confirmation, so the quote and the order agree.
+            // `payableAtPropertyCents` is settled at the desk and stays out.
+            sellCents: chosen.offer.quote.totals.totalCents,
             payableAtPropertyCents: chosen.offer.quote.totals.payableAtPropertyCents ?? 0,
             offer: chosen.offer
         },
@@ -251,14 +260,14 @@ const resolveTransferSlot = async ({ pkg, component, startDate, endDate, party, 
         return { resolved: null, reason: result.closed ? 'ROUTE_CLOSED' : 'UNAVAILABLE', alternatives: [] };
     }
 
-    offers.sort((a, b) => a.quote.totals.sellCents - b.quote.totals.sellCents);
+    offers.sort((a, b) => a.quote.totals.totalCents - b.quote.totals.totalCents);
 
     const chosen = (choice?.vehicleId && offers.find((offer) => offer.vehicle.id === choice.vehicleId)) || offers[0];
     const describe = (offer) => ({
         vehicleId: offer.vehicle.id,
         vehicleName: offer.vehicle.name,
         vehicleClass: offer.vehicle.vehicleClass,
-        sellCents: offer.quote.totals.sellCents,
+        sellCents: offer.quote.totals.totalCents,
         token: offer.token
     });
 
@@ -278,7 +287,7 @@ const resolveTransferSlot = async ({ pkg, component, startDate, endDate, party, 
             })),
             token: chosen.token,
             netCents: chosen.quote.totals.netCents,
-            sellCents: chosen.quote.totals.sellCents,
+            sellCents: chosen.quote.totals.totalCents,
             offer: chosen
         },
         reason: null,
@@ -306,7 +315,7 @@ const resolveTourSlot = async ({ pkg, component, startDate, party, choice, local
         return { resolved: null, reason: all[0]?.offer?.reason ?? 'UNAVAILABLE', alternatives: [] };
     }
 
-    sellable.sort((a, b) => a.offer.quote.totals.sellCents - b.offer.quote.totals.sellCents);
+    sellable.sort((a, b) => a.offer.quote.totals.totalCents - b.offer.quote.totals.totalCents);
 
     const chosen = (choice?.tourOptionId && sellable.find(({ option }) => option.id === choice.tourOptionId)) || sellable[0];
     const describe = ({ option, offer }) => ({
@@ -314,7 +323,7 @@ const resolveTourSlot = async ({ pkg, component, startDate, party, choice, local
         optionName: option.name,
         kind: option.kind,
         confirmationMode: option.confirmationMode,
-        sellCents: offer.quote.totals.sellCents,
+        sellCents: offer.quote.totals.totalCents,
         token: offer.token
     });
 
@@ -336,7 +345,7 @@ const resolveTourSlot = async ({ pkg, component, startDate, party, choice, local
             tourKosher: component.tour?.kosher ?? null,
             token: chosen.offer.token,
             netCents: chosen.offer.quote.totals.netCents,
-            sellCents: chosen.offer.quote.totals.sellCents,
+            sellCents: chosen.offer.quote.totals.totalCents,
             offer: chosen.offer
         },
         reason: null,
@@ -394,7 +403,7 @@ const resolveServiceSlot = async ({ pkg, component, startDate, party, rooms, vie
             // What the package token carries for a service instead of a child token.
             serviceFields: { serviceId: service.id, date, time, days, quantity, pax },
             netCents: quote.totals.netCents,
-            sellCents: quote.totals.sellCents,
+            sellCents: quote.totals.totalCents,
             quote
         },
         reason: null,

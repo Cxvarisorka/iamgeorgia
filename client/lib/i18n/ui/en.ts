@@ -67,6 +67,7 @@ export const en = {
 
   nav: {
     tours: "Tours",
+    packages: "Packages",
     destinations: "Destinations",
     hotels: "Hotels",
     transfers: "Transfers",
@@ -76,6 +77,7 @@ export const en = {
     planTrip: "Plan a trip",
     descriptions: {
       tours: "Multi-day journeys across the Caucasus",
+      packages: "Stay, transfer and tour, booked as one",
       destinations: "Regions, cities and mountain valleys",
       hotels: "Stays we have slept in ourselves",
       transfers: "Private cars and shared shuttles",
@@ -613,6 +615,332 @@ export const en = {
       "2-3": "2–3 days",
       "4-6": "4–6 days",
       "7": "7+ days",
+    },
+  },
+
+  packages: {
+    metaTitle: "Packages",
+    metaDescription:
+      "Stay, transfers and tours arranged as one trip and booked in a single confirmation — including kosher packages with supervised hotels and Shabbat-aware timings.",
+    heroEyebrow: "Ready-made trips",
+    heroTitle: "Whole trips, booked at once",
+    heroDescription:
+      "A hotel, the transfers either end and the journeys in between — priced together, confirmed together, and yours to adjust before you book.",
+    heroImageAlt: "A minibus on the Georgian Military Highway beneath the Caucasus",
+    notFound: "Package not found",
+    crumb: "Packages",
+
+    // --- listing ---
+    searchLabel: "Search packages",
+    searchPlaceholder: "Search by name or region",
+    filterLength: "Length",
+    filterKosher: "Kosher",
+    kosherOnly: "Kosher packages only",
+    allRegions: "All regions",
+    matchingFilters: "matching your filters",
+    emptyTitle: "No packages match that combination",
+    emptyBody: "Try a different length or region — or ask us to build the trip you had in mind.",
+    nights: "{count} nights",
+    componentCount: "{count} parts",
+    from: "From",
+    perTrip: "for the trip",
+    priceIndicative: "Indicative. Choose your dates for a real price.",
+    viewPackage: "View package",
+    durations: {
+      "2-3": "2\u20133 nights",
+      "4-6": "4\u20136 nights",
+      "7": "7+ nights",
+    },
+
+    // --- detail ---
+    overview: "Overview",
+    whatsIncluded: "What the trip includes",
+    itinerary: "Day by day",
+    day: "Day {n}",
+    arrivalDay: "Arrival day",
+    optional: "Optional",
+    required: "Included",
+    gallery: "Gallery",
+    validFor: "Travel between {from} and {until}",
+    partyRules: "For {min} adults or more",
+    partyRulesMax: "For {min}\u2013{max} travellers",
+
+    // --- search form ---
+    search: {
+      startDate: "Start date",
+      travellers: "Travellers",
+      adults: "Adults",
+      children: "Children",
+      rooms: "Rooms",
+      childAge: "Child {number}",
+      childAgeUnit: "years old",
+      addChild: "Add a child",
+      removeChild: "Remove child {number}",
+      ageHint: "A child's age decides how they are priced and where they sleep.",
+      submit: "Price this trip",
+      update: "Update",
+      edit: "Change dates",
+      pastDate: "The start date cannot be in the past.",
+      datesRequired: "Choose a start date to see the real price for your party.",
+      done: "Done",
+    },
+
+    // --- the quote ---
+    quote: {
+      heading: "Your trip",
+      pricedFor: "{dates} \u00b7 {party}",
+      choose: "Choose",
+      change: "Change",
+      changing: "Repricing\u2026",
+      alternatives: "Other options",
+      cheapest: "Cheapest",
+      selected: "Selected",
+      include: "Add to the trip",
+      remove: "Remove from the trip",
+      requiredHint: "Part of the package and cannot be removed.",
+      onRequest: "Confirmed by the operator",
+      onRequestHint: "Held now, answered within 48 hours, charged only if it can run.",
+      nightsAt: "{count} nights at {hotel}",
+      board: "Board",
+      roomFor: "{room} for {party}",
+      freeUntil: "Free cancellation until {date}",
+      payAtProperty: "{amount} payable at the property",
+      pickupAt: "Pick-up {time}",
+      departsAt: "Departs {time}",
+      forParty: "for {count} travellers",
+      perGroup: "for the group",
+      quantity: "{count} \u00d7",
+      componentsTotal: "Parts",
+      discount: "Package discount",
+      supplement: "Package supplement",
+      total: "Total",
+      totalHint: "For the whole party. Settled with us, not on this page.",
+      margin: "Margin",
+      net: "Net",
+      reserve: "Reserve this trip",
+      holding: "Holding your rooms and seats\u2026",
+      selectDates: "Choose dates",
+      unavailableTitle: "Not available for those dates",
+      unavailable: {
+        COMPONENT_UNAVAILABLE:
+          "One of the parts of this package cannot be booked for that date and party. The details are beside each part below.",
+        ADJUSTMENT_BELOW_COST:
+          "We cannot price this package for those dates. Try a different start date, and tell us if it keeps happening.",
+        KOSHER_INELIGIBLE:
+          "This package cannot meet its kosher requirements for those dates. The reasons are listed below.",
+      },
+      slotReasons: {
+        EXCLUDED: "You removed this from the trip.",
+        UNAVAILABLE: "Not available for these dates.",
+        ROUTE_CLOSED: "We are not driving that route that day.",
+        SOLD_OUT: "Fully booked on that date.",
+        PARTY_SIZE: "Not available for a party this size.",
+        TOO_SOON: "Too close to the date to arrange.",
+        BEYOND_HORIZON: "Too far ahead to book yet.",
+        PAST: "That date has passed.",
+        UNPRICED: "Not on sale for that date.",
+        QUANTITY: "Not available in that quantity.",
+        NOT_FOUND: "No longer offered.",
+        INACTIVE: "Not on sale at the moment.",
+        CURRENCY: "Priced in another currency.",
+      },
+    },
+
+    // --- kosher ---
+    kosher: {
+      title: "Kosher arrangements",
+      badge: "Kosher package",
+      serviceLevel: "Hotel standard",
+      certified: "Certified kitchen required",
+      certifiedNo: "Certification not required",
+      scopes: "Certification covers",
+      mealPlans: "Board must include",
+      supervision: "Supervision",
+      shabbat: "Shabbat",
+      shabbatSolar: "Candle lighting and Havdalah from local sunset, {before} minutes before and {after} after.",
+      shabbatFixed: "Fixed hours: {start} to {end}.",
+      shabbatNone: "No Shabbat restrictions on this package.",
+      noTransfers: "No transfers during Shabbat.",
+      noTours: "No tours on Shabbat or a festival.",
+      restDays: "Additional rest days",
+      requestsAttached: "These are requested from the hotel with your booking: {items}",
+      blockersTitle: "This trip cannot be arranged as a kosher package",
+      warningsTitle: "Worth knowing",
+      overridden: "Approved by our team despite the notes below.",
+    },
+  },
+
+  orders: {
+    // --- checkout ---
+    checkout: {
+      metaTitle: "Checkout",
+      title: "Confirm your trip",
+      crumb: "Checkout",
+      steps: {
+        choose: "Build the trip",
+        details: "Your details",
+        confirm: "Confirmed",
+      },
+      heldNotice: "The rooms and seats are held for you",
+      expiredTitle: "Your hold has expired",
+      expiredBody:
+        "Rooms and seats are only held for a few minutes so they are not kept from other travellers. Nothing was booked and nothing was charged \u2014 price the trip again and it will be held afresh.",
+      backToPackage: "Back to the package",
+      leadGuest: "Lead traveller",
+      leadGuestHint: "Whoever the hotel and the guides will ask for.",
+      travellers: "Other travellers",
+      travellersHint:
+        "Optional now, and useful later: the names save a call before departure.",
+      travellerNumber: "Traveller {number}",
+      addTraveller: "Add a traveller",
+      removeTraveller: "Remove traveller {number}",
+      flightNumber: "Flight number (optional)",
+      flightNumberHint: "So the driver can follow the flight if it moves.",
+      pickupAddress: "Pick-up address (optional)",
+      specialRequests: "Anything we should know",
+      specialRequestsHint:
+        "Mobility, a birthday on the road, an early arrival. Passed to everyone involved, never guaranteed.",
+      terms:
+        "By confirming you accept the cancellation terms shown for each part. Payment is settled with us, not on this page.",
+      onRequestNotice:
+        "Part of this trip is confirmed by the operator: {items}. The rest is booked outright, and you will hear about these within 48 hours. Nothing is charged for a part that cannot run.",
+      confirm: "Confirm the trip",
+      request: "Confirm and request",
+      confirming: "Booking your trip\u2026",
+      summary: "Your trip",
+      noDraftTitle: "Nothing to check out",
+      noDraftBody:
+        "This page needs a priced trip behind it. Choose a package and your dates, and you will land back here.",
+      findPackage: "Browse packages",
+      partialDraft:
+        "We could not recover the full details in this tab, but the offer is still valid and your trip will be booked correctly.",
+    },
+
+    // --- confirmation ---
+    confirmation: {
+      metaTitle: "Trip confirmed",
+      title: "Your trip is booked",
+      requestedTitle: "Your trip is requested",
+      subtitle: "{package}, {dates}.",
+      requestedSubtitle: "{package} starts on {date}. Part of it is with the operator.",
+      emailedTo: "A confirmation is on its way to {email}.",
+      referenceHint: "One reference for the trip; each part has its own beneath it.",
+      whatNext: "What happens now",
+      whatNextSteps: {
+        one: "Every part is booked and holds its own reference.",
+        two: "Take the references with you: the hotel, the driver and the guides each use their own.",
+        three: "You can review or cancel from your trip page, under the terms shown.",
+      },
+      requestedSteps: {
+        one: "The parts booked outright are confirmed and will not change.",
+        two: "The operator answers the rest within 48 hours, and you will get an email either way.",
+        three: "Until then the whole trip can be cancelled at no charge.",
+      },
+      manageOrder: "View or cancel this trip",
+      notFoundTitle: "We cannot find that trip",
+      notFoundBody:
+        "The reference or the email does not match anything we hold. Check both \u2014 the reference is on your confirmation email.",
+    },
+
+    // --- the trip itself ---
+    manage: {
+      reference: "Trip reference",
+      bookedOn: "Booked {date}",
+      package: "Package",
+      dates: "Dates",
+      party: "Party",
+      leadGuest: "Lead traveller",
+      specialRequests: "Your requests",
+      noRequests: "None",
+      parts: "The parts of this trip",
+      partReference: "Reference",
+      priceTitle: "What you booked",
+      partsTotal: "Parts",
+      discount: "Package discount",
+      supplement: "Package supplement",
+      total: "Total",
+      cancellationCharge: "Cancellation charge",
+      cancelledOn: "Cancelled {date}",
+      awaiting: "The operator has until {date} to answer {items}.",
+      awaitingShort: "{count} awaiting the operator",
+      declinedPart: "The operator could not provide this: {reason}",
+      viewBooking: "Open this booking",
+    },
+
+    // --- cancelling ---
+    cancel: {
+      title: "Cancel this trip",
+      itemTitle: "Remove {label}",
+      quote: "What cancelling costs",
+      refund: "Refunded",
+      charge: "Charged",
+      clawback: "Package discount forfeited",
+      clawbackHint:
+        "The discount was given for booking the trip whole, so the share carried by this part is not refunded.",
+      free: "Nothing is charged.",
+      reason: "Reason (optional)",
+      confirm: "Cancel the whole trip",
+      confirmItem: "Remove this part",
+      cancelling: "Cancelling\u2026",
+      keep: "Keep the trip",
+      irreversible: "Cancelling releases the rooms and seats immediately and cannot be undone.",
+      doneTitle: "Trip cancelled",
+      doneBody: "Every part has been released and everyone involved has been told.",
+      itemDoneTitle: "Part removed",
+      itemDoneBody: "The rest of the trip stands, and the total has been adjusted.",
+      alreadyCancelled: "This trip was already cancelled.",
+      requiredPart: "This part cannot be removed on its own",
+      requiredPartHint:
+        "The package is priced as a whole, so its core parts go together. Cancel the whole trip, or ask us and we will look at it.",
+      pendingFree: "A part the operator has not yet confirmed is cancelled at no charge.",
+    },
+
+    // --- statuses ---
+    status: {
+      PENDING_CONFIRMATION: "Awaiting confirmation",
+      CONFIRMED: "Confirmed",
+      PARTIALLY_CANCELLED: "Partly cancelled",
+      CANCELLED: "Cancelled",
+      COMPLETED: "Completed",
+    },
+    itemStatus: {
+      REQUESTED: "Awaiting the operator",
+      CONFIRMED: "Confirmed",
+      DECLINED: "Not available",
+      CANCELLED: "Cancelled",
+      COMPLETED: "Completed",
+      NO_SHOW: "No show",
+    },
+    componentTypes: {
+      HOTEL_STAY: "Stay",
+      TRANSFER: "Transfer",
+      TOUR: "Tour",
+      SERVICE: "Service",
+    },
+
+    // --- errors the checkout has to render ---
+    errors: {
+      generic: "Something went wrong. Nothing was booked \u2014 please try again.",
+      priceChangedTitle: "The price has moved",
+      priceChangedBody:
+        "One or more parts of this trip are no longer the price you were quoted. Nothing was booked. Price the trip again to see the new total.",
+      priceChangedRow: "{label}: was {was}, now {now}",
+      unavailableTitle: "Part of the trip has gone",
+      unavailableBody:
+        "These parts can no longer be booked for your dates. Nothing was booked and nothing was charged.",
+      kosherTitle: "The kosher requirements cannot be met",
+      kosherBody:
+        "Something changed since this trip was priced. Price it again to see the current position.",
+      holdExpired: "Your hold ran out. Price the trip again and we will hold it afresh.",
+      packageChanged: "This package has been changed since you priced it. Price it again to continue.",
+      notOnSale: "This package is not on sale for those dates.",
+      notFound: "We could not find that.",
+      partOfOrder: "This booking is part of a trip and can only be changed from the trip itself.",
+      requeryTrip: "Price the trip again",
+    },
+
+    nav: {
+      manage: "Your trip",
     },
   },
 

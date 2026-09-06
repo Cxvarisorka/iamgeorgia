@@ -5,11 +5,14 @@ import Link from "next/link";
 
 import { TourBookingsBrowser } from "@/components/admin/TourBookingsBrowser";
 import { PortalBookingsBrowser } from "@/components/partners/PortalBookingsBrowser";
+import { PortalOrdersBrowser } from "@/components/partners/PortalOrdersBrowser";
 import { Container } from "@/components/ui/Container";
 import { bookingQueryFromParams } from "@/lib/admin/bookings";
 import { tourBookingQueryFromParams } from "@/lib/admin/tours";
 import { listPartnerBookings } from "@/lib/api/bookings";
+import { listPartnerOrders } from "@/lib/api/orders";
 import { listPartnerTourBookings } from "@/lib/api/tours";
+import { orderQueryFromParams } from "@/lib/packages/orders";
 import { getI18n } from "@/lib/i18n/server";
 import { cn } from "@/lib/utils";
 import { getSession } from "@/lib/auth/session";
@@ -18,6 +21,20 @@ import { getLocale } from "@/lib/i18n/server";
 import { ADMIN_ROLES } from "@/types/auth";
 
 export const metadata: Metadata = { title: "Bookings" };
+
+const PRODUCTS = ["hotels", "tours", "orders"] as const;
+type Product = (typeof PRODUCTS)[number];
+
+const intro: Record<Product, string> = {
+  hotels:
+    "Every stay you have booked, newest first. Open one to correct the guest details or to cancel it.",
+  tours:
+    "Every departure you have booked, newest first. Open one to correct the traveller details or to cancel it.",
+  // An order is the whole trip, so the sentence has to name the two different
+  // cancellations a partner has: the trip, or one optional part of it.
+  orders:
+    "Every trip you have booked as a package, newest first. Open one to see each part and its own reference, to drop an optional part, or to cancel the whole trip.",
+};
 
 /**
  * Everything this partner has booked.
@@ -51,28 +68,31 @@ export default async function PortalBookingsPage({
 
   const { path } = await getI18n();
   const params = await searchParams;
-  // Two registers behind one page, because a BKG reference is not a TUR one:
-  // separate endpoints, separate shapes, separate detail screens.
-  const product = params.product === "tours" ? "tours" : "hotels";
+  // Several registers behind one page, because a BKG reference is not a TUR
+  // one and neither is an ORD: separate endpoints, separate shapes, separate
+  // detail screens. Read through the list rather than a chain of ternaries so
+  // an unknown `?product=` falls back to hotels instead of rendering nothing.
+  const requested = Array.isArray(params.product) ? params.product[0] : params.product;
+  const product = PRODUCTS.includes(requested as Product) ? (requested as Product) : "hotels";
 
   const tabs = [
     { key: "hotels", label: "Hotels", href: "/portal/bookings" },
     { key: "tours", label: "Tours", href: "/portal/bookings?product=tours" },
+    { key: "orders", label: "Orders", href: "/portal/bookings?product=orders" },
   ] as const;
 
-  const list =
-    product === "tours"
-      ? await listPartnerTourBookings(tourBookingQueryFromParams(params))
-      : await listPartnerBookings(bookingQueryFromParams(params));
+  // Only the open tab is fetched: the other registers are a click away and
+  // paying for all of them on every render buys nothing.
+  const hotels =
+    product === "hotels" ? await listPartnerBookings(bookingQueryFromParams(params)) : null;
+  const tours =
+    product === "tours" ? await listPartnerTourBookings(tourBookingQueryFromParams(params)) : null;
+  const orders = product === "orders" ? await listPartnerOrders(orderQueryFromParams(params)) : null;
 
   return (
     <Container className="py-12 sm:py-16">
       <h1 className="font-display text-[2rem] leading-tight text-ink sm:text-[2.5rem]">Bookings</h1>
-      <p className="mt-4 max-w-2xl text-[1rem] leading-relaxed text-muted">
-        {product === "tours"
-          ? "Every departure you have booked, newest first. Open one to correct the traveller details or to cancel it."
-          : "Every stay you have booked, newest first. Open one to correct the guest details or to cancel it."}
-      </p>
+      <p className="mt-4 max-w-2xl text-[1rem] leading-relaxed text-muted">{intro[product]}</p>
 
       <nav aria-label="Product" className="mt-8 flex gap-1 border-b border-line">
         {tabs.map((tab) => (
@@ -91,17 +111,11 @@ export default async function PortalBookingsPage({
       </nav>
 
       <div className="mt-8">
-        {product === "tours" ? (
-          <TourBookingsBrowser
-            {...(list as Awaited<ReturnType<typeof listPartnerTourBookings>>)}
-            basePath="/portal/bookings"
-            caption="Your tour bookings"
-          />
-        ) : (
-          <PortalBookingsBrowser
-            {...(list as Awaited<ReturnType<typeof listPartnerBookings>>)}
-          />
+        {tours && (
+          <TourBookingsBrowser {...tours} basePath="/portal/bookings" caption="Your tour bookings" />
         )}
+        {orders && <PortalOrdersBrowser {...orders} />}
+        {hotels && <PortalBookingsBrowser {...hotels} />}
       </div>
     </Container>
   );

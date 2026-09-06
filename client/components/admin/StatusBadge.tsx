@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   Circle,
   Clock,
+  MinusCircle,
   PauseCircle,
   MailPlus,
   PenLine,
@@ -11,11 +12,13 @@ import {
 } from "lucide-react";
 
 import { bookingStatusLabels } from "@/lib/admin/bookings";
+import { orderStatusLabels } from "@/lib/admin/orders";
 import { tourBookingStatusLabels } from "@/lib/admin/tours";
 import { invitationStatusLabels, partnerStatusLabels } from "@/lib/admin/partners";
 import { cn } from "@/lib/utils";
 import type { InvitationStatus, PartnerStatus } from "@/types";
 import type { HotelBookingStatus } from "@/types/booking";
+import type { OrderStatus } from "@/types/order";
 import type { TourBookingStatus } from "@/types/tour";
 
 /**
@@ -103,6 +106,31 @@ export function TourBookingStatusBadge({
   return (
     <Pill tone={tone} icon={icon} className={className}>
       {tourBookingStatusLabels[status]}
+    </Pill>
+  );
+}
+
+const orderTones: Record<OrderStatus, { tone: Tone; icon: LucideIcon }> = {
+  PENDING_CONFIRMATION: { tone: "attention", icon: Clock },
+  CONFIRMED: { tone: "positive", icon: CheckCircle2 },
+  // Neither confirmed nor cancelled: part of the trip survives and still has
+  // to be operated, so this cannot wear the cancellation colour.
+  PARTIALLY_CANCELLED: { tone: "info", icon: MinusCircle },
+  CANCELLED: { tone: "critical", icon: Ban },
+  COMPLETED: { tone: "neutral", icon: Circle },
+};
+
+export function OrderStatusBadge({
+  status,
+  className,
+}: {
+  status: OrderStatus;
+  className?: string;
+}) {
+  const { tone, icon } = orderTones[status];
+  return (
+    <Pill tone={tone} icon={icon} className={className}>
+      {orderStatusLabels[status]}
     </Pill>
   );
 }

@@ -1,5 +1,6 @@
 import {
   BedDouble,
+  Boxes,
   Bus,
   CalendarCheck,
   CalendarRange,
@@ -7,12 +8,14 @@ import {
   CarFront,
   Coins,
   Compass,
+  ConciergeBell,
   ClipboardCheck,
   Globe2,
   Handshake,
   LayoutDashboard,
   Map,
   MapPin,
+  PackageCheck,
   Route,
   Radio,
   Star,
@@ -42,7 +45,8 @@ export type AdminBadgeKey =
   | "pendingBookings"
   | "pendingPartners"
   | "unassignedLegs"
-  | "pendingTourRequests";
+  | "pendingTourRequests"
+  | "pendingOrders";
 
 export type AdminBadges = Record<AdminBadgeKey, number>;
 
@@ -146,6 +150,15 @@ export const adminNavigation: AdminNavGroup[] = [
         icon: Compass,
         badgeKey: "pendingTourRequests",
       },
+      // ORD references: a package booked as one thing, with a hotel, a
+      // transfer, a tour and a service under it. Badged with the orders
+      // holding a request nobody has answered — those hold real capacity.
+      {
+        label: "Orders",
+        href: "/admin/orders",
+        icon: PackageCheck,
+        badgeKey: "pendingOrders",
+      },
       // Legs, not bookings, and badged with the ones nobody is driving yet.
       {
         label: "Dispatch",
@@ -206,6 +219,10 @@ export const adminNavigation: AdminNavGroup[] = [
         ],
       },
       { label: "Tours", href: "/admin/tours", icon: Map },
+      // Packages sit after the products they are assembled from: a slot can
+      // only name a hotel, a route or a tour that already exists.
+      { label: "Packages", href: "/admin/packages", icon: Boxes },
+      { label: "Services", href: "/admin/services", icon: ConciergeBell },
     ],
   },
   {
