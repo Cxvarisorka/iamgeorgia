@@ -17,11 +17,11 @@ export const metadata: Metadata = { title: "Package parts" };
 /**
  * The slots a package is assembled from.
  *
- * Ids are typed rather than picked from a dropdown. That is a deliberate
- * limitation for this release and not an oversight: a picker for each of the
- * four product types is four searchable lists, and the quote preview one
- * screen over tells an operator immediately whether an id resolves — which is
- * the same feedback a picker would give, one click later.
+ * Every product reference is chosen by name: the hotel, the two transfer
+ * points, the route, the tour and the service each search the live catalogue
+ * as the operator types, and the narrowings that hang off one of them — a
+ * hotel's room types and rate plans, a tour's options — load as chips once
+ * their parent is picked. Nothing here asks anybody to know a cuid.
  */
 export default async function AdminPackageComponentsPage({
   params,

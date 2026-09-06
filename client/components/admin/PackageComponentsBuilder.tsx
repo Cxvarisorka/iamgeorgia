@@ -13,6 +13,17 @@ import {
   SubmitButton,
   TextInput,
 } from "./FormControls";
+import { EntityPicker, OptionChecklist } from "./EntityPicker";
+import {
+  loadRatePlanOptions,
+  loadRoomTypeOptions,
+  loadTourOptionOptions,
+  searchHotelOptions,
+  searchServiceOptions,
+  searchTourOptions,
+  searchTransferPointOptions,
+  searchTransferRouteOptions,
+} from "@/lib/admin/catalogue";
 import { ApiError, describeError } from "@/lib/api/client";
 import { updatePackage, type PackageComponentInput } from "@/lib/api/packages";
 import { componentTypeLabels, problemLabel, quantityRuleLabels } from "@/lib/admin/packages";
@@ -31,7 +42,14 @@ const TYPES: PackageComponentType[] = ["HOTEL_STAY", "TRANSFER", "TOUR", "SERVIC
 const MEAL_CODES = ["RO", "BB", "HB", "HB_PLUS", "FB", "FB_PLUS", "AI", "UAI"];
 const VEHICLE_CLASSES = ["ECONOMY", "COMFORT", "MINIVAN", "VAN", "GROUP", "JEEP_4X4", "VIP"];
 
-/** A slot as the form holds it: ids as text, so an empty field is empty. */
+/**
+ * A slot as the form holds it.
+ *
+ * Ids are still ids — that is what the API takes — but each one is carried
+ * beside the name the picker showed for it, so re-rendering the trigger costs
+ * nothing and a reopened builder reads as "Rooms Hotel, Tbilisi" rather than
+ * as a cuid. The names never leave this file: `toInput` drops them.
+ */
 interface SlotDraft {
   componentType: PackageComponentType;
   label: string;
@@ -41,17 +59,23 @@ interface SlotDraft {
   timeOfDay: string;
   quantityRule: "ONE" | "PER_PERSON" | "PER_ROOM";
   hotelId: string;
-  allowedRoomTypeIds: string;
-  allowedRatePlanIds: string;
+  hotelName: string;
+  allowedRoomTypeIds: string[];
+  allowedRatePlanIds: string[];
   allowedMealPlanCodes: string[];
   fromPointId: string;
+  fromPointName: string;
   toPointId: string;
+  toPointName: string;
   routeId: string;
+  routeName: string;
   allowedVehicleClasses: string[];
   tripType: string;
   tourId: string;
-  allowedTourOptionIds: string;
+  tourName: string;
+  allowedTourOptionIds: string[];
   serviceId: string;
+  serviceName: string;
 }
 
 const emptySlot = (componentType: PackageComponentType): SlotDraft => ({
@@ -63,17 +87,23 @@ const emptySlot = (componentType: PackageComponentType): SlotDraft => ({
   timeOfDay: "",
   quantityRule: "ONE",
   hotelId: "",
-  allowedRoomTypeIds: "",
-  allowedRatePlanIds: "",
+  hotelName: "",
+  allowedRoomTypeIds: [],
+  allowedRatePlanIds: [],
   allowedMealPlanCodes: [],
   fromPointId: "",
+  fromPointName: "",
   toPointId: "",
+  toPointName: "",
   routeId: "",
+  routeName: "",
   allowedVehicleClasses: [],
   tripType: "",
   tourId: "",
-  allowedTourOptionIds: "",
+  tourName: "",
+  allowedTourOptionIds: [],
   serviceId: "",
+  serviceName: "",
 });
 
 const toDraft = (component: PackageComponent): SlotDraft => ({
@@ -85,24 +115,24 @@ const toDraft = (component: PackageComponent): SlotDraft => ({
   timeOfDay: component.timeOfDay ?? "",
   quantityRule: component.quantityRule,
   hotelId: component.hotel?.id ?? "",
-  allowedRoomTypeIds: component.allowedRoomTypeIds.join(", "),
-  allowedRatePlanIds: component.allowedRatePlanIds.join(", "),
+  hotelName: component.hotel?.name ?? "",
+  allowedRoomTypeIds: component.allowedRoomTypeIds,
+  allowedRatePlanIds: component.allowedRatePlanIds,
   allowedMealPlanCodes: component.allowedMealPlanCodes,
   fromPointId: component.fromPoint?.id ?? "",
+  fromPointName: component.fromPoint?.name ?? "",
   toPointId: component.toPoint?.id ?? "",
+  toPointName: component.toPoint?.name ?? "",
   routeId: component.route?.id ?? "",
+  routeName: component.route?.title ?? "",
   allowedVehicleClasses: component.allowedVehicleClasses,
   tripType: component.tripType ?? "",
   tourId: component.tour?.id ?? "",
-  allowedTourOptionIds: component.allowedTourOptionIds.join(", "),
+  tourName: component.tour?.title ?? "",
+  allowedTourOptionIds: component.allowedTourOptionIds,
   serviceId: component.service?.id ?? "",
+  serviceName: component.service?.name ?? "",
 });
-
-const idList = (value: string): string[] =>
-  value
-    .split(/[,\s]+/)
-    .map((id) => id.trim())
-    .filter(Boolean);
 
 /**
  * A slot as the API wants it, with only the fields of its own type set.
@@ -127,29 +157,29 @@ const toInput = (draft: SlotDraft): PackageComponentInput => {
       return {
         ...base,
         nights: draft.nights,
-        hotelId: draft.hotelId.trim() || null,
-        allowedRoomTypeIds: idList(draft.allowedRoomTypeIds),
-        allowedRatePlanIds: idList(draft.allowedRatePlanIds),
+        hotelId: draft.hotelId || null,
+        allowedRoomTypeIds: draft.allowedRoomTypeIds,
+        allowedRatePlanIds: draft.allowedRatePlanIds,
         allowedMealPlanCodes: draft.allowedMealPlanCodes,
       };
     case "TRANSFER":
       return {
         ...base,
-        fromPointId: draft.fromPointId.trim() || null,
-        toPointId: draft.toPointId.trim() || null,
-        routeId: draft.routeId.trim() || null,
+        fromPointId: draft.fromPointId || null,
+        toPointId: draft.toPointId || null,
+        routeId: draft.routeId || null,
         allowedVehicleClasses: draft.allowedVehicleClasses,
         tripType: draft.tripType || null,
       };
     case "TOUR":
       return {
         ...base,
-        tourId: draft.tourId.trim() || null,
-        allowedTourOptionIds: idList(draft.allowedTourOptionIds),
+        tourId: draft.tourId || null,
+        allowedTourOptionIds: draft.allowedTourOptionIds,
       };
     case "SERVICE":
     default:
-      return { ...base, serviceId: draft.serviceId.trim() || null };
+      return { ...base, serviceId: draft.serviceId || null };
   }
 };
 
@@ -358,26 +388,50 @@ export function PackageComponentsBuilder({ pkg }: { pkg: PackageWithChecklist })
               <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 {slot.componentType === "HOTEL_STAY" && (
                   <>
-                    <TextInput
-                      label="Hotel id"
+                    <EntityPicker
+                      label="Hotel"
                       hint="Blank means any hotel at the package destination."
-                      mono
+                      placeholder="Any hotel here"
+                      clearLabel="Any hotel at the destination"
                       value={slot.hotelId}
-                      onChange={(event) => patch(index, { hotelId: event.target.value })}
+                      valueLabel={slot.hotelName}
+                      search={searchHotelOptions}
+                      onChange={(choice) =>
+                        // Changing the property invalidates both narrowings:
+                        // a room type belongs to one hotel, so keeping the old
+                        // ids would pin the slot to rooms in a building it no
+                        // longer sells.
+                        patch(index, {
+                          hotelId: choice?.id ?? "",
+                          hotelName: choice?.label ?? "",
+                          allowedRoomTypeIds: [],
+                          allowedRatePlanIds: [],
+                        })
+                      }
                     />
-                    <TextInput
-                      label="Room type ids"
-                      hint="Comma-separated. Blank allows any."
-                      mono
+                    <OptionChecklist
+                      label="Room types"
+                      hint="None selected allows any room in the hotel."
+                      disabledReason="Choose a hotel to narrow the rooms."
+                      emptyLabel="This hotel has no rooms yet."
+                      dependency={slot.hotelId}
+                      load={
+                        slot.hotelId ? () => loadRoomTypeOptions(slot.hotelId) : null
+                      }
                       value={slot.allowedRoomTypeIds}
-                      onChange={(event) => patch(index, { allowedRoomTypeIds: event.target.value })}
+                      onChange={(next) => patch(index, { allowedRoomTypeIds: next })}
                     />
-                    <TextInput
-                      label="Rate plan ids"
-                      hint="Comma-separated. Blank allows any."
-                      mono
+                    <OptionChecklist
+                      label="Rate plans"
+                      hint="None selected allows any plan on the allowed rooms."
+                      disabledReason="Choose a hotel to narrow the plans."
+                      emptyLabel="This hotel has no rate plans yet."
+                      dependency={slot.hotelId}
+                      load={
+                        slot.hotelId ? () => loadRatePlanOptions(slot.hotelId) : null
+                      }
                       value={slot.allowedRatePlanIds}
-                      onChange={(event) => patch(index, { allowedRatePlanIds: event.target.value })}
+                      onChange={(next) => patch(index, { allowedRatePlanIds: next })}
                     />
                     <fieldset>
                       <legend className="block text-[0.75rem] font-semibold text-muted">Board</legend>
@@ -411,24 +465,48 @@ export function PackageComponentsBuilder({ pkg }: { pkg: PackageWithChecklist })
 
                 {slot.componentType === "TRANSFER" && (
                   <>
-                    <TextInput
-                      label="From point id"
-                      mono
+                    <EntityPicker
+                      label="From"
+                      placeholder="Any pick-up"
+                      clearLabel="Any pick-up point"
                       value={slot.fromPointId}
-                      onChange={(event) => patch(index, { fromPointId: event.target.value })}
+                      valueLabel={slot.fromPointName}
+                      search={searchTransferPointOptions}
+                      onChange={(choice) =>
+                        patch(index, {
+                          fromPointId: choice?.id ?? "",
+                          fromPointName: choice?.label ?? "",
+                        })
+                      }
                     />
-                    <TextInput
-                      label="To point id"
-                      mono
+                    <EntityPicker
+                      label="To"
+                      placeholder="Any drop-off"
+                      clearLabel="Any drop-off point"
                       value={slot.toPointId}
-                      onChange={(event) => patch(index, { toPointId: event.target.value })}
+                      valueLabel={slot.toPointName}
+                      search={searchTransferPointOptions}
+                      onChange={(choice) =>
+                        patch(index, {
+                          toPointId: choice?.id ?? "",
+                          toPointName: choice?.label ?? "",
+                        })
+                      }
                     />
-                    <TextInput
-                      label="Route id"
+                    <EntityPicker
+                      label="Route"
                       hint="A curated route pins both ends and its own fares."
-                      mono
+                      placeholder="No fixed route"
+                      clearLabel="No fixed route"
                       value={slot.routeId}
-                      onChange={(event) => patch(index, { routeId: event.target.value })}
+                      valueLabel={slot.routeName}
+                      search={searchTransferRouteOptions}
+                      onChange={(choice) =>
+                        patch(index, {
+                          routeId: choice?.id ?? "",
+                          routeName: choice?.label ?? "",
+                        })
+                      }
                     />
                     <SelectInput
                       label="Trip type"
@@ -477,32 +555,50 @@ export function PackageComponentsBuilder({ pkg }: { pkg: PackageWithChecklist })
 
                 {slot.componentType === "TOUR" && (
                   <>
-                    <TextInput
-                      label="Tour id"
-                      mono
+                    <EntityPicker
+                      label="Tour"
+                      placeholder="Any tour at the destination"
+                      clearLabel="Any tour at the destination"
                       value={slot.tourId}
-                      onChange={(event) => patch(index, { tourId: event.target.value })}
-                    />
-                    <TextInput
-                      label="Option ids"
-                      hint="Comma-separated. Blank allows any active option."
-                      mono
-                      className="sm:col-span-2"
-                      value={slot.allowedTourOptionIds}
-                      onChange={(event) =>
-                        patch(index, { allowedTourOptionIds: event.target.value })
+                      valueLabel={slot.tourName}
+                      search={searchTourOptions}
+                      onChange={(choice) =>
+                        // Options belong to one tour, so they go with it.
+                        patch(index, {
+                          tourId: choice?.id ?? "",
+                          tourName: choice?.label ?? "",
+                          allowedTourOptionIds: [],
+                        })
                       }
+                    />
+                    <OptionChecklist
+                      className="sm:col-span-2 lg:col-span-3"
+                      label="Options"
+                      hint="None selected allows any active option."
+                      disabledReason="Choose a tour to narrow its options."
+                      emptyLabel="This tour has no options yet."
+                      dependency={slot.tourId}
+                      load={slot.tourId ? () => loadTourOptionOptions(slot.tourId) : null}
+                      value={slot.allowedTourOptionIds}
+                      onChange={(next) => patch(index, { allowedTourOptionIds: next })}
                     />
                   </>
                 )}
 
                 {slot.componentType === "SERVICE" && (
                   <>
-                    <TextInput
-                      label="Service id"
-                      mono
+                    <EntityPicker
+                      label="Service"
+                      placeholder="Choose a service"
                       value={slot.serviceId}
-                      onChange={(event) => patch(index, { serviceId: event.target.value })}
+                      valueLabel={slot.serviceName}
+                      search={searchServiceOptions}
+                      onChange={(choice) =>
+                        patch(index, {
+                          serviceId: choice?.id ?? "",
+                          serviceName: choice?.label ?? "",
+                        })
+                      }
                     />
                     <SelectInput
                       label="Quantity"
