@@ -164,17 +164,24 @@ export function StaySearchForm({
       }}
       className={className}
     >
+      {/* One column on a phone, two or three at `md`, and a single row only
+          from `lg`: four fields plus a labelled button need about 800px to sit
+          on one line, and a tablet has 704 — a single row there overflowed the
+          page by 30px. Tracks are `minmax(0, …)` so a long option or date
+          format can never widen the row past its container. */}
       <div
         className={cn(
           "border border-line bg-surface shadow-lift",
-          "grid divide-y divide-line md:divide-x md:divide-y-0",
+          // `grid-cols-1` and not a bare `grid`: an implicit column is sized to
+          // its widest item, and a long submit label would widen the whole form.
+          "grid grid-cols-1",
           destinations
-            ? "md:grid-cols-[1.4fr_1fr_1fr_1.2fr_auto]"
-            : "md:grid-cols-[1fr_1fr_1.2fr_auto]",
+            ? "md:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_auto]"
+            : "md:grid-cols-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_auto]",
         )}
       >
         {destinations && (
-          <label className={field}>
+          <label className={cn(field, "border-b border-line lg:border-b-0")}>
             <span className={label}>
               <MapPin size={13} aria-hidden />
               {t.hotels.searchDestination}
@@ -194,7 +201,13 @@ export function StaySearchForm({
           </label>
         )}
 
-        <label className={field}>
+        <label
+          className={cn(
+            field,
+            "border-b border-line lg:border-b-0",
+            destinations && "md:border-s",
+          )}
+        >
           <span className={label}>
             <CalendarDays size={13} aria-hidden />
             {t.booking.search.checkIn}
@@ -209,7 +222,13 @@ export function StaySearchForm({
           />
         </label>
 
-        <label className={field}>
+        <label
+          className={cn(
+            field,
+            "border-b border-line lg:border-b-0",
+            destinations ? "lg:border-s" : "md:border-s",
+          )}
+        >
           <span className={label}>
             <CalendarDays size={13} aria-hidden />
             {t.booking.search.checkOut}
@@ -226,7 +245,10 @@ export function StaySearchForm({
           />
         </label>
 
-        <div className={cn(field, "relative")} ref={occupancyRef}>
+        <div
+          className={cn(field, "relative border-b border-line md:border-s lg:border-b-0")}
+          ref={occupancyRef}
+        >
           <span className={label}>
             <Users size={13} aria-hidden />
             {t.hotels.guestsAndRooms}
@@ -339,12 +361,17 @@ export function StaySearchForm({
           )}
         </div>
 
-        <div className="p-3">
+        <div
+          className={cn(
+            "border-line p-3 lg:col-span-1 lg:border-s",
+            destinations ? "md:col-span-2" : "md:col-span-3",
+          )}
+        >
           <Button
             type="submit"
             size="lg"
             fullWidth
-            className="h-full md:w-40"
+            className="h-auto min-h-13 px-4 whitespace-normal md:h-full md:px-5 md:whitespace-nowrap lg:w-auto"
             disabled={submitting || invalidDates}
           >
             <Search size={17} aria-hidden />

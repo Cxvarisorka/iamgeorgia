@@ -110,7 +110,10 @@ export function HotelExplorer({ hotels }: HotelExplorerProps) {
                 </span>
               </p>
 
-              <div className="flex items-center gap-3">
+              {/* `max-w-full min-w-0`: a Georgian sort option is wider than a
+                  phone, and a wrapped flex item is otherwise sized to its
+                  content, so the select gets to shrink instead of the page. */}
+              <div className="flex max-w-full min-w-0 items-center gap-3">
                 <Button
                   variant="outline"
                   size="sm"
@@ -122,14 +125,14 @@ export function HotelExplorer({ hotels }: HotelExplorerProps) {
                   {activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
                 </Button>
 
-                <label className="flex items-center gap-2">
+                <label className="flex min-w-0 items-center gap-2">
                   <span className="type-caption hidden text-muted sm:inline">
                     {t.actions.sortBy}
                   </span>
                   <select
                     value={sort}
                     onChange={(event) => setSort(event.target.value as HotelSort)}
-                    className="h-10 rounded-sm border border-line bg-surface px-3 text-[0.8125rem] text-body focus:border-ink focus:outline-none"
+                    className="h-10 max-w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-[0.8125rem] text-body focus:border-ink focus:outline-none"
                   >
                     {hotelSortOptions.map((option) => (
                       <option key={option.value} value={option.value}>

@@ -82,13 +82,13 @@ export default async function AdminDestinationPage({
       />
 
       <div className="mt-8 grid gap-8 lg:grid-cols-12">
-        <div className="lg:col-span-8">
+        <div className="min-w-0 lg:col-span-8">
           <AdminPanel title="Details">
             <DestinationForm destination={destination} tree={tree.data} />
           </AdminPanel>
         </div>
 
-        <div className="space-y-8 lg:col-span-4">
+        <div className="min-w-0 space-y-8 lg:col-span-4">
           <AdminPanel title="At a glance">
             <AdminDefinitionList
               items={[

@@ -67,7 +67,7 @@ export default async function AdminTourBookingPage({ params }: PageProps<"/[loca
       />
 
       <div className="mt-8 grid gap-6 lg:grid-cols-3">
-        <div className="flex flex-col gap-6 lg:col-span-2">
+        <div className="min-w-0 flex flex-col gap-6 lg:col-span-2">
           <AdminPanel title="Departure">
             <AdminDefinitionList
               items={[

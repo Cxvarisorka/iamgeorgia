@@ -130,7 +130,7 @@ export function BookingsBrowser({
           </select>
         )}
 
-        <label className="flex items-center gap-2 text-[0.8125rem] text-muted">
+        <label className="flex flex-wrap items-center gap-2 text-[0.8125rem] text-muted">
           Arriving
           <input
             type="date"

@@ -216,7 +216,7 @@ export default async function TransferDetailPage(
             </div>
             <h1 className="type-h1 mt-4 text-balance">{title}</h1>
             {vehicle.provider && (
-              <p className="type-body-sm mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted">
+              <div className="type-body-sm mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted">
                 <span className="font-medium text-ink">{vehicle.provider.name}</span>
                 <Rating
                   value={vehicle.provider.rating}
@@ -228,7 +228,7 @@ export default async function TransferDetailPage(
                     count: vehicle.provider.yearsActive,
                   })}
                 </span>
-              </p>
+              </div>
             )}
           </div>
 

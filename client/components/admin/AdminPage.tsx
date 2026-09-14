@@ -114,8 +114,11 @@ export function AdminPanel({
   bodyClassName?: string;
   className?: string;
 }) {
+  // `min-w-0`: panels sit in grids, and a grid item's automatic minimum is its
+  // content's min-content width. A table that scrolls inside the panel would
+  // otherwise size the whole column to the table and push the page sideways.
   return (
-    <section className={cn("rounded-sm border border-line bg-surface", className)}>
+    <section className={cn("min-w-0 rounded-sm border border-line bg-surface", className)}>
       {(title || action) && (
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
           <div className="min-w-0">

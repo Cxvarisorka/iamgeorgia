@@ -67,7 +67,7 @@ export default async function AdminDriverPage({
       />
 
       <div className="mt-8 grid gap-8 lg:grid-cols-12">
-        <div className="space-y-8 lg:col-span-8">
+        <div className="min-w-0 space-y-8 lg:col-span-8">
           <AdminPanel title="Profile">
             <DriverEditor driver={driver} providers={providers} />
           </AdminPanel>
@@ -77,7 +77,7 @@ export default async function AdminDriverPage({
           <DriverVehicles driver={driver} fleet={fleet.data} />
         </div>
 
-        <div className="space-y-8 lg:col-span-4">
+        <div className="min-w-0 space-y-8 lg:col-span-4">
           <DriverPhoto driver={driver} />
 
           <AdminPanel title="At a glance">

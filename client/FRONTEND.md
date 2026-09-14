@@ -21,6 +21,8 @@ Everything changed on the front end, why it changed, and what is still outstandi
 9. [Admin navigation](#9-admin-navigation)
 10. [Fleet, drivers and dispatch](#10-fleet-drivers-and-dispatch)
 11. [Tours went live](#11-tours-went-live)
+12. [Packages and orders went live](#12-packages-and-orders-went-live)
+13. [Responsive audit](#13-responsive-audit)
 
 ---
 
@@ -707,6 +709,100 @@ navigation, so the platform now sells four things from the header.
   type-checks.
 - `MediaCategory` gained `PACKAGE_IMAGE`; a gallery upload silently 400s without
   it.
+
+## 13. Responsive audit
+
+Every public, admin and driver route was loaded in a real Chromium at 360, 390,
+768, 1024 and 1280px (Hebrew and Georgian included) and probed for horizontal
+overflow: `documentElement.scrollWidth` against the viewport, plus a walk over
+every element whose box left the viewport. Phone-width screenshots were then
+read by eye. What follows is what was broken, and the rule each fix leaves
+behind.
+
+### Header: two display utilities on one element
+
+On phones the header showed "Admin panel" and "Plan your trip" next to the
+burger, pushing the burger off the right edge (and off the left edge in
+Hebrew). Both controls were given `hidden sm:inline-flex` through `className`,
+but `AccountNav` and `Button` set `inline-flex` themselves, and `cn()` is a
+plain join — two display utilities on one element resolve by **stylesheet
+order**, and `inline-flex` won. The `Button` file already warns about this for
+colours.
+
+The rule: never pass an unprefixed `hidden` into a component that sets its own
+display. Show and hide it through a wrapper — `<span className="hidden
+sm:contents">` — which has no display of its own to fight. Prefixed variants
+(`lg:hidden`) are safe because a media-query rule always sits later in the
+sheet than the base utility.
+
+The account link is icon-only between `sm` and `md`: on a 640px row the
+wordmark, language menu, trip button and burger left no room for a Georgian
+label, and the burger went off the edge again. The accessible name stays on
+the link.
+
+### Search forms: fixed widths and `fr` minimums
+
+`StaySearchForm` overflowed the tablet by 30px: four fields and a labelled
+button need about 800px on one line and a 768px screen gives 704. It now runs
+one column on a phone, two (index) or three (property page) at `md`, and a
+single row only from `lg`. Cell borders are set per cell rather than with
+`divide-*`, because the divide utilities have no idea where a grid row starts.
+
+All three search forms (`Stay`, `Tour`, `Package`) had fixed-width submit
+buttons (`md:w-40`, `md:w-44`) that clipped the Georgian label — "თავისუფალი
+ნომრების ნახვა" is a sentence, not a verb. The button column is `auto` and the
+field tracks are `minmax(0, …)`, so a long label widens the button and the
+fields give way, never the page. A bare `1fr` track has a min-content minimum
+and will push a row past its container; `minmax(0, 1fr)` is the form that
+shrinks.
+
+### Admin: tables inside grid columns
+
+The overview, the tour-booking, order and transfer-route detail screens were
+~750px wide on a phone. `DataTable` scrolls inside its wrapper, but a scroll
+container still reports its content's min-content width upwards, so the
+`min-w-[44rem]` table sized its grid column. `DataTable`'s wrapper now has
+`contain-inline-size`, which sizes it from its parent alone; `AdminPanel` and
+every `lg:col-span-*` wrapper in the panel and portal carry `min-w-0` so no
+other wide child can do the same. The date-range filters on the booking and
+order lists wrap below `sm` instead of running past the edge.
+
+### Lists: a `<select>` is as wide as its longest option
+
+The sort control on the hotel and transfer lists was 408px on a 360px phone
+in Georgian. A wrapped flex item is sized to its content, so the toolbar row
+carries `max-w-full min-w-0` and the select `min-w-0`, and it shrinks to the
+container instead of the page. The same `min-w-0` went on the label around
+the tour list's two selects.
+
+### Also fixed on the way
+
+- `/transfers/[slug]` rendered `<Rating>` (a `div`) inside a `<p>` — invalid
+  nesting and a hydration error on every visit.
+- Order part rows (`OrderItems`) keep an 11rem text measure and let the price
+  block wrap under it, instead of squeezing "Tbilisi International Airport"
+  into a three-word-wide column beside the price.
+- The driver account card's email could not break and overflowed by a pixel;
+  the definition list's value column is `minmax(0, 1fr)` and the email
+  `break-all`.
+
+### Still open
+
+- **Georgian `Intl` output differs between server and browser.** Chromium
+  ships no `ka` locale data (`Intl.NumberFormat.supportedLocalesOf(["ka"])` is
+  empty and `ka-GE` resolves to `en-US`), while Node has full ICU. Every price,
+  date and grouped number on `/ka` therefore hydrates differently — "1304 ₾"
+  on the server, "GEL 1,304" in Edge — and React regenerates the tree with a
+  console error on each Georgian page. The fix is a decision, not a patch:
+  either a deterministic Georgian formatter for money and dates (against the
+  "never hand-format" rule, but the only way both sides agree), or an
+  `Intl` polyfill for `ka` loaded on the client. Firefox does carry `ka`, so
+  the mismatch is browser-specific.
+- Partner portal screens were reviewed by code only; the audit had no partner
+  credentials.
+- Audit script and findings live outside the repo; the check is worth
+  turning into a Playwright test that asserts `scrollWidth === innerWidth`
+  for a route list at three widths.
 
 ---
 

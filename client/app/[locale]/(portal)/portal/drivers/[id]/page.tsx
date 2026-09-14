@@ -49,7 +49,7 @@ export default async function PortalDriverPage(props: PageProps<"/[locale]/porta
       </Link>
 
       <div className="mt-8 grid gap-10 lg:grid-cols-12">
-        <div className="lg:col-span-4">
+        <div className="min-w-0 lg:col-span-4">
           {photo ? (
             // eslint-disable-next-line @next/next/no-img-element -- API-served
             <img src={photo} alt="" className="aspect-square w-full rounded-sm object-cover" />
@@ -60,7 +60,7 @@ export default async function PortalDriverPage(props: PageProps<"/[locale]/porta
           )}
         </div>
 
-        <div className="lg:col-span-8">
+        <div className="min-w-0 lg:col-span-8">
           <h1 className="flex items-center gap-3 font-display text-[2rem] leading-tight text-ink">
             {driver.firstName} {driver.lastName}
             {driver.verified && (

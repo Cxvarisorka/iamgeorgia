@@ -73,7 +73,7 @@ export default async function AdminTransferBookingPage({
       />
 
       <div className="mt-8 grid gap-8 lg:grid-cols-12">
-        <div className="space-y-8 lg:col-span-7">
+        <div className="min-w-0 space-y-8 lg:col-span-7">
           <AdminPanel title="Dispatch" description="Who is driving each leg, and where it stands.">
             {legs.length === 0 ? (
               <p className="text-[0.875rem] text-muted">No legs to dispatch.</p>
@@ -180,7 +180,7 @@ export default async function AdminTransferBookingPage({
           </AdminPanel>
         </div>
 
-        <div className="space-y-8 lg:col-span-5">
+        <div className="min-w-0 space-y-8 lg:col-span-5">
           <AdminPanel title="Passenger">
             <AdminDefinitionList
               items={[

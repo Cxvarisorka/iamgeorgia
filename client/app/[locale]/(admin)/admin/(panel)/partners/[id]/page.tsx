@@ -88,7 +88,7 @@ export default async function AdminPartnerPage({
       />
 
       <div className="mt-8 grid gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
+        <div className="min-w-0 space-y-6 lg:col-span-2">
           <AdminPanel title="Company" description="Submitted by the partner and verifiable against the register.">
             <AdminDefinitionList
               items={[

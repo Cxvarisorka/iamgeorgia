@@ -116,15 +116,21 @@ export function Header() {
           </nav>
 
           <div className="flex shrink-0 items-center gap-2 lg:gap-3">
+            {/* The two controls below are shown and hidden by breakpoint through
+                a `display: contents` wrapper rather than a `hidden` class on the
+                component. Both components set their own display utility
+                (`inline-flex`), and two display utilities on one element resolve
+                by stylesheet order, not author order — `hidden` lost, and both
+                rendered on phones, pushing the burger off the edge. */}
+
             {/* From `sm` up, including the tight `lg` band where the trip button
                 steps aside — the staff surfaces are reached often enough by the
                 people who use them that hiding the link behind a burger on a
                 desktop would be the wrong trade. Below `sm` the mobile menu
                 carries the same row. */}
-            <AccountNav
-              tone={overImagery ? "light" : "dark"}
-              className="hidden sm:inline-flex"
-            />
+            <span className="hidden sm:contents">
+              <AccountNav tone={overImagery ? "light" : "dark"} />
+            </span>
 
             <LanguageMenu tone={overImagery ? "light" : "dark"} />
 
@@ -133,14 +139,15 @@ export function Header() {
                 where six nav items and this button compete for the same row, and
                 the nav is the thing a reader needs. The mobile menu carries the
                 same action, so it is never unreachable. */}
-            <Button
-              href={path("/contact")}
-              size="sm"
-              variant={overImagery ? "light" : "primary"}
-              className="hidden sm:inline-flex lg:hidden xl:inline-flex"
-            >
-              {t.actions.planYourTrip}
-            </Button>
+            <span className="hidden sm:contents lg:hidden xl:contents">
+              <Button
+                href={path("/contact")}
+                size="sm"
+                variant={overImagery ? "light" : "primary"}
+              >
+                {t.actions.planYourTrip}
+              </Button>
+            </span>
 
             <button
               type="button"

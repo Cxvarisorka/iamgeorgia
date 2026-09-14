@@ -145,7 +145,7 @@ export default async function PortalBookingPage(
             </div>
           </div>
 
-          <aside className="lg:col-span-4">
+          <aside className="min-w-0 lg:col-span-4">
             <div className="flex flex-col gap-5 lg:sticky lg:top-8">
               <CancelTourBooking
                 reference={tour.reference}
@@ -244,7 +244,7 @@ export default async function PortalBookingPage(
           </div>
         </div>
 
-        <aside className="lg:col-span-4">
+        <aside className="min-w-0 lg:col-span-4">
           <div className="flex flex-col gap-5 lg:sticky lg:top-8">
             {/* No email: the session already proves whose booking this is, and
                 the server stops looking at the address entirely for a partner. */}

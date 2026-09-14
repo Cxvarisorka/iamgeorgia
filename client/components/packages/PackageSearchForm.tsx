@@ -132,7 +132,9 @@ export function PackageSearchForm({ value, action, party, className }: PackageSe
       }}
       className={className}
     >
-      <div className="grid divide-y divide-line border border-line bg-surface shadow-lift md:grid-cols-[1fr_1.2fr_auto] md:divide-x md:divide-y-0">
+      {/* `minmax(0, …)` tracks and an auto-width button: the label is a
+          sentence in Georgian, and a fixed-width button clipped it. */}
+      <div className="grid grid-cols-1 divide-y divide-line border border-line bg-surface shadow-lift md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] md:divide-x md:divide-y-0">
         <label className={field}>
           <span className={label}>
             <CalendarDays size={13} aria-hidden />
@@ -285,7 +287,7 @@ export function PackageSearchForm({ value, action, party, className }: PackageSe
             type="submit"
             size="lg"
             fullWidth
-            className="h-full md:w-44"
+            className="h-auto min-h-13 px-4 whitespace-normal md:h-full md:w-auto md:px-5 md:whitespace-nowrap"
             disabled={submitting || !search.startDate}
           >
             <Search size={17} aria-hidden />

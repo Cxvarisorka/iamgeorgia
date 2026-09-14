@@ -144,7 +144,7 @@ export default async function AdminHotelPage({
       />
 
       <div className="mt-8 grid gap-6 lg:grid-cols-3">
-        <div className="flex flex-col gap-6 lg:col-span-2">
+        <div className="min-w-0 flex flex-col gap-6 lg:col-span-2">
           <nav aria-label="Property sections" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {subScreens.map((screen) => (
               <Link

@@ -74,9 +74,9 @@ export function DriverAccount({ driver }: { driver: DriverAdmin }) {
 
   return (
     <AdminPanel title="Login">
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[0.875rem]">
+      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-[0.875rem]">
         <dt className="text-muted">Email</dt>
-        <dd className="text-ink">{driver.user.email}</dd>
+        <dd className="break-all text-ink">{driver.user.email}</dd>
         <dt className="text-muted">Status</dt>
         <dd className="text-ink">
           {!driver.user.isActive ? "Deactivated" : driver.user.isPending ? "Waiting for a password" : "Active"}

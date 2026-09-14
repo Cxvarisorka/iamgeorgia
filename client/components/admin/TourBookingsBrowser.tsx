@@ -118,7 +118,7 @@ export function TourBookingsBrowser({
           ))}
         </select>
 
-        <label className="flex items-center gap-2 text-[0.8125rem] text-muted">
+        <label className="flex flex-wrap items-center gap-2 text-[0.8125rem] text-muted">
           Departing
           <input type="date" value={from} onChange={(event) => apply({ from: event.target.value || null })} aria-label="Departing on or after" className={field} />
           <span aria-hidden>–</span>

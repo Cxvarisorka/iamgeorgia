@@ -62,9 +62,14 @@ export function AccountNav({
 
   const { href, label, icon: Icon } = destinationFor(session, t);
 
+  // Icon-only between `sm` and `md`: with the wordmark, the language menu,
+  // the trip button and the burger on one 640px row, a Georgian label
+  // ("პარტნიორის შესვლა") pushed the burger off the edge. The accessible
+  // name stays on the link while the text is hidden.
   return (
     <Link
       href={path(href)}
+      aria-label={label}
       className={cn(
         "inline-flex h-9 items-center gap-2 rounded-sm px-2.5 text-[0.8125rem] font-medium whitespace-nowrap transition-colors",
         tone === "light"
@@ -74,7 +79,7 @@ export function AccountNav({
       )}
     >
       <Icon size={15} className="shrink-0" aria-hidden />
-      {label}
+      <span className="hidden md:inline">{label}</span>
     </Link>
   );
 }

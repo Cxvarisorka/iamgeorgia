@@ -67,7 +67,9 @@ export function OrderItems({ items, currency, action, className }: OrderItemsPro
                 <Icon size={17} aria-hidden />
               </span>
 
-              <div className="min-w-0 flex-1">
+              {/* The text column keeps a readable measure; when a phone cannot
+                  fit it beside the price block, the price wraps under it. */}
+              <div className="min-w-[11rem] flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="type-body-sm font-semibold text-ink">{item.label}</span>
                   <Badge tone={TONES[item.status]}>{t.orders.itemStatus[item.status]}</Badge>
@@ -105,7 +107,7 @@ export function OrderItems({ items, currency, action, className }: OrderItemsPro
                 )}
               </div>
 
-              <div className="flex flex-col items-end gap-1.5">
+              <div className="ms-auto flex flex-col items-end gap-1.5">
                 <span
                   className={cn(
                     "type-body-sm tabular-nums",

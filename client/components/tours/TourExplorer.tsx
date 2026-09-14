@@ -141,12 +141,12 @@ export function TourExplorer({ tours, regions }: TourExplorerProps) {
           </p>
 
           <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2">
+            <label className="flex min-w-0 items-center gap-2">
               <span className="sr-only">{t.a11y.filterByRegion}</span>
               <select
                 value={region}
                 onChange={(event) => setRegion(event.target.value)}
-                className="h-10 rounded-sm border border-line bg-surface px-3 text-[0.8125rem] text-body focus:border-ink focus:outline-none"
+                className="h-10 max-w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-[0.8125rem] text-body focus:border-ink focus:outline-none"
               >
                 <option value="all">{t.tours.allRegions}</option>
                 {regions.map((item) => (
@@ -157,13 +157,13 @@ export function TourExplorer({ tours, regions }: TourExplorerProps) {
               </select>
             </label>
 
-            <label className="flex items-center gap-2">
+            <label className="flex min-w-0 items-center gap-2">
               <SlidersHorizontal size={15} className="text-muted" aria-hidden />
               <span className="sr-only">{t.a11y.sortTours}</span>
               <select
                 value={sort}
                 onChange={(event) => setSort(event.target.value as Sort)}
-                className="h-10 rounded-sm border border-line bg-surface px-3 text-[0.8125rem] text-body focus:border-ink focus:outline-none"
+                className="h-10 max-w-full min-w-0 rounded-sm border border-line bg-surface px-3 text-[0.8125rem] text-body focus:border-ink focus:outline-none"
               >
                 {sortOptions.map((option) => (
                   <option key={option.value} value={option.value}>
