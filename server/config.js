@@ -218,6 +218,11 @@ export const config = {
         // still blocks inventory — this interval is the worst-case delay.
         holdSweepIntervalMs: numberEnv('HOTEL_HOLD_SWEEP_INTERVAL_MS', 30 * 1000),
 
+        // How often confirmed stays whose check-out has passed roll to
+        // COMPLETED. Hourly is plenty: nothing a guest sees depends on it, and
+        // an order with a hotel in it waits on this to complete itself.
+        completionSweepIntervalMs: numberEnv('HOTEL_COMPLETION_SWEEP_INTERVAL_MS', 60 * 60 * 1000),
+
         // How often to look for kosher certificates that are about to lapse.
         //
         // Daily, and deliberately unhurried, because unlike the hold sweep this

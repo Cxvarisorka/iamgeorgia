@@ -104,11 +104,15 @@ describe('media', { skip: dbAvailable ? false : 'Postgres is not reachable' }, (
 
         // The single most important test in this file.
         it('refuses an executable wearing a .jpg name and an image content type', async () => {
-            const response = await upload(exeBuffer(), 'photo.jpg', 'image/jpeg');
+            // A name of its own: other suites' fixtures are also called
+            // `photo.jpg`, and they run in parallel with this one, so counting
+            // that name would count their rows too.
+            const filename = `photo-${Date.now()}.jpg`;
+            const response = await upload(exeBuffer(), filename, 'image/jpeg');
 
             assert.equal(response.status, 400);
             // The bytes win over both the extension and the declared type.
-            assert.equal(await prisma.fileAsset.count({ where: { originalFilename: 'photo.jpg' } }), 0);
+            assert.equal(await prisma.fileAsset.count({ where: { originalFilename: filename } }), 0);
         });
 
         it('refuses SVG outright', async () => {

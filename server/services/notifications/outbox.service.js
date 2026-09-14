@@ -1,7 +1,9 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 import { config } from '../../config.js';
 import { prisma } from '../../db/index.js';
 import { logger } from '../../lib/logger.js';
-import { driverPanelUrl, ratingUrl, sendMailQuietly } from '../../lib/mailer/index.js';
+import { bookingManageUrl, driverPanelUrl, portalUrl, ratingUrl, sendMail } from '../../lib/mailer/index.js';
 import { TOPICS } from '../../lib/outbox.js';
 import { issueRatingToken } from '../../lib/transfer/ratingToken.js';
 import { TRANSFER_OPS_ROLES } from '../../middleware/auth.js';
@@ -20,11 +22,27 @@ import { sqlStateOf } from '../../middleware/errors.js';
  *
  * Push and SMS are new entries in the channel table below; nothing else
  * changes when they arrive.
+ *
+ * Every handler sends with `sendMail`, which throws, and never with
+ * `sendMailQuietly`. That is deliberate and it is the whole retry story: a
+ * swallowed SMTP error would mark the event processed and the message would
+ * be gone for good, whereas a thrown one leaves the event for the next
+ * attempt. A handler here has no HTTP request to protect, so there is nothing
+ * a quiet failure would be buying.
  */
 
 const MAX_ATTEMPTS = 8;
 
 const backoffMs = (attempts) => Math.min(60 * 60_000, 30_000 * 2 ** Math.max(0, attempts - 1));
+
+/**
+ * The event a handler is running for, reachable from anywhere beneath it
+ * without threading it through every signature. Set by `processEvent`; read
+ * by `notify`, which needs it to keep a retried handler from handing out the
+ * same in-app notice twice.
+ */
+const processing = new AsyncLocalStorage();
+const currentEvent = () => processing.getStore()?.event ?? null;
 
 // --- Lookups ---------------------------------------------------------------
 
@@ -86,22 +104,55 @@ const partnerRecipient = async (booking) => {
  * the insert tried once more with whoever is still there.
  */
 const notify = async (recipients, { kind, title, body, payload = {}, entityType = null, entityId = null }) => {
+    const event = currentEvent();
+    const stamped = event ? { ...payload, outboxEventId: event.id } : payload;
+
+    // A retry is a handler that got part-way last time — most likely the
+    // relay refused the email that follows the notice. The people already
+    // told must not be told again, so on a retry (and only on a retry, which
+    // is what keeps the first attempt cheap) the notice is checked for first.
+    let pending = recipients;
+
+    if (event && event.attempts > 0 && recipients.length > 0) {
+        const already = await prisma.notification.findMany({
+            where: { kind, recipientUserId: { in: recipients }, payload: { path: ['outboxEventId'], equals: event.id } },
+            select: { recipientUserId: true }
+        });
+        const seen = new Set(already.map((row) => row.recipientUserId));
+        pending = recipients.filter((id) => !seen.has(id));
+    }
+
     const insert = (ids) =>
         ids.length === 0
             ? Promise.resolve()
             : prisma.notification.createMany({
-                  data: ids.map((recipientUserId) => ({ recipientUserId, kind, title, body, payload, entityType, entityId }))
+                  data: ids.map((recipientUserId) => ({
+                      recipientUserId,
+                      kind,
+                      title,
+                      body,
+                      payload: stamped,
+                      entityType,
+                      entityId
+                  }))
               });
 
-    try {
-        await insert(recipients);
-    } catch (err) {
-        if (sqlStateOf(err) !== '23503' && err?.code !== 'P2003') {
-            throw err;
-        }
+    // Bounded, not once: the ops list can lose two accounts in the same
+    // moment when several administrators are removed together, and a single
+    // re-read that then fails the same way would fail the whole event.
+    for (let attempt = 0; ; attempt += 1) {
+        try {
+            await insert(pending);
 
-        const stillThere = await prisma.user.findMany({ where: { id: { in: recipients } }, select: { id: true } });
-        await insert(stillThere.map((row) => row.id));
+            return;
+        } catch (err) {
+            if ((sqlStateOf(err) !== '23503' && err?.code !== 'P2003') || attempt >= 3) {
+                throw err;
+            }
+
+            const stillThere = await prisma.user.findMany({ where: { id: { in: pending } }, select: { id: true } });
+            pending = stillThere.map((row) => row.id);
+        }
     }
 };
 
@@ -185,7 +236,7 @@ const handlers = {
                 entityId: assignmentId
             });
 
-            await sendMailQuietly({
+            await sendMail({
                 to: driver.user.email,
                 template: 'transferAssignmentOffered',
                 data: { ...mailData(leg), driverName: driver.firstName, onBehalf, url: driverPanelUrl(assignmentId) }
@@ -221,7 +272,7 @@ const handlers = {
 
             const revealed = contactRevealed(leg);
 
-            await sendMailQuietly({
+            await sendMail({
                 to: recipient.email,
                 template: 'transferDriverAssigned',
                 data: { ...mailData(leg), ...driverLine(assignment), driverPhone: revealed ? assignment?.driver.phone : null }
@@ -256,7 +307,7 @@ const handlers = {
             entityId: assignmentId
         });
 
-        await sendMailQuietly({
+        await sendMail({
             to: driver.user.email,
             template: 'transferAssignmentRevoked',
             data: { ...mailData(leg), driverName: driver.firstName, reason }
@@ -325,7 +376,7 @@ const handlers = {
         });
 
         if (config.transfer.dispatch.opsEmail) {
-            await sendMailQuietly({
+            await sendMail({
                 to: config.transfer.dispatch.opsEmail,
                 template: 'transferUnassignedAlert',
                 data: mailData(leg)
@@ -366,7 +417,7 @@ const handlers = {
         });
 
         if (config.transfer.dispatch.opsEmail) {
-            await sendMailQuietly({ to: config.transfer.dispatch.opsEmail, template: 'tourRequestOverdue', data });
+            await sendMail({ to: config.transfer.dispatch.opsEmail, template: 'tourRequestOverdue', data });
         }
     },
 
@@ -378,7 +429,7 @@ const handlers = {
 
         if (!order || order.status !== 'CONFIRMED') return;
 
-        await sendMailQuietly({ to: order.leadEmail, template: 'orderConfirmed', data: orderMailData(order) });
+        await sendMail({ to: order.leadEmail, template: 'orderConfirmed', data: orderMailData(order) });
     },
 
     [TOPICS.ORDER_REQUESTED]: async ({ orderId }) => {
@@ -386,7 +437,7 @@ const handlers = {
 
         if (!order || order.status !== 'PENDING_CONFIRMATION') return;
 
-        await sendMailQuietly({ to: order.leadEmail, template: 'orderRequested', data: orderMailData(order) });
+        await sendMail({ to: order.leadEmail, template: 'orderRequested', data: orderMailData(order) });
     },
 
     [TOPICS.ORDER_ITEM_DECLINED]: async ({ orderId, slotIndex, reason }) => {
@@ -396,7 +447,7 @@ const handlers = {
 
         const item = order.items.find((candidate) => candidate.slotIndex === slotIndex);
 
-        await sendMailQuietly({
+        await sendMail({
             to: order.leadEmail,
             template: 'orderItemDeclined',
             data: { ...orderMailData(order), label: item?.label ?? 'A part of the order', reason }
@@ -408,7 +459,7 @@ const handlers = {
 
         if (!order) return;
 
-        await sendMailQuietly({
+        await sendMail({
             to: order.leadEmail,
             template: 'orderCancelled',
             data: { ...orderMailData(order), chargeCents: chargeCents ?? order.cancellationChargeCents ?? 0, reason: reason ?? null }
@@ -432,7 +483,7 @@ const handlers = {
         });
 
         if (config.transfer.dispatch.opsEmail) {
-            await sendMailQuietly({ to: config.transfer.dispatch.opsEmail, template: 'orderRequestOverdue', data });
+            await sendMail({ to: config.transfer.dispatch.opsEmail, template: 'orderRequestOverdue', data });
         }
     },
 
@@ -449,7 +500,7 @@ const handlers = {
             entityId: assignmentId
         });
 
-        await sendMailQuietly({
+        await sendMail({
             to: driver.user.email,
             template: 'transferPickupReminder',
             data: { ...mailData(leg), driverName: driver.firstName, url: driverPanelUrl(assignmentId) }
@@ -466,7 +517,7 @@ const handlers = {
         const addresses = new Set([leg.booking.leadPassengerEmail, recipient?.email].filter(Boolean));
 
         for (const to of addresses) {
-            await sendMailQuietly({
+            await sendMail({
                 to,
                 template: 'transferDriverDetails',
                 data: { ...mailData(leg), ...driverLine(assignment) }
@@ -481,7 +532,7 @@ const handlers = {
 
         const token = issueRatingToken({ legId, email: leg.booking.leadPassengerEmail });
 
-        await sendMailQuietly({
+        await sendMail({
             to: leg.booking.leadPassengerEmail,
             template: 'transferRatingInvite',
             data: { ...mailData(leg), ...driverLine(assignment), url: ratingUrl(token) }
@@ -499,7 +550,384 @@ const handlers = {
             body: 'Thank you for driving with us.',
             payload: { score }
         });
+    },
+
+    // --- standalone bookings: the guest -----------------------------------------
+    //
+    // Each handler re-reads the booking rather than trusting the payload: the
+    // email should describe the row as it is, and a payload is only ever an
+    // id plus whatever the facade knew that the row does not (a charge, a
+    // reason). A booking that has since been deleted has nobody to write to.
+
+    [TOPICS.HOTEL_BOOKING_CONFIRMED]: async ({ bookingId }) => {
+        const booking = await loadHotelBookingForMail(bookingId);
+        if (!booking) return;
+
+        await sendMail({ to: booking.leadGuestEmail, template: 'hotelBookingConfirmed', data: hotelGuestData(booking) });
+    },
+
+    [TOPICS.HOTEL_BOOKING_CANCELLED]: async ({ bookingId, chargeCents, reason }) => {
+        const booking = await loadHotelBookingForMail(bookingId);
+        if (!booking) return;
+
+        await sendMail({
+            to: booking.leadGuestEmail,
+            template: 'hotelBookingCancelled',
+            data: {
+                ...hotelGuestData(booking),
+                chargeCents: chargeCents ?? booking.cancellationChargeCents ?? 0,
+                reason: reason ?? booking.cancellationReason ?? null
+            }
+        });
+    },
+
+    [TOPICS.TOUR_BOOKING_CONFIRMED]: async ({ bookingId }) => {
+        const booking = await loadTourBookingForMail(bookingId);
+        if (!booking) return;
+
+        await sendMail({ to: booking.leadTravellerEmail, template: 'tourBookingConfirmed', data: tourGuestData(booking) });
+    },
+
+    [TOPICS.TOUR_BOOKING_REQUESTED]: async ({ bookingId }) => {
+        const booking = await loadTourBookingForMail(bookingId);
+        if (!booking) return;
+
+        await sendMail({ to: booking.leadTravellerEmail, template: 'tourBookingRequested', data: tourGuestData(booking) });
+    },
+
+    [TOPICS.TOUR_BOOKING_DECLINED]: async ({ bookingId, reason }) => {
+        const booking = await loadTourBookingForMail(bookingId);
+        if (!booking) return;
+
+        await sendMail({
+            to: booking.leadTravellerEmail,
+            template: 'tourBookingDeclined',
+            data: { ...tourGuestData(booking), reason: reason ?? booking.declineReason ?? null }
+        });
+    },
+
+    [TOPICS.TOUR_BOOKING_CANCELLED]: async ({ bookingId, chargeCents, reason }) => {
+        const booking = await loadTourBookingForMail(bookingId);
+        if (!booking) return;
+
+        await sendMail({
+            to: booking.leadTravellerEmail,
+            template: 'tourBookingCancelled',
+            data: {
+                ...tourGuestData(booking),
+                chargeCents: chargeCents ?? booking.cancellationChargeCents ?? 0,
+                reason: reason ?? booking.cancellationReason ?? null
+            }
+        });
+    },
+
+    [TOPICS.SERVICE_BOOKING_CONFIRMED]: async ({ bookingId }) => {
+        const booking = await loadServiceBookingForMail(bookingId);
+        if (!booking) return;
+
+        await sendMail({ to: booking.leadEmail, template: 'serviceBookingConfirmed', data: serviceGuestData(booking) });
+    },
+
+    [TOPICS.SERVICE_BOOKING_REQUESTED]: async ({ bookingId }) => {
+        const booking = await loadServiceBookingForMail(bookingId);
+        if (!booking) return;
+
+        await sendMail({ to: booking.leadEmail, template: 'serviceBookingRequested', data: serviceGuestData(booking) });
+    },
+
+    [TOPICS.SERVICE_BOOKING_DECLINED]: async ({ bookingId, reason }) => {
+        const booking = await loadServiceBookingForMail(bookingId);
+        if (!booking) return;
+
+        await sendMail({
+            to: booking.leadEmail,
+            template: 'serviceBookingDeclined',
+            data: { ...serviceGuestData(booking), reason: reason ?? booking.declineReason ?? null }
+        });
+    },
+
+    [TOPICS.SERVICE_BOOKING_CANCELLED]: async ({ bookingId, chargeCents, reason }) => {
+        const booking = await loadServiceBookingForMail(bookingId);
+        if (!booking) return;
+
+        await sendMail({
+            to: booking.leadEmail,
+            template: 'serviceBookingCancelled',
+            data: {
+                ...serviceGuestData(booking),
+                chargeCents: chargeCents ?? booking.cancellationChargeCents ?? 0,
+                reason: reason ?? booking.cancellationReason ?? null
+            }
+        });
+    },
+
+    // --- standalone bookings: the supplier --------------------------------------
+
+    [TOPICS.SUPPLIER_BOOKING_RECEIVED]: async ({ product, bookingId, requested }) => {
+        const view = await supplierViews[product]?.(bookingId);
+        if (!view) return;
+
+        const to = await supplierAddress(view);
+        if (!to) return;
+
+        await sendMail({
+            to: to.email,
+            template: 'supplierBookingReceived',
+            data: { ...view.data, requested: requested ?? view.data.requested, partnerName: to.name, url: portalUrl() }
+        });
+    },
+
+    [TOPICS.SUPPLIER_BOOKING_CANCELLED]: async ({ product, bookingId, reason }) => {
+        const view = await supplierViews[product]?.(bookingId);
+        if (!view) return;
+
+        const to = await supplierAddress(view);
+        if (!to) return;
+
+        await sendMail({
+            to: to.email,
+            template: 'supplierBookingCancelled',
+            data: { ...view.data, reason: reason ?? view.data.reason ?? null, partnerName: to.name, url: portalUrl() }
+        });
     }
+};
+
+// --- Standalone booking lookups ------------------------------------------------
+
+const count = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+const loadHotelBookingForMail = (id) =>
+    prisma.hotelBooking.findUnique({
+        where: { id },
+        include: { rooms: true, requests: true, hotel: { select: { name: true, email: true, supplierId: true } } }
+    });
+
+const loadTourBookingForMail = (id) =>
+    prisma.tourBooking.findUnique({
+        where: { id },
+        include: { tour: { select: { title: true, supplierId: true } } }
+    });
+
+const loadServiceBookingForMail = (id) =>
+    prisma.serviceBooking.findUnique({
+        where: { id },
+        include: { service: { select: { name: true, supplierId: true } } }
+    });
+
+/** What the guest's hotel emails read. Everything comes from the snapshot the voucher is built on. */
+const hotelGuestData = (booking) => {
+    const snapshot = booking.hotelSnapshot ?? {};
+
+    return {
+        reference: booking.reference,
+        leadName: booking.leadGuestName,
+        hotelName: snapshot.name ?? booking.hotel?.name ?? 'your hotel',
+        address: snapshot.address ?? null,
+        phone: snapshot.phone ?? null,
+        checkIn: booking.checkIn,
+        checkOut: booking.checkOut,
+        nights: booking.nights,
+        checkInFrom: snapshot.checkIn?.from ?? null,
+        rooms: booking.rooms.map((room) => ({
+            roomTypeName: room.roomTypeName,
+            ratePlanName: room.ratePlanName,
+            mealPlanName: room.mealPlanName,
+            adults: room.adults,
+            children: room.childAges?.length ?? 0
+        })),
+        currency: booking.currency,
+        // What the guest owes: the room price plus the taxes folded into it.
+        // `sellTotalCents` alone is the ex-tax figure the register shows staff,
+        // and a voucher that quoted it would be short by the tax.
+        totalCents: booking.sellTotalCents + (booking.taxTotalCents ?? 0),
+        payableAtPropertyCents: booking.payableAtPropertyCents ?? 0,
+        cancellationSummary: booking.rooms[0]?.cancellationSummary ?? null,
+        specialRequests: booking.specialRequests ?? null,
+        url: bookingManageUrl(booking.reference, booking.leadGuestEmail)
+    };
+};
+
+const tourGuestData = (booking) => {
+    const snapshot = booking.tourSnapshot ?? {};
+
+    return {
+        reference: booking.reference,
+        leadName: booking.leadTravellerName,
+        tourTitle: snapshot.title ?? booking.tour?.title ?? 'your tour',
+        optionName: snapshot.option?.name ?? null,
+        date: booking.date,
+        endDate: booking.endDate,
+        durationDays: snapshot.durationDays ?? 1,
+        meetingPoint: snapshot.meetingPointName ?? snapshot.meetingPoint ?? null,
+        departureTime: snapshot.option?.departureTime ?? snapshot.meetingTime ?? null,
+        travellers: booking.adults + (booking.childAges?.length ?? 0),
+        currency: booking.currency,
+        totalCents: booking.sellTotalCents,
+        cancellationSummary: booking.cancellationSummary ?? null,
+        requestDeadlineAt: booking.requestDeadlineAt ?? null,
+        wasRequest: booking.confirmationMode === 'ON_REQUEST',
+        url: bookingManageUrl(booking.reference, booking.leadTravellerEmail)
+    };
+};
+
+const serviceGuestData = (booking) => {
+    const snapshot = booking.serviceSnapshot ?? {};
+
+    return {
+        reference: booking.reference,
+        leadName: booking.leadName,
+        serviceName: snapshot.name ?? booking.service?.name ?? 'your booking',
+        date: booking.date,
+        endDate: booking.endDate,
+        days: booking.days,
+        quantity: booking.quantity,
+        pax: booking.pax,
+        currency: booking.currency,
+        totalCents: booking.sellTotalCents,
+        requestDeadlineAt: booking.requestDeadlineAt ?? null,
+        wasRequest: booking.confirmationMode === 'ON_REQUEST',
+        url: bookingManageUrl(booking.reference, booking.leadEmail)
+    };
+};
+
+/**
+ * The supplier's view of each product, shaped for the two shared templates.
+ * `directEmail` is the property's own address when it has one; `supplierId`
+ * is the partner company behind it, whose contact is the fallback.
+ */
+const supplierViews = {
+    hotel: async (bookingId) => {
+        const booking = await loadHotelBookingForMail(bookingId);
+        if (!booking) return null;
+
+        const snapshot = booking.hotelSnapshot ?? {};
+        const adults = booking.rooms.reduce((sum, room) => sum + room.adults, 0);
+        const children = booking.rooms.reduce((sum, room) => sum + (room.childAges?.length ?? 0), 0);
+        const first = booking.rooms[0];
+        const requests = booking.requests.map((request) => `${request.code}${request.note ? ` (${request.note})` : ''}`);
+
+        return {
+            supplierId: booking.hotel?.supplierId ?? null,
+            directEmail: snapshot.email ?? booking.hotel?.email ?? null,
+            data: {
+                product: 'hotel',
+                reference: booking.reference,
+                productName: snapshot.name ?? booking.hotel?.name ?? 'Hotel',
+                guestName: booking.leadGuestName,
+                guestEmail: booking.leadGuestEmail,
+                guestPhone: booking.leadGuestPhone ?? null,
+                from: booking.checkIn,
+                to: booking.checkOut,
+                party: [
+                    `${count(booking.rooms.length, 'room')} · ${count(adults, 'adult')}${children > 0 ? `, ${count(children, 'child', 'children')}` : ''}`,
+                    first ? `${first.roomTypeName} · ${first.ratePlanName} · ${first.mealPlanName}` : null
+                ]
+                    .filter(Boolean)
+                    .join('\n'),
+                currency: booking.currency,
+                netCents: booking.netTotalCents,
+                notes: [booking.specialRequests, ...requests].filter(Boolean).join('; ') || null,
+                requested: booking.status === 'PENDING',
+                reason: booking.cancellationReason ?? null
+            }
+        };
+    },
+
+    tour: async (bookingId) => {
+        const booking = await loadTourBookingForMail(bookingId);
+        if (!booking) return null;
+
+        const snapshot = booking.tourSnapshot ?? {};
+        const children = booking.childAges?.length ?? 0;
+
+        return {
+            supplierId: booking.tour?.supplierId ?? null,
+            directEmail: null,
+            data: {
+                product: 'tour',
+                reference: booking.reference,
+                productName: `${snapshot.title ?? booking.tour?.title ?? 'Tour'}${snapshot.option?.name ? ` · ${snapshot.option.name}` : ''}`,
+                guestName: booking.leadTravellerName,
+                guestEmail: booking.leadTravellerEmail,
+                guestPhone: booking.leadTravellerPhone ?? null,
+                from: booking.date,
+                to: booking.endDate,
+                party: `${count(booking.adults, 'adult')}${children > 0 ? `, ${count(children, 'child', 'children')}` : ''}${
+                    snapshot.option?.departureTime ? ` · departs ${snapshot.option.departureTime}` : ''
+                }`,
+                currency: booking.currency,
+                netCents: booking.netTotalCents,
+                notes: [booking.specialRequests, booking.pickupNote ? `Pick-up: ${booking.pickupNote}` : null].filter(Boolean).join('; ') || null,
+                requested: booking.status === 'PENDING',
+                reason: booking.cancellationReason ?? null
+            }
+        };
+    },
+
+    service: async (bookingId) => {
+        const booking = await loadServiceBookingForMail(bookingId);
+        if (!booking) return null;
+
+        const snapshot = booking.serviceSnapshot ?? {};
+
+        return {
+            supplierId: booking.service?.supplierId ?? null,
+            directEmail: null,
+            data: {
+                product: 'service',
+                reference: booking.reference,
+                productName: snapshot.name ?? booking.service?.name ?? 'Service',
+                guestName: booking.leadName,
+                guestEmail: booking.leadEmail,
+                guestPhone: booking.leadPhone ?? null,
+                from: booking.date,
+                to: booking.endDate,
+                party: `${count(booking.pax, 'person', 'people')}${booking.quantity > 1 ? ` · ${booking.quantity} units` : ''}${
+                    booking.days > 1 ? ` · ${count(booking.days, 'day')}` : ''
+                }`,
+                currency: booking.currency,
+                netCents: booking.netTotalCents,
+                notes: booking.notes ?? null,
+                requested: booking.status === 'PENDING',
+                reason: booking.cancellationReason ?? null
+            }
+        };
+    }
+};
+
+/**
+ * Who on the supplier's side to write to.
+ *
+ * The property's own address first, then the partner company's, then its
+ * primary contact's. A product with no supplier is run by the platform
+ * itself, and its bookings go to operations — the same address the overdue
+ * alerts use — so a new booking of a house tour is never a surprise. Null
+ * means there is genuinely nobody configured, which is logged and dropped
+ * rather than retried: a retry would not conjure an address.
+ */
+const supplierAddress = async ({ supplierId, directEmail }) => {
+    const partner = supplierId
+        ? await prisma.partner.findUnique({ where: { id: supplierId }, select: { name: true, email: true } })
+        : null;
+
+    if (directEmail) return { name: partner?.name ?? null, email: directEmail };
+    if (partner?.email) return { name: partner.name, email: partner.email };
+
+    if (supplierId) {
+        const contact = await prisma.user.findFirst({
+            where: { partnerId: supplierId, isActive: true },
+            orderBy: [{ isPrimaryContact: 'desc' }, { createdAt: 'asc' }],
+            select: { email: true }
+        });
+
+        if (contact) return { name: partner?.name ?? null, email: contact.email };
+    }
+
+    if (config.transfer.dispatch.opsEmail) return { name: 'Operations', email: config.transfer.dispatch.opsEmail };
+
+    logger.warn({ supplierId }, 'No supplier or operations address to notify about a booking');
+
+    return null;
 };
 
 // --- The drain ------------------------------------------------------------------
@@ -547,7 +975,7 @@ export const processEvent = async (event) => {
 
     try {
         if (handler) {
-            await handler(event.payload ?? {});
+            await processing.run({ event }, () => handler(event.payload ?? {}));
         } else {
             logger.warn({ topic: event.topic }, 'No handler for outbox topic');
         }

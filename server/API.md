@@ -222,6 +222,22 @@ guest amends theirs by quoting `email`.
 Names come from the **snapshot**, not the live hotel. **staff**:
 `netTotalCents`, `markupBps`, `marginCents`, `partner`, per-night `netCents`.
 
+Status: `CONFIRMED → CANCELLED | COMPLETED`. A confirmed stay rolls to
+`COMPLETED` (with `completedAt`) by a sweep once its check-out date is behind
+us (`HOTEL_COMPLETION_SWEEP_INTERVAL_MS`, hourly); a completed stay cannot be
+cancelled (409). Orders containing a hotel complete only after this has run.
+
+**Emails.** A standalone booking writes two outbox events with the booking and
+nothing is sent inside the request: the guest gets `hotelBookingConfirmed` (the
+voucher, with a manage link carrying `?email=`) and the property gets
+`supplierBookingReceived` at its own address, else its partner company's, else
+`TRANSFER_OPS_EMAIL`. Cancelling sends `hotelBookingCancelled` and
+`supplierBookingCancelled`. Tours and services do the same
+(`tourBookingRequested|Confirmed|Declined|Cancelled`,
+`serviceBooking…`); a booking made inside an order tells its supplier but the
+guest hears from the order (`orderConfirmed`, `orderItemDeclined`, …) instead.
+A refused email leaves the event unprocessed and it is retried with backoff.
+
 ## Transfers
 
 Point-to-point ground transport. The shape mirrors hotels — a signed quote

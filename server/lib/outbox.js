@@ -29,7 +29,29 @@ export const TOPICS = Object.freeze({
     ORDER_ITEM_DECLINED: 'order.item.declined',
     ORDER_CANCELLED: 'order.cancelled',
     ORDER_REQUEST_OVERDUE: 'order.request_overdue',
-    PACKAGE_KOSHER_ELIGIBILITY_CHANGED: 'package.kosher.eligibility_changed'
+    PACKAGE_KOSHER_ELIGIBILITY_CHANGED: 'package.kosher.eligibility_changed',
+
+    // The buyer's side of a standalone booking. Written by the facades only:
+    // a booking made as part of an order is described by the order's own
+    // emails, and a guest who bought one package should not get four
+    // confirmations for it.
+    HOTEL_BOOKING_CONFIRMED: 'hotel.booking.confirmed',
+    HOTEL_BOOKING_CANCELLED: 'hotel.booking.cancelled',
+    TOUR_BOOKING_CONFIRMED: 'tour.booking.confirmed',
+    TOUR_BOOKING_REQUESTED: 'tour.booking.requested',
+    TOUR_BOOKING_DECLINED: 'tour.booking.declined',
+    TOUR_BOOKING_CANCELLED: 'tour.booking.cancelled',
+    SERVICE_BOOKING_CONFIRMED: 'service.booking.confirmed',
+    SERVICE_BOOKING_REQUESTED: 'service.booking.requested',
+    SERVICE_BOOKING_DECLINED: 'service.booking.declined',
+    SERVICE_BOOKING_CANCELLED: 'service.booking.cancelled',
+
+    // The supplier's side. Written inside the `…InTx` functions, so the
+    // property, operator or provider hears about every booking of theirs,
+    // whether it was sold on its own or inside a package. `payload.product`
+    // says which table `bookingId` points into.
+    SUPPLIER_BOOKING_RECEIVED: 'supplier.booking.received',
+    SUPPLIER_BOOKING_CANCELLED: 'supplier.booking.cancelled'
 });
 
 /** Writes one event on the given client — a transaction handle, in practice. */

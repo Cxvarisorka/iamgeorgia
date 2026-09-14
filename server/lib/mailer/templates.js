@@ -23,8 +23,22 @@ export const portalUrl = () => link('/portal');
 export const driverPanelUrl = (assignmentId) => link(assignmentId ? `/driver/assignments/${assignmentId}` : '/driver');
 export const ratingUrl = (token) => link(`/transfers/rate/${token}`);
 
+/** Where a guest manages a standalone booking. The email is the credential, so it travels in the link. */
+export const bookingManageUrl = (reference, email) =>
+    link(`/booking/manage/${encodeURIComponent(reference)}?email=${encodeURIComponent(email)}`);
+
 const formatDate = (date) =>
     new Intl.DateTimeFormat('en-GB', { dateStyle: 'long', timeStyle: 'short', timeZone: 'UTC' }).format(date);
+
+/** A calendar date — a check-in, a departure — with no time attached. */
+const formatDay = (date) =>
+    new Intl.DateTimeFormat('en-GB', { dateStyle: 'long', timeZone: 'UTC' }).format(
+        date instanceof Date ? date : new Date(date)
+    );
+
+const hello = (name) => (name ? `Hello ${name},` : 'Hello,');
+const helloHtml = (name) => (name ? `Hello ${escapeHtml(name)},` : 'Hello,');
+const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
 /** The same, read as a wall clock somewhere in particular. */
 const formatLocal = (date, timeZone) =>
@@ -37,28 +51,130 @@ const formatMoney = (cents, currency) =>
     new Intl.NumberFormat('en-GB', { style: 'currency', currency }).format(cents / 100);
 
 /**
- * One plain wrapper for every message. Deliberately table-free and
- * inline-styled with a system font stack: transactional mail has to survive
- * clients that strip stylesheets, and a link that renders as a bare URL when
- * everything else fails is better than a button that disappears with it.
+ * The brand, as email clients allow it: the site's palette (`client/app/globals.css`)
+ * and the same serif-for-headings, sans-for-body pairing, but every value
+ * inlined and every box a table, because Outlook and Gmail strip stylesheets
+ * and ignore most CSS layout. Nothing is loaded from the network — no logo
+ * image, no web font — so the message looks the same with images blocked and
+ * cannot be used to track opens.
  */
-const layout = ({ heading, paragraphs, cta, footer }) => {
-    const body = paragraphs.map((line) => `<p style="margin:0 0 16px">${line}</p>`).join('\n      ');
+const BRAND = Object.freeze({
+    name: "I'am Georgia",
+    wordmark: "I'AM GEORGIA",
+    tagline: 'Discover Georgia Beyond the Ordinary',
+    address: '12 Erekle II Street, Old Tbilisi, 0105 Georgia',
+    email: 'hello@iamgeorgia.travel',
+    phone: '+995 32 255 0140',
+    // Palette
+    page: '#f1e8de',
+    card: '#ffffff',
+    line: '#e8ded4',
+    soft: '#faf6f1',
+    ink: '#20201d',
+    body: '#2e2e29',
+    muted: '#625f59',
+    green: '#496458',
+    gold: '#b8873f'
+});
+
+const SANS = "-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+const SERIF = "Georgia,'Times New Roman',serif";
+
+/**
+ * One wrapper for every message.
+ *
+ * `paragraphs` are already-escaped HTML fragments. `facts` are label/value
+ * pairs — the reference, the dates, the total — rendered as a ruled table, so
+ * the numbers a guest will scan for are never buried in a sentence. `cta`
+ * becomes a button, followed by the bare URL for clients that lose the
+ * button; a link that survives as text beats one that vanishes. `eyebrow` is
+ * the small line above the heading (a product name, a reference).
+ */
+const layout = ({ eyebrow, heading, paragraphs, facts = [], cta, footer, preheader }) => {
+    const body = paragraphs
+        .filter(Boolean)
+        .map((line) => `<p style="margin:0 0 14px;font:15px/1.6 ${SANS};color:${BRAND.body}">${line}</p>`)
+        .join('\n');
+
+    const table =
+        facts.filter((fact) => fact && fact.value !== null && fact.value !== undefined && fact.value !== '').length > 0
+            ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 22px;border:1px solid ${BRAND.line};border-radius:4px;background:${BRAND.soft}">
+${facts
+    .filter((fact) => fact && fact.value !== null && fact.value !== undefined && fact.value !== '')
+    .map(
+        (fact, index) => `  <tr>
+    <td style="padding:10px 14px;${index > 0 ? `border-top:1px solid ${BRAND.line};` : ''}font:600 11px/1.4 ${SANS};letter-spacing:.08em;text-transform:uppercase;color:${BRAND.muted};vertical-align:top;width:38%">${escapeHtml(fact.label)}</td>
+    <td style="padding:10px 14px;${index > 0 ? `border-top:1px solid ${BRAND.line};` : ''}font:${fact.strong ? '600 ' : ''}15px/1.5 ${SANS};color:${BRAND.ink};vertical-align:top">${fact.html ?? escapeHtml(fact.value)}</td>
+  </tr>`
+    )
+    .join('\n')}
+</table>`
+            : '';
 
     const button = cta
-        ? `<p style="margin:0 0 16px">
-        <a href="${escapeHtml(cta.url)}" style="display:inline-block;padding:12px 20px;background:#1f6f5c;color:#ffffff;text-decoration:none;border-radius:4px;font-weight:600">${escapeHtml(cta.label)}</a>
-      </p>
-      <p style="margin:0 0 16px;font-size:13px;color:#5b6b66">If the button does not work, paste this into your browser:<br><span style="word-break:break-all">${escapeHtml(cta.url)}</span></p>`
+        ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 10px">
+  <tr>
+    <td style="background:${BRAND.green};border-radius:4px">
+      <a href="${escapeHtml(cta.url)}" style="display:inline-block;padding:13px 24px;font:600 14px/1 ${SANS};color:#ffffff;text-decoration:none;letter-spacing:.02em">${escapeHtml(cta.label)}</a>
+    </td>
+  </tr>
+</table>
+<p style="margin:0 0 18px;font:12px/1.6 ${SANS};color:${BRAND.muted}">If the button does not work, paste this into your browser:<br><a href="${escapeHtml(cta.url)}" style="color:${BRAND.green};word-break:break-all">${escapeHtml(cta.url)}</a></p>`
         : '';
 
-    return `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1c2b27;max-width:560px;margin:0 auto;padding:24px">
-      <h1 style="font-size:20px;margin:0 0 20px">${escapeHtml(heading)}</h1>
-      ${body}
-      ${button}
-      <hr style="border:none;border-top:1px solid #e3e8e6;margin:24px 0">
-      <p style="margin:0;font-size:13px;color:#5b6b66">${footer ?? 'I am Georgia &middot; partner operations'}</p>
-    </div>`;
+    const hidden = preheader
+        ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;font-size:1px;line-height:1px">${escapeHtml(preheader)}</div>`
+        : '';
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>${escapeHtml(heading)}</title>
+</head>
+<body style="margin:0;padding:0;background:${BRAND.page}">
+${hidden}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${BRAND.page}">
+  <tr>
+    <td align="center" style="padding:32px 12px">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px">
+        <tr>
+          <td style="padding:0 6px 18px">
+            <span style="font:700 14px/1 ${SANS};letter-spacing:.2em;color:${BRAND.ink}">${escapeHtml(BRAND.wordmark)}</span>
+            <span style="display:inline-block;margin-left:12px;font:italic 13px/1 ${SERIF};color:${BRAND.muted}">${escapeHtml(BRAND.tagline)}</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:${BRAND.card};border:1px solid ${BRAND.line};border-top:4px solid ${BRAND.green};border-radius:6px">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="padding:34px 38px 30px">
+                  ${eyebrow ? `<p style="margin:0 0 10px;font:600 11px/1.4 ${SANS};letter-spacing:.14em;text-transform:uppercase;color:${BRAND.gold}">${escapeHtml(eyebrow)}</p>` : ''}
+                  <h1 style="margin:0 0 20px;font:400 26px/1.25 ${SERIF};color:${BRAND.ink}">${escapeHtml(heading)}</h1>
+                  ${body}
+                  ${table}
+                  ${button}
+                  ${footer ? `<p style="margin:18px 0 0;padding-top:16px;border-top:1px solid ${BRAND.line};font:13px/1.6 ${SANS};color:${BRAND.muted}">${footer}</p>` : ''}
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:22px 6px 0;text-align:center;font:12px/1.7 ${SANS};color:${BRAND.muted}">
+            ${escapeHtml(BRAND.name)} &middot; ${escapeHtml(BRAND.address)}<br>
+            <a href="mailto:${escapeHtml(BRAND.email)}" style="color:${BRAND.muted};text-decoration:underline">${escapeHtml(BRAND.email)}</a> &middot; ${escapeHtml(BRAND.phone)}<br>
+            <span style="color:#8a857c">You are receiving this because of a booking or an account with us. Replies reach a person.</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>`;
 };
 
 const plain = (lines) => lines.filter(Boolean).join('\n\n');
@@ -527,30 +643,534 @@ export const templates = {
         return {
             subject: `Your transfer is confirmed - ${reference}`,
             text: plain([
-                `${leadPassengerName ? `Hello ${leadPassengerName},` : 'Hello,'}`,
+                hello(leadPassengerName),
                 `Your transfer is booked. Quote ${reference} to your driver.`,
                 `${journey}\nPick-up: ${outbound}${back ? `\nReturn pick-up: ${back}` : ''}`,
-                `Vehicle: ${vehicleName}, for ${passengers} ${passengers === 1 ? 'passenger' : 'passengers'}`,
+                `Vehicle: ${vehicleName}, for ${plural(passengers, 'passenger')}`,
                 pickupAddress ? `Pick-up address: ${pickupAddress}` : null,
                 flightNumber ? `Flight: ${flightNumber}. We track it, so a delay moves your car rather than losing it.` : null,
                 pickupProcedure,
-                `Total paid: ${total}`
+                `Total: ${total}. No card was taken online; you settle with the driver on the day.`
             ]),
             html: layout({
+                eyebrow: `Transfer · ${reference}`,
                 heading: 'Your transfer is confirmed',
+                preheader: `${journey}, pick-up ${outbound}. Quote ${reference} to your driver.`,
                 paragraphs: [
-                    `${leadPassengerName ? `Hello ${escapeHtml(leadPassengerName)},` : 'Hello,'}`,
-                    `Reference <strong>${escapeHtml(reference)}</strong> - quote it to your driver.`,
-                    `<strong>${escapeHtml(journey)}</strong><br>Pick-up: ${escapeHtml(outbound)}${back ? `<br>Return pick-up: ${escapeHtml(back)}` : ''}`,
-                    `${escapeHtml(vehicleName)}, for ${passengers} ${passengers === 1 ? 'passenger' : 'passengers'}`,
-                    pickupAddress ? `Pick-up address: ${escapeHtml(pickupAddress)}` : null,
-                    flightNumber
-                        ? `Flight <strong>${escapeHtml(flightNumber)}</strong>. We track it, so a delay moves your car rather than losing it.`
-                        : null,
-                    escapeHtml(pickupProcedure),
-                    `Total paid: <strong>${escapeHtml(total)}</strong>`
-                ].filter(Boolean),
-                footer: 'Need to change something? Reply to this email and quote your reference.'
+                    helloHtml(leadPassengerName),
+                    `Your transfer is booked. Quote <strong>${escapeHtml(reference)}</strong> to your driver.`
+                ],
+                facts: [
+                    { label: 'Journey', value: journey, strong: true },
+                    { label: 'Pick-up', value: outbound },
+                    back ? { label: 'Return pick-up', value: back } : null,
+                    { label: 'Vehicle', value: `${vehicleName} · ${plural(passengers, 'passenger')}` },
+                    pickupAddress ? { label: 'Pick-up address', value: pickupAddress } : null,
+                    flightNumber ? { label: 'Flight', value: `${flightNumber} · tracked, so a delay moves your car` } : null,
+                    { label: 'Total', value: total, strong: true }
+                ],
+                footer: [
+                    pickupProcedure ? escapeHtml(pickupProcedure) : null,
+                    'No card was taken online; you settle with the driver on the day. Need to change something? Reply to this email and quote your reference.'
+                ]
+                    .filter(Boolean)
+                    .join('<br><br>')
+            })
+        };
+    },
+
+    // --- Standalone bookings: the guest's side ------------------------------------
+    //
+    // Nothing is charged online anywhere on the platform, and every one of
+    // these says so: a guest who reads "Total" as "Total paid" would arrive
+    // expecting nothing to settle. Dates are calendar dates and are shown
+    // without a time; the one time that matters — check-in from, departure —
+    // is a wall clock in the property's own zone and is quoted as written.
+
+    /** The hotel voucher. */
+    hotelBookingConfirmed: ({
+        reference,
+        leadName,
+        hotelName,
+        address,
+        phone,
+        checkIn,
+        checkOut,
+        nights,
+        checkInFrom,
+        rooms,
+        currency,
+        totalCents,
+        payableAtPropertyCents,
+        cancellationSummary,
+        specialRequests,
+        url
+    }) => {
+        const stay = `${formatDay(checkIn)} to ${formatDay(checkOut)} (${plural(nights, 'night')})`;
+        const roomLine = (room) =>
+            `${room.roomTypeName} · ${room.ratePlanName} · ${room.mealPlanName} · ${plural(room.adults, 'adult')}${
+                room.children > 0 ? `, ${plural(room.children, 'child', 'children')}` : ''
+            }`;
+        const total = formatMoney(totalCents, currency);
+        const atDesk = payableAtPropertyCents > 0 ? formatMoney(payableAtPropertyCents, currency) : null;
+        const settle = `Nothing has been charged online; payment is settled directly with the property.${
+            atDesk ? ` Of the total, ${atDesk} in local taxes and fees is collected at the desk.` : ''
+        }`;
+
+        return {
+            subject: `Your stay at ${hotelName} is confirmed - ${reference}`,
+            text: plain([
+                hello(leadName),
+                `Your booking at ${hotelName} is confirmed. Quote ${reference} at the desk.`,
+                `${hotelName}${address ? `\n${address}` : ''}${phone ? `\nTelephone: ${phone}` : ''}`,
+                `Stay: ${stay}${checkInFrom ? `\nCheck-in from ${checkInFrom}` : ''}`,
+                rooms.map(roomLine).join('\n'),
+                `Total: ${total}. ${settle}`,
+                cancellationSummary ? `Cancellation: ${cancellationSummary}` : null,
+                specialRequests ? `Your requests: ${specialRequests}` : null,
+                `Manage or cancel your booking:\n${url}`
+            ]),
+            html: layout({
+                eyebrow: `Hotel booking · ${reference}`,
+                heading: 'Your stay is confirmed',
+                preheader: `${hotelName}, ${stay}. Quote ${reference} at the desk.`,
+                paragraphs: [
+                    helloHtml(leadName),
+                    `Your booking at <strong>${escapeHtml(hotelName)}</strong> is confirmed. Quote <strong>${escapeHtml(
+                        reference
+                    )}</strong> at the desk.`
+                ],
+                facts: [
+                    {
+                        label: 'Property',
+                        html: `<strong>${escapeHtml(hotelName)}</strong>${address ? `<br>${escapeHtml(address)}` : ''}${
+                            phone ? `<br>${escapeHtml(phone)}` : ''
+                        }`,
+                        value: hotelName
+                    },
+                    { label: 'Stay', value: stay, strong: true },
+                    checkInFrom ? { label: 'Check-in', value: `From ${checkInFrom}` } : null,
+                    ...rooms.map((room, index) => ({
+                        label: rooms.length > 1 ? `Room ${index + 1}` : 'Room',
+                        value: roomLine(room)
+                    })),
+                    { label: 'Total', value: total, strong: true },
+                    cancellationSummary ? { label: 'Cancellation', value: cancellationSummary } : null,
+                    specialRequests ? { label: 'Your requests', value: specialRequests } : null
+                ],
+                cta: { label: 'Manage your booking', url },
+                footer: `${escapeHtml(settle)}<br><br>Need to change something? Reply to this email and quote your reference.`
+            })
+        };
+    },
+
+    hotelBookingCancelled: ({ reference, leadName, hotelName, checkIn, checkOut, currency, chargeCents, reason }) => {
+        const stay = `${formatDay(checkIn)} to ${formatDay(checkOut)}`;
+        const charge =
+            chargeCents > 0
+                ? `A cancellation charge of ${formatMoney(chargeCents, currency)} applies under the terms you accepted at booking.`
+                : 'No cancellation charge applies.';
+
+        return {
+            subject: `Your booking at ${hotelName} is cancelled - ${reference}`,
+            text: plain([
+                hello(leadName),
+                `Booking ${reference} at ${hotelName}, ${stay}, has been cancelled.`,
+                charge,
+                reason ? `Reason given: ${reason}` : null,
+                'If you did not ask for this, reply to this email straight away.'
+            ]),
+            html: layout({
+                eyebrow: `Hotel booking · ${reference}`,
+                heading: 'Your booking is cancelled',
+                preheader: `${hotelName}, ${stay} — cancelled. ${charge}`,
+                paragraphs: [helloHtml(leadName), `Your booking at <strong>${escapeHtml(hotelName)}</strong> has been cancelled.`],
+                facts: [
+                    { label: 'Reference', value: reference },
+                    { label: 'Stay', value: stay },
+                    { label: 'Cancellation charge', value: chargeCents > 0 ? formatMoney(chargeCents, currency) : 'None', strong: true },
+                    reason ? { label: 'Reason given', value: reason } : null
+                ],
+                footer: `${escapeHtml(charge)}<br><br>If you did not ask for this, reply to this email straight away.`
+            })
+        };
+    },
+
+    /** A tour that is booked — instantly, or after the operator said yes to a request. */
+    tourBookingConfirmed: ({
+        reference,
+        leadName,
+        tourTitle,
+        optionName,
+        date,
+        endDate,
+        durationDays,
+        meetingPoint,
+        departureTime,
+        travellers,
+        currency,
+        totalCents,
+        cancellationSummary,
+        wasRequest,
+        url
+    }) => {
+        const when =
+            durationDays > 1 ? `${formatDay(date)} to ${formatDay(endDate)} (${plural(durationDays, 'day')})` : formatDay(date);
+        const total = formatMoney(totalCents, currency);
+        const opening = wasRequest
+            ? `Good news: the operator has confirmed your request for ${tourTitle}.`
+            : `Your place on ${tourTitle} is confirmed.`;
+        const heading = wasRequest ? 'Your tour request is confirmed' : 'Your tour is confirmed';
+
+        return {
+            subject: `${heading} - ${reference}`,
+            text: plain([
+                hello(leadName),
+                `${opening} Quote ${reference} to your guide.`,
+                `${tourTitle}${optionName ? ` · ${optionName}` : ''}\n${when}${departureTime ? `\nDeparts ${departureTime}` : ''}`,
+                meetingPoint ? `Meeting point: ${meetingPoint}` : null,
+                `For ${plural(travellers, 'traveller')}.`,
+                `Total: ${total}. Nothing has been charged online; payment is settled with the operator.`,
+                cancellationSummary ? `Cancellation: ${cancellationSummary}` : null,
+                `Manage or cancel your booking:\n${url}`
+            ]),
+            html: layout({
+                eyebrow: `Tour booking · ${reference}`,
+                heading,
+                preheader: `${tourTitle}, ${when}. Quote ${reference} to your guide.`,
+                paragraphs: [helloHtml(leadName), `${escapeHtml(opening)} Quote <strong>${escapeHtml(reference)}</strong> to your guide.`],
+                facts: [
+                    { label: 'Tour', value: `${tourTitle}${optionName ? ` · ${optionName}` : ''}`, strong: true },
+                    { label: 'Date', value: when },
+                    departureTime ? { label: 'Departs', value: departureTime } : null,
+                    meetingPoint ? { label: 'Meeting point', value: meetingPoint } : null,
+                    { label: 'Travellers', value: String(travellers) },
+                    { label: 'Total', value: total, strong: true },
+                    cancellationSummary ? { label: 'Cancellation', value: cancellationSummary } : null
+                ],
+                cta: { label: 'Manage your booking', url },
+                footer: 'Nothing has been charged online; payment is settled with the operator.<br><br>Need to change something? Reply to this email and quote your reference.'
+            })
+        };
+    },
+
+    /** An on-request tour: the seats are held, the operator has yet to answer. */
+    tourBookingRequested: ({ reference, leadName, tourTitle, optionName, date, travellers, currency, totalCents, requestDeadlineAt, url }) => {
+        const answerBy = requestDeadlineAt ? `${formatDate(requestDeadlineAt)} UTC` : null;
+
+        return {
+            subject: `We have your tour request - ${reference}`,
+            text: plain([
+                hello(leadName),
+                `We have passed your request for ${tourTitle}${optionName ? ` (${optionName})` : ''} on ${formatDay(date)}, for ${plural(
+                    travellers,
+                    'traveller'
+                )}, to the operator.`,
+                `Your reference is ${reference}. The price of ${formatMoney(totalCents, currency)} is held for you and will not change.`,
+                answerBy
+                    ? `Operators usually answer within two days; we expect a reply by ${answerBy} and will email you the moment it arrives.`
+                    : 'We will email you the moment the operator answers.',
+                'Nothing has been charged, and nothing will be unless the operator confirms.',
+                `Follow your request:\n${url}`
+            ]),
+            html: layout({
+                eyebrow: `Tour request · ${reference}`,
+                heading: 'We have your request',
+                preheader: `${tourTitle} on ${formatDay(date)} — with the operator now. We will email you as soon as they answer.`,
+                paragraphs: [
+                    helloHtml(leadName),
+                    `We have passed your request to the operator. The price is held for you and will not change, and we will email you the moment they answer.`
+                ],
+                facts: [
+                    { label: 'Tour', value: `${tourTitle}${optionName ? ` · ${optionName}` : ''}`, strong: true },
+                    { label: 'Date', value: formatDay(date) },
+                    { label: 'Travellers', value: String(travellers) },
+                    { label: 'Price held', value: formatMoney(totalCents, currency), strong: true },
+                    answerBy ? { label: 'Answer expected by', value: answerBy } : null
+                ],
+                cta: { label: 'Follow your request', url },
+                footer: 'Nothing has been charged, and nothing will be unless the operator confirms.'
+            })
+        };
+    },
+
+    tourBookingDeclined: ({ reference, leadName, tourTitle, optionName, date, reason }) => ({
+        subject: `Your tour request could not be confirmed - ${reference}`,
+        text: plain([
+            hello(leadName),
+            `We are sorry: the operator was unable to confirm ${tourTitle}${optionName ? ` (${optionName})` : ''} on ${formatDay(
+                date
+            )}.`,
+            reason ? `Their reason: ${reason}` : null,
+            `Request ${reference} is closed and nothing has been charged.`,
+            'Other dates and other tours are on the site, and we are happy to help you find one - reply to this email.'
+        ]),
+        html: layout({
+            eyebrow: `Tour request · ${reference}`,
+            heading: 'Your request could not be confirmed',
+            preheader: `The operator could not confirm ${tourTitle} on ${formatDay(date)}. Nothing has been charged.`,
+            paragraphs: [
+                helloHtml(leadName),
+                `We are sorry: the operator was unable to confirm <strong>${escapeHtml(tourTitle)}${
+                    optionName ? ` (${escapeHtml(optionName)})` : ''
+                }</strong> on ${escapeHtml(formatDay(date))}. The request is closed and nothing has been charged.`
+            ],
+            facts: [
+                { label: 'Reference', value: reference },
+                { label: 'Date', value: formatDay(date) },
+                reason ? { label: 'Their reason', value: reason } : null
+            ],
+            footer: 'Other dates and other tours are on the site, and we are happy to help you find one - reply to this email.'
+        })
+    }),
+
+    tourBookingCancelled: ({ reference, leadName, tourTitle, date, currency, chargeCents, reason }) => {
+        const charge =
+            chargeCents > 0
+                ? `A cancellation charge of ${formatMoney(chargeCents, currency)} applies under the terms you accepted at booking.`
+                : 'No cancellation charge applies.';
+
+        return {
+            subject: `Your tour booking is cancelled - ${reference}`,
+            text: plain([
+                hello(leadName),
+                `Booking ${reference}, ${tourTitle} on ${formatDay(date)}, has been cancelled.`,
+                charge,
+                reason ? `Reason given: ${reason}` : null,
+                'If you did not ask for this, reply to this email straight away.'
+            ]),
+            html: layout({
+                eyebrow: `Tour booking · ${reference}`,
+                heading: 'Your tour booking is cancelled',
+                preheader: `${tourTitle} on ${formatDay(date)} — cancelled. ${charge}`,
+                paragraphs: [helloHtml(leadName), `Your booking for <strong>${escapeHtml(tourTitle)}</strong> has been cancelled.`],
+                facts: [
+                    { label: 'Reference', value: reference },
+                    { label: 'Date', value: formatDay(date) },
+                    { label: 'Cancellation charge', value: chargeCents > 0 ? formatMoney(chargeCents, currency) : 'None', strong: true },
+                    reason ? { label: 'Reason given', value: reason } : null
+                ],
+                footer: `${escapeHtml(charge)}<br><br>If you did not ask for this, reply to this email straight away.`
+            })
+        };
+    },
+
+    serviceBookingConfirmed: ({ reference, leadName, serviceName, date, endDate, days, quantity, pax, currency, totalCents, wasRequest, url }) => {
+        const when = days > 1 ? `${formatDay(date)} to ${formatDay(endDate)} (${plural(days, 'day')})` : formatDay(date);
+        const total = formatMoney(totalCents, currency);
+        const opening = wasRequest
+            ? `Good news: the provider has confirmed your request for ${serviceName}.`
+            : `Your booking for ${serviceName} is confirmed.`;
+        const heading = wasRequest ? 'Your request is confirmed' : 'Your booking is confirmed';
+        const party = `${plural(pax, 'person', 'people')}${quantity > 1 ? ` · ${quantity} units` : ''}`;
+
+        return {
+            subject: `${heading} - ${reference}`,
+            text: plain([
+                hello(leadName),
+                `${opening} Your reference is ${reference}.`,
+                `${serviceName}\n${when}\nFor ${party}.`,
+                `Total: ${total}. Nothing has been charged online; payment is settled with the provider.`,
+                `Manage or cancel your booking:\n${url}`
+            ]),
+            html: layout({
+                eyebrow: `Booking · ${reference}`,
+                heading,
+                preheader: `${serviceName}, ${when}. Reference ${reference}.`,
+                paragraphs: [helloHtml(leadName), `${escapeHtml(opening)} Your reference is <strong>${escapeHtml(reference)}</strong>.`],
+                facts: [
+                    { label: 'Service', value: serviceName, strong: true },
+                    { label: 'Date', value: when },
+                    { label: 'For', value: party },
+                    { label: 'Total', value: total, strong: true }
+                ],
+                cta: { label: 'Manage your booking', url },
+                footer: 'Nothing has been charged online; payment is settled with the provider.<br><br>Need to change something? Reply to this email and quote your reference.'
+            })
+        };
+    },
+
+    serviceBookingRequested: ({ reference, leadName, serviceName, date, pax, currency, totalCents, requestDeadlineAt, url }) => {
+        const answerBy = requestDeadlineAt ? `${formatDate(requestDeadlineAt)} UTC` : null;
+
+        return {
+            subject: `We have your request - ${reference}`,
+            text: plain([
+                hello(leadName),
+                `We have passed your request for ${serviceName} on ${formatDay(date)}, for ${plural(pax, 'person', 'people')}, to the provider.`,
+                `Your reference is ${reference}. The price of ${formatMoney(totalCents, currency)} is held for you and will not change.`,
+                answerBy ? `We expect a reply by ${answerBy} and will email you the moment it arrives.` : 'We will email you the moment the provider answers.',
+                'Nothing has been charged, and nothing will be unless the provider confirms.',
+                `Follow your request:\n${url}`
+            ]),
+            html: layout({
+                eyebrow: `Request · ${reference}`,
+                heading: 'We have your request',
+                preheader: `${serviceName} on ${formatDay(date)} — with the provider now. We will email you as soon as they answer.`,
+                paragraphs: [
+                    helloHtml(leadName),
+                    'We have passed your request to the provider. The price is held for you and will not change, and we will email you the moment they answer.'
+                ],
+                facts: [
+                    { label: 'Service', value: serviceName, strong: true },
+                    { label: 'Date', value: formatDay(date) },
+                    { label: 'For', value: plural(pax, 'person', 'people') },
+                    { label: 'Price held', value: formatMoney(totalCents, currency), strong: true },
+                    answerBy ? { label: 'Answer expected by', value: answerBy } : null
+                ],
+                cta: { label: 'Follow your request', url },
+                footer: 'Nothing has been charged, and nothing will be unless the provider confirms.'
+            })
+        };
+    },
+
+    serviceBookingDeclined: ({ reference, leadName, serviceName, date, reason }) => ({
+        subject: `Your request could not be confirmed - ${reference}`,
+        text: plain([
+            hello(leadName),
+            `We are sorry: the provider was unable to confirm ${serviceName} on ${formatDay(date)}.`,
+            reason ? `Their reason: ${reason}` : null,
+            `Request ${reference} is closed and nothing has been charged.`,
+            'We are happy to help you find an alternative - reply to this email.'
+        ]),
+        html: layout({
+            eyebrow: `Request · ${reference}`,
+            heading: 'Your request could not be confirmed',
+            preheader: `The provider could not confirm ${serviceName} on ${formatDay(date)}. Nothing has been charged.`,
+            paragraphs: [
+                helloHtml(leadName),
+                `We are sorry: the provider was unable to confirm <strong>${escapeHtml(serviceName)}</strong> on ${escapeHtml(
+                    formatDay(date)
+                )}. The request is closed and nothing has been charged.`
+            ],
+            facts: [{ label: 'Reference', value: reference }, { label: 'Date', value: formatDay(date) }, reason ? { label: 'Their reason', value: reason } : null],
+            footer: 'We are happy to help you find an alternative - reply to this email.'
+        })
+    }),
+
+    serviceBookingCancelled: ({ reference, leadName, serviceName, date, currency, chargeCents, reason }) => {
+        const charge =
+            chargeCents > 0
+                ? `A cancellation charge of ${formatMoney(chargeCents, currency)} applies under the terms you accepted at booking.`
+                : 'No cancellation charge applies.';
+
+        return {
+            subject: `Your booking is cancelled - ${reference}`,
+            text: plain([
+                hello(leadName),
+                `Booking ${reference}, ${serviceName} on ${formatDay(date)}, has been cancelled.`,
+                charge,
+                reason ? `Reason given: ${reason}` : null,
+                'If you did not ask for this, reply to this email straight away.'
+            ]),
+            html: layout({
+                eyebrow: `Booking · ${reference}`,
+                heading: 'Your booking is cancelled',
+                preheader: `${serviceName} on ${formatDay(date)} — cancelled. ${charge}`,
+                paragraphs: [helloHtml(leadName), `Your booking for <strong>${escapeHtml(serviceName)}</strong> has been cancelled.`],
+                facts: [
+                    { label: 'Reference', value: reference },
+                    { label: 'Date', value: formatDay(date) },
+                    { label: 'Cancellation charge', value: chargeCents > 0 ? formatMoney(chargeCents, currency) : 'None', strong: true },
+                    reason ? { label: 'Reason given', value: reason } : null
+                ],
+                footer: `${escapeHtml(charge)}<br><br>If you did not ask for this, reply to this email straight away.`
+            })
+        };
+    },
+
+    // --- Standalone bookings: the supplier's side ---------------------------------
+    //
+    // One pair of templates for hotels, tours and services alike: what a
+    // property, an operator and a provider each need to know is the same
+    // rooming-list information — who, when, how many, what they asked for,
+    // and what the platform owes them (the net side, never the sell).
+
+    supplierBookingReceived: ({
+        product,
+        reference,
+        productName,
+        partnerName,
+        guestName,
+        guestEmail,
+        guestPhone,
+        from,
+        to,
+        party,
+        currency,
+        netCents,
+        notes,
+        requested,
+        url
+    }) => {
+        const noun = { hotel: 'reservation', tour: 'booking', service: 'booking' }[product] ?? 'booking';
+        const dates = to && to.getTime() !== from.getTime() ? `${formatDay(from)} to ${formatDay(to)}` : formatDay(from);
+        const opening = requested
+            ? `A new request for ${productName} is waiting for your answer. Please confirm or decline it in the portal within two days.`
+            : `A new ${noun} for ${productName} has been made through I'am Georgia.`;
+        const net = formatMoney(netCents, currency);
+        const contact = `${guestName}${guestPhone ? ` · ${guestPhone}` : ''}${guestEmail ? ` · ${guestEmail}` : ''}`;
+
+        return {
+            subject: `${requested ? 'New request' : `New ${noun}`} - ${reference} - ${productName}`,
+            text: plain([
+                hello(partnerName),
+                opening,
+                `Reference: ${reference}\nDates: ${dates}\n${party}`,
+                `Guest: ${contact}`,
+                notes ? `Requests and notes: ${notes}` : null,
+                `Net amount due to you: ${net}. The guest settles with you directly; nothing was charged online.`,
+                `Open it in the portal:\n${url}`
+            ]),
+            html: layout({
+                eyebrow: `${requested ? 'Request' : `New ${noun}`} · ${reference}`,
+                heading: requested ? 'A request is waiting for you' : `New ${noun}: ${productName}`,
+                preheader: `${dates} · ${guestName} · net ${net}`,
+                paragraphs: [helloHtml(partnerName), escapeHtml(opening)],
+                facts: [
+                    { label: 'Reference', value: reference, strong: true },
+                    { label: 'Product', value: productName },
+                    { label: 'Dates', value: dates },
+                    { label: 'Party', html: escapeHtml(party).replaceAll('\n', '<br>'), value: party },
+                    { label: 'Guest', value: contact },
+                    notes ? { label: 'Requests and notes', value: notes } : null,
+                    { label: 'Net due to you', value: net, strong: true }
+                ],
+                cta: { label: requested ? 'Answer the request' : 'Open in the portal', url },
+                footer: 'The guest settles with you directly; nothing was charged online.'
+            })
+        };
+    },
+
+    supplierBookingCancelled: ({ product, reference, productName, partnerName, guestName, from, to, reason, url }) => {
+        const noun = { hotel: 'reservation', tour: 'booking', service: 'booking' }[product] ?? 'booking';
+        const dates = to && to.getTime() !== from.getTime() ? `${formatDay(from)} to ${formatDay(to)}` : formatDay(from);
+        const heading = `${noun.charAt(0).toUpperCase()}${noun.slice(1)} cancelled`;
+
+        return {
+            subject: `Cancelled - ${reference} - ${productName}`,
+            text: plain([
+                hello(partnerName),
+                `The ${noun} ${reference} for ${productName}, ${dates}, in the name of ${guestName}, has been cancelled. Please release it on your side.`,
+                reason ? `Reason given: ${reason}` : null,
+                `Details in the portal:\n${url}`
+            ]),
+            html: layout({
+                eyebrow: `Cancelled · ${reference}`,
+                heading,
+                preheader: `${productName}, ${dates}, ${guestName} — cancelled. Please release it on your side.`,
+                paragraphs: [
+                    helloHtml(partnerName),
+                    `The ${noun} below has been cancelled. Please release it on your side.`
+                ],
+                facts: [
+                    { label: 'Reference', value: reference, strong: true },
+                    { label: 'Product', value: productName },
+                    { label: 'Dates', value: dates },
+                    { label: 'Guest', value: guestName },
+                    reason ? { label: 'Reason given', value: reason } : null
+                ],
+                cta: { label: 'Open in the portal', url }
             })
         };
     }

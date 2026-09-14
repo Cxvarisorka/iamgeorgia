@@ -304,8 +304,26 @@ export const confirmTourBookingInTx = async (tx, prepared, { idempotencyKey, hol
         req
     });
 
+    // The operator hears about every booking of its tour, however it was
+    // sold; the traveller's own email is the facade's business.
+    await enqueueEvent(tx, {
+        topic: TOPICS.SUPPLIER_BOOKING_RECEIVED,
+        payload: { product: 'tour', bookingId: created.id, requested: onRequest },
+        entityType: AUDIT_ENTITY.tourBooking,
+        entityId: created.id
+    });
+
     return tx.tourBooking.findUnique({ where: { id: created.id }, include: tourBookingInclude });
 };
+
+/** The traveller's side of a fresh booking: a request or a confirmation, by what was written. */
+const enqueueTravellerEvent = (tx, booking, topic, payload = {}) =>
+    enqueueEvent(tx, {
+        topic,
+        payload: { bookingId: booking.id, ...payload },
+        entityType: AUDIT_ENTITY.tourBooking,
+        entityId: booking.id
+    });
 
 export const confirmTourBooking = async (input, actor, req) => {
     const idempotencyKey = deriveIdempotencyKey(input);
@@ -330,9 +348,17 @@ export const confirmTourBooking = async (input, actor, req) => {
     const prepared = await prepareTourBooking(input, actor);
 
     try {
-        const booking = await prisma.$transaction((tx) =>
-            confirmTourBookingInTx(tx, prepared, { idempotencyKey }, actor, req)
-        );
+        const booking = await prisma.$transaction(async (tx) => {
+            const created = await confirmTourBookingInTx(tx, prepared, { idempotencyKey }, actor, req);
+
+            await enqueueTravellerEvent(
+                tx,
+                created,
+                created.status === 'PENDING' ? TOPICS.TOUR_BOOKING_REQUESTED : TOPICS.TOUR_BOOKING_CONFIRMED
+            );
+
+            return created;
+        });
 
         return { booking, replayed: false };
     } catch (err) {
@@ -533,6 +559,13 @@ export const cancelTourBookingInTx = async (tx, booking, { reason, waiveCharges 
         req
     });
 
+    await enqueueEvent(tx, {
+        topic: TOPICS.SUPPLIER_BOOKING_CANCELLED,
+        payload: { product: 'tour', bookingId: booking.id, reason: reason ?? null },
+        entityType: AUDIT_ENTITY.tourBooking,
+        entityId: booking.id
+    });
+
     return { booking: cancelled, quote };
 };
 
@@ -551,7 +584,14 @@ export const cancelTourBooking = async (reference, { reason, email } = {}, actor
 
         assertMayRead(booking, actor, { email });
 
-        return cancelTourBookingInTx(tx, booking, { reason }, actor, req);
+        const result = await cancelTourBookingInTx(tx, booking, { reason }, actor, req);
+
+        await enqueueTravellerEvent(tx, booking, TOPICS.TOUR_BOOKING_CANCELLED, {
+            chargeCents: result.quote.chargeCents,
+            reason: reason ?? null
+        });
+
+        return result;
     });
 
 const assertPending = (booking) => {
@@ -637,13 +677,26 @@ const loadForOps = async (tx, reference) => {
     return booking;
 };
 
+// The standalone answers tell the traveller; an order's answers are told by
+// the order (`ORDER_CONFIRMED`, `ORDER_ITEM_DECLINED`), which is why the
+// `…InTx` functions above write nothing to the outbox themselves.
 export const confirmPendingTourBooking = (reference, actor, req) =>
-    prisma.$transaction(async (tx) => confirmPendingTourBookingInTx(tx, await loadForOps(tx, reference), actor, req));
+    prisma.$transaction(async (tx) => {
+        const confirmed = await confirmPendingTourBookingInTx(tx, await loadForOps(tx, reference), actor, req);
+
+        await enqueueTravellerEvent(tx, confirmed, TOPICS.TOUR_BOOKING_CONFIRMED);
+
+        return confirmed;
+    });
 
 export const declinePendingTourBooking = (reference, { reason }, actor, req) =>
-    prisma.$transaction(async (tx) =>
-        declinePendingTourBookingInTx(tx, await loadForOps(tx, reference), { reason }, actor, req)
-    );
+    prisma.$transaction(async (tx) => {
+        const declined = await declinePendingTourBookingInTx(tx, await loadForOps(tx, reference), { reason }, actor, req);
+
+        await enqueueTravellerEvent(tx, declined, TOPICS.TOUR_BOOKING_DECLINED, { reason });
+
+        return declined;
+    });
 
 const AMENDABLE_STATUSES = ['PENDING', 'CONFIRMED'];
 

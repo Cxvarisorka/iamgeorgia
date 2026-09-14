@@ -2497,6 +2497,10 @@ model HotelBooking {
   cancelledAt             DateTime? @map("cancelled_at")
   cancellationChargeCents Int?      @map("cancellation_charge_cents")
   cancellationReason      String?   @map("cancellation_reason")
+  /// Stamped by the completion sweep once check-out has passed. Tours and
+  /// services carry the same column; an order completes only when every
+  /// part has.
+  completedAt             DateTime? @map("completed_at")
 
   /// Where it came from: web, partner API, admin.
   source String @default("web")
@@ -3181,6 +3185,7 @@ enum AuditAction {
   BOOKING_CREATED
   BOOKING_CANCELLED
   BOOKING_AMENDED
+  BOOKING_COMPLETED
   HOLD_EXPIRED
   INVENTORY_RECONCILED
   PRICING_RULE_CREATED

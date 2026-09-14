@@ -1054,9 +1054,10 @@ export const sweepOverdueOrderRequests = async ({ now = new Date(), limit = 100 
 
 /**
  * Orders whose travel has ended and whose surviving items have all finished
- * roll to COMPLETED. A hotel booking never completes on its own today, so an
- * order with a hotel in it waits for operations — documented, and the
- * reason the hotel sweeper is the next thing to add.
+ * roll to COMPLETED. Every child table has its own completion sweep (hotel,
+ * service, tour; transfers complete through dispatch), and server.js runs the
+ * hotel and service sweeps immediately before this one so an order is judged
+ * against parts that have already been given the chance to finish.
  */
 export const sweepCompletedOrders = async ({ now = new Date(), limit = 200 } = {}) => {
     const yesterday = dateOnlyToUtc(addDays(now.toISOString().slice(0, 10), -1));

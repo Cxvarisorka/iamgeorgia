@@ -54,7 +54,9 @@ describe('email templates', () => {
 
             assert.ok(subject?.length > 5, `${name} subject`);
             assert.ok(text?.length > 40, `${name} text`);
-            assert.match(html, /^<div/, `${name} html`);
+            // A full document, not a fragment: the branded layout carries its
+            // own head so clients that honour it render the right charset.
+            assert.match(html, /^<!DOCTYPE html>/i, `${name} html`);
         }
     });
 

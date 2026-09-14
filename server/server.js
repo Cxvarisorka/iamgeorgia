@@ -9,6 +9,7 @@ import { drainOutbox } from './services/notifications/outbox.service.js';
 import { sweepReminders } from './services/transfer/reminder.service.js';
 import { auditTourSweep, sweepExpiredTourHolds } from './services/tour/availability.service.js';
 import { sweepCompletedTourBookings, sweepOverdueTourRequests } from './services/tour/booking.service.js';
+import { sweepCompletedHotelBookings } from './services/hotel/booking.service.js';
 import { sweepCompletedServiceBookings } from './services/service/booking.service.js';
 import { sweepCompletedOrders, sweepOverdueOrderRequests } from './services/order/order.service.js';
 import { sweepPackagePriceFrom } from './services/package/priceFrom.service.js';
@@ -123,11 +124,22 @@ const start = async () => {
 
     orderRequestSweeper.unref();
 
+    /**
+     * Children first, then the orders made of them: a stay whose check-out
+     * has passed and a service whose last day has passed roll to COMPLETED,
+     * and only then is each order asked whether every surviving part is done.
+     * Run the other way round, an order would wait a whole interval longer
+     * than it needed to.
+     */
     const orderCompletionSweeper = setInterval(() => {
-        sweepCompletedServiceBookings()
+        sweepCompletedHotelBookings()
+            .then(({ completed }) => {
+                if (completed > 0) logger.info({ completed }, 'Hotel stays completed');
+            })
+            .then(() => sweepCompletedServiceBookings())
             .then(() => sweepCompletedOrders())
             .catch((err) => logger.error({ err }, 'Order completion sweep failed'));
-    }, config.order.completionSweepIntervalMs);
+    }, Math.min(config.hotel.completionSweepIntervalMs, config.order.completionSweepIntervalMs));
 
     orderCompletionSweeper.unref();
 
@@ -155,6 +167,13 @@ const start = async () => {
         clearInterval(certificationSweeper);
         clearInterval(outboxDrainer);
         clearInterval(reminderSweeper);
+        clearInterval(tourHoldSweeper);
+        clearInterval(tourCompletionSweeper);
+        clearInterval(tourRequestSweeper);
+        clearInterval(orderRequestSweeper);
+        clearInterval(orderCompletionSweeper);
+        clearTimeout(packagePriceKickoff);
+        clearInterval(packagePriceSweeper);
 
         // A client holding a keep-alive socket can stop server.close() from
         // ever completing, so give in-flight requests a window and then take

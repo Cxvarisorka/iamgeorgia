@@ -79,7 +79,7 @@ lib/tokens.js          Random tokens; only their sha256 is ever stored
 lib/reference.js       Public references (PTR-000001, BKG-000001) from sequences
 lib/locales.js         The four locales, and the fallback to English
 lib/audit.js           recordAudit(), taking a transaction handle
-lib/mailer/            Transport selection and the six notification templates
+lib/mailer/            Transport selection and the notification templates
 middleware/errors.js   404 handler + central error handler
 middleware/auth.js     authenticate, requireRole, requireApprovedPartner
 middleware/validate.js zod request validation onto req.valid
@@ -388,8 +388,17 @@ enqueues an `OutboxEvent` in its own transaction, and
 `server.js` — under a transaction-scoped advisory lock, claiming a batch with
 a lease and processing it *outside* the transaction so an SMTP conversation
 never holds a connection. Handlers write `Notification` rows (the in-app
-channel) and send email through `sendMailQuietly`; a failed handler retries
-with backoff. `services/transfer/reminder.service.js` is the second sweeper:
+channel) and send email through `sendMail`, which throws — deliberately, since
+that is what makes a refused email a retried event rather than a lost one; a
+failed handler retries with backoff, and `Notification` rows are stamped with
+the event id so a retry does not repeat a notice already written.
+`sendMailQuietly` is for request handlers, where a failed notice must not fail
+the request. Standalone hotel, tour and service bookings use the same outbox:
+the facade writes the guest's event (`hotel.booking.confirmed`,
+`tour.booking.requested`, …) and the `…InTx` function writes the supplier's
+(`supplier.booking.received` / `…cancelled`), so a booking sold inside an
+order tells its supplier but leaves the guest to the order's own emails.
+`services/transfer/reminder.service.js` is the second sweeper:
 the driver's reminder, the passenger's driver details and the "still no
 driver" alert, each stamped on the leg in the statement that selects it so it
 fires once. Dispatch settings live under `config.transfer.dispatch`
@@ -475,6 +484,8 @@ as production would be, so it is held to the same list.
 | `DATABASE_POOL_MAX` | Pool size **per process** (default 10) |
 | `DATABASE_IDLE_TIMEOUT_MS` / `DATABASE_CONNECTION_TIMEOUT_MS` | Pool timeouts |
 | `SHUTDOWN_TIMEOUT_MS` | Grace period before shutdown is forced |
+| `HOTEL_COMPLETION_SWEEP_INTERVAL_MS` | How often confirmed stays past check-out roll to `COMPLETED` (default hourly); orders with a hotel wait on it |
+| `TOUR_OFFER_TOKEN_SECRET` / `PACKAGE_OFFER_TOKEN_SECRET` | Sign tour offers and package quotes; required outside development and test, like the hotel and transfer secrets |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` / `POSTGRES_PORT` | Consumed by `docker-compose.yml`; keep in sync with `DATABASE_URL` |
 
 Startup fails immediately if `DATABASE_URL` is missing, rather than booting a

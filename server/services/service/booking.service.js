@@ -5,6 +5,7 @@ import { config } from '../../config.js';
 import { ConflictError, ForbiddenError, NotFoundError, UnprocessableEntityError } from '../../lib/errors.js';
 import { assertReplayOwner } from '../../lib/idempotency.js';
 import { recordAudit, AUDIT_ENTITY } from '../../lib/audit.js';
+import { enqueueEvent, TOPICS } from '../../lib/outbox.js';
 import { nextServiceBookingReference } from '../../lib/reference.js';
 import { addDays, dateOnlyToUtc, nightsBetween, todayInTimezone, zonedTimeToInstant } from '../../lib/time.js';
 import { isAdmin, isTrade } from '../../middleware/auth.js';
@@ -229,8 +230,26 @@ export const confirmServiceBookingInTx = async (tx, prepared, { idempotencyKey }
         req
     });
 
+    // The provider hears about every booking of its service, however it was
+    // sold; the buyer's own email is the facade's business.
+    await enqueueEvent(tx, {
+        topic: TOPICS.SUPPLIER_BOOKING_RECEIVED,
+        payload: { product: 'service', bookingId: created.id, requested: onRequest },
+        entityType: AUDIT_ENTITY.serviceBooking,
+        entityId: created.id
+    });
+
     return created;
 };
+
+/** The buyer's side of a standalone booking; orders describe their own parts. */
+const enqueueBuyerEvent = (tx, booking, topic, payload = {}) =>
+    enqueueEvent(tx, {
+        topic,
+        payload: { bookingId: booking.id, ...payload },
+        entityType: AUDIT_ENTITY.serviceBooking,
+        entityId: booking.id
+    });
 
 export const confirmServiceBooking = async (input, actor, req) => {
     const idempotencyKey = deriveIdempotencyKey(input);
@@ -252,9 +271,17 @@ export const confirmServiceBooking = async (input, actor, req) => {
     const prepared = await prepareServiceBooking(input, actor);
 
     try {
-        const booking = await prisma.$transaction((tx) =>
-            confirmServiceBookingInTx(tx, prepared, { idempotencyKey }, actor, req)
-        );
+        const booking = await prisma.$transaction(async (tx) => {
+            const created = await confirmServiceBookingInTx(tx, prepared, { idempotencyKey }, actor, req);
+
+            await enqueueBuyerEvent(
+                tx,
+                created,
+                created.status === 'PENDING' ? TOPICS.SERVICE_BOOKING_REQUESTED : TOPICS.SERVICE_BOOKING_CONFIRMED
+            );
+
+            return created;
+        });
 
         return { booking, replayed: false };
     } catch (err) {
@@ -402,6 +429,13 @@ export const cancelServiceBookingInTx = async (tx, booking, { reason, waiveCharg
         req
     });
 
+    await enqueueEvent(tx, {
+        topic: TOPICS.SUPPLIER_BOOKING_CANCELLED,
+        payload: { product: 'service', bookingId: booking.id, reason: reason ?? null },
+        entityType: AUDIT_ENTITY.serviceBooking,
+        entityId: booking.id
+    });
+
     return { booking: cancelled, quote };
 };
 
@@ -411,7 +445,14 @@ export const cancelServiceBooking = async (reference, { reason, email } = {}, ac
 
         await assertNotInOrder(tx, 'serviceBookingId', booking.id);
 
-        return cancelServiceBookingInTx(tx, booking, { reason }, actor, req);
+        const result = await cancelServiceBookingInTx(tx, booking, { reason }, actor, req);
+
+        await enqueueBuyerEvent(tx, booking, TOPICS.SERVICE_BOOKING_CANCELLED, {
+            chargeCents: result.quote.chargeCents,
+            reason: reason ?? null
+        });
+
+        return result;
     });
 
 const assertPending = (booking) => {
@@ -472,13 +513,31 @@ export const declinePendingServiceBookingInTx = async (tx, booking, { reason }, 
     return declined;
 };
 
+// The standalone answers tell the buyer; an order's answers are told by the
+// order, which is why the `…InTx` functions above write nothing to the outbox.
 export const confirmPendingServiceBooking = (reference, actor, req) =>
-    prisma.$transaction(async (tx) => confirmPendingServiceBookingInTx(tx, await findServiceBookingOr404(reference, actor), actor, req));
+    prisma.$transaction(async (tx) => {
+        const confirmed = await confirmPendingServiceBookingInTx(tx, await findServiceBookingOr404(reference, actor), actor, req);
+
+        await enqueueBuyerEvent(tx, confirmed, TOPICS.SERVICE_BOOKING_CONFIRMED);
+
+        return confirmed;
+    });
 
 export const declinePendingServiceBooking = (reference, { reason }, actor, req) =>
-    prisma.$transaction(async (tx) =>
-        declinePendingServiceBookingInTx(tx, await findServiceBookingOr404(reference, actor), { reason }, actor, req)
-    );
+    prisma.$transaction(async (tx) => {
+        const declined = await declinePendingServiceBookingInTx(
+            tx,
+            await findServiceBookingOr404(reference, actor),
+            { reason },
+            actor,
+            req
+        );
+
+        await enqueueBuyerEvent(tx, declined, TOPICS.SERVICE_BOOKING_DECLINED, { reason });
+
+        return declined;
+    });
 
 /** CONFIRMED bookings whose last day has passed roll to COMPLETED. */
 export const sweepCompletedServiceBookings = async ({ now = new Date(), limit = 500 } = {}) => {

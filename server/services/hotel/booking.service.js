@@ -9,8 +9,9 @@ import {
 } from '../../lib/errors.js';
 import { assertReplayOwner } from '../../lib/idempotency.js';
 import { recordAudit, AUDIT_ENTITY } from '../../lib/audit.js';
+import { enqueueEvent, TOPICS } from '../../lib/outbox.js';
 import { nextHotelBookingReference } from '../../lib/reference.js';
-import { dateOnlyToUtc, nightsBetween, toDateOnly } from '../../lib/time.js';
+import { addDays, dateOnlyToUtc, nightsBetween, toDateOnly } from '../../lib/time.js';
 import { isAdmin } from '../../middleware/auth.js';
 import { readOfferToken } from '../../lib/hotel/offerToken.js';
 import { revalidateOffer } from './search.service.js';
@@ -435,6 +436,16 @@ export const confirmHotelBookingInTx = async (
         req
     });
 
+    // The property hears about every reservation of its rooms, however it
+    // was sold. The guest's own email is the facade's business: a booking
+    // inside an order is described by the order's confirmation instead.
+    await enqueueEvent(tx, {
+        topic: TOPICS.SUPPLIER_BOOKING_RECEIVED,
+        payload: { product: 'hotel', bookingId: created.id, requested: false },
+        entityType: AUDIT_ENTITY.booking,
+        entityId: created.id
+    });
+
     return tx.hotelBooking.findUnique({ where: { id: created.id }, include: bookingInclude });
 };
 
@@ -468,9 +479,21 @@ export const confirmBooking = async (input, actor, req) => {
     const prepared = await prepareHotelBooking(input, actor);
 
     try {
-        const booking = await prisma.$transaction((tx) =>
-            confirmHotelBookingInTx(tx, prepared, { idempotencyKey }, actor, req)
-        );
+        const booking = await prisma.$transaction(async (tx) => {
+            const created = await confirmHotelBookingInTx(tx, prepared, { idempotencyKey }, actor, req);
+
+            // Written with the booking, sent after it: the voucher and the
+            // row commit together, and a mail server having a bad afternoon
+            // cannot turn a confirmed room into a 500.
+            await enqueueEvent(tx, {
+                topic: TOPICS.HOTEL_BOOKING_CONFIRMED,
+                payload: { bookingId: created.id },
+                entityType: AUDIT_ENTITY.booking,
+                entityId: created.id
+            });
+
+            return created;
+        });
 
         return { booking, replayed: false, party: prepared.party };
     } catch (err) {
@@ -714,6 +737,13 @@ export const cancelHotelBookingInTx = async (tx, booking, { reason, waiveCharges
         req
     });
 
+    await enqueueEvent(tx, {
+        topic: TOPICS.SUPPLIER_BOOKING_CANCELLED,
+        payload: { product: 'hotel', bookingId: booking.id, reason: reason ?? null },
+        entityType: AUDIT_ENTITY.booking,
+        entityId: booking.id
+    });
+
     return { booking: cancelled, quote };
 };
 
@@ -732,7 +762,16 @@ export const cancelBooking = async (reference, { reason, email } = {}, actor, re
 
         assertMayRead(booking, actor, { email });
 
-        return cancelHotelBookingInTx(tx, booking, { reason }, actor, req);
+        const result = await cancelHotelBookingInTx(tx, booking, { reason }, actor, req);
+
+        await enqueueEvent(tx, {
+            topic: TOPICS.HOTEL_BOOKING_CANCELLED,
+            payload: { bookingId: booking.id, chargeCents: result.quote.chargeCents, reason: reason ?? null },
+            entityType: AUDIT_ENTITY.booking,
+            entityId: booking.id
+        });
+
+        return result;
     });
 
 /**
@@ -1019,4 +1058,58 @@ export const holdOffer = async (token, actor, req) => {
 };
 
 /** The include an order needs to read this product's bookings by the same shape. */
+/**
+ * Rolls confirmed stays whose check-out has passed to COMPLETED.
+ *
+ * Check-out is a calendar date; a stay is over once that date is behind us
+ * everywhere, so the cutoff is "check-out on or before yesterday, UTC" — a
+ * guest leaving Tbilisi at noon on the 10th is completed by the sweep on the
+ * 11th, never on the 10th while they are still at breakfast.
+ *
+ * No advisory lock: the conditional update is the guard. Two instances that
+ * both find the same row race to `updateMany where status = CONFIRMED`, one
+ * changes a row and writes the audit line, the other changes nothing and
+ * writes nothing. That is the same shape the service sweep uses, and it is
+ * safer than a session-scoped lock taken through a connection pool.
+ *
+ * Orders wait on this: `sweepCompletedOrders` completes an order only when
+ * every surviving part has, so this runs first in the same chain.
+ */
+export const sweepCompletedHotelBookings = async ({ now = new Date(), limit = 500 } = {}) => {
+    const yesterday = dateOnlyToUtc(addDays(now.toISOString().slice(0, 10), -1));
+
+    const due = await prisma.hotelBooking.findMany({
+        where: { status: 'CONFIRMED', checkOut: { lte: yesterday } },
+        select: { id: true, reference: true },
+        take: limit
+    });
+
+    let completed = 0;
+
+    for (const row of due) {
+        await prisma.$transaction(async (tx) => {
+            const { count } = await tx.hotelBooking.updateMany({
+                where: { id: row.id, status: 'CONFIRMED' },
+                data: { status: 'COMPLETED', completedAt: now }
+            });
+
+            if (count === 0) {
+                return;
+            }
+
+            await recordAudit(tx, {
+                action: 'BOOKING_COMPLETED',
+                actor: null,
+                entityType: AUDIT_ENTITY.booking,
+                entityId: row.id,
+                summary: `Completed ${row.reference}`,
+                metadata: { reference: row.reference }
+            });
+            completed += 1;
+        });
+    }
+
+    return { completed };
+};
+
 export const hotelBookingInclude = bookingInclude;

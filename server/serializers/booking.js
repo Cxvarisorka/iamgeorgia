@@ -76,6 +76,7 @@ export const toBookingSummary = (booking, viewer) => {
         createdAt: booking.createdAt,
         confirmedAt: booking.confirmedAt ?? null,
         cancelledAt: booking.cancelledAt ?? null,
+        completedAt: booking.completedAt ?? null,
         // A count, not the rows: a register needs to show which reservations
         // are still waiting on the property without a detail page's worth of
         // data per line. Zero when the booking carries no requirements at all,

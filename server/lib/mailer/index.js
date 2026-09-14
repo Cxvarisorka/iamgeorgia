@@ -17,6 +17,15 @@ export const clearOutbox = () => {
     outbox.length = 0;
 };
 
+/**
+ * Addresses the capture transport refuses to deliver to.
+ *
+ * A test seam and nothing else: it is read only inside `capture`, so it can
+ * never affect a real send. It exists so the suite can watch what the outbox
+ * does when the relay says no — the one path a green SMTP server never shows.
+ */
+export const failDeliveryTo = new Set();
+
 let smtpTransport;
 
 // Built on first use, not at import: a development process that never sends an
@@ -55,6 +64,10 @@ const dispatch = {
     },
 
     capture: (message, meta) => {
+        if (failDeliveryTo.has(message.to)) {
+            return Promise.reject(new Error(`Simulated delivery failure to ${message.to}`));
+        }
+
         outbox.push({ ...message, template: meta.template, url: meta.url, data: meta.data, sentAt: new Date() });
 
         return Promise.resolve({ transport: 'capture' });
