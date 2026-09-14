@@ -41,11 +41,3 @@ export const site = {
     streetAddress: "12 Erekle II Street, Old Tbilisi",
   },
 } as const;
-
-/** Trust signals reused by the header ribbon, about page and footer. */
-export const credentials = [
-  { value: "11 yrs", label: "Crafting journeys in Georgia" },
-  { value: "4,800+", label: "Travellers hosted" },
-  { value: "38", label: "Local guides & drivers" },
-  { value: "4.9/5", label: "Average traveller rating" },
-] as const;

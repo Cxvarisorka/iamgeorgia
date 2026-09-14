@@ -3,7 +3,6 @@ import { ArrowDown } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { Container } from "@/components/ui/Container";
-import { credentials } from "@/constants/site";
 import { getI18n } from "@/lib/i18n/server";
 
 /**
@@ -63,16 +62,22 @@ export async function Hero() {
         </div>
       </Container>
 
-      {/* Credential ribbon grounds the hero and gives the scroll somewhere to go. */}
+      {/*
+       * The ribbon grounds the hero and gives the scroll somewhere to go. It
+       * states what the platform does — live availability, local suppliers,
+       * four languages, terms shown up front — rather than figures, because
+       * there are no audited figures to show yet and an invented one is a
+       * claim a guest could hold us to.
+       */}
       <div
         className="animate-hero-rise relative border-t border-on-dark/15"
         style={{ animationDelay: "0.56s" }}
       >
         <Container>
           <dl className="grid grid-cols-2 gap-y-6 py-7 lg:grid-cols-4">
-            {credentials.map((item) => (
+            {t.studio.credentials.map((item) => (
               <div key={item.label} className="lg:px-2">
-                <dt className="type-h4 text-on-dark tabular-nums">{item.value}</dt>
+                <dt className="type-h4 text-on-dark">{item.value}</dt>
                 <dd className="type-caption mt-1 text-on-dark/60">{item.label}</dd>
               </div>
             ))}

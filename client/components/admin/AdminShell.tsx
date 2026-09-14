@@ -127,7 +127,7 @@ export function AdminShell({ badges, user, children }: AdminShellProps) {
             <Menu size={20} aria-hidden />
           </button>
 
-          {/* Presentational only — this prototype has no search index. */}
+          {/* Presentational only — the panel has no search index yet. */}
           <div className="relative min-w-0 flex-1 sm:max-w-sm">
             <Search
               size={16}
@@ -213,17 +213,6 @@ export function AdminShell({ badges, user, children }: AdminShellProps) {
             </div>
           </div>
         </header>
-
-        {/*
-          Saying precisely what is prototype matters more than a blanket
-          disclaimer: partners, hotels, transfers and bookings are live records
-          being written to, and an operator told everything is fake will not
-          trust them. Tours are the remainder.
-        */}
-        <p className="border-b border-brand/25 bg-brand-soft px-4 py-2 text-center text-[0.75rem] text-brand-text sm:px-6">
-          Partners, hotels, transfers and bookings are live. Tours are still
-          prototype data.
-        </p>
 
         <main id="admin-main" className="min-w-0 flex-1">
           {children}

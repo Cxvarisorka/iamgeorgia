@@ -1,3 +1,4 @@
+import { CookieNotice } from "@/components/layout/CookieNotice";
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
 import { getI18n } from "@/lib/i18n/server";
@@ -32,6 +33,7 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
         {children}
       </main>
       <Footer />
+      <CookieNotice />
     </>
   );
 }

@@ -1,3 +1,5 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
 import { MapPin } from "lucide-react";
@@ -7,6 +9,7 @@ import { KosherBadge } from "./KosherBadge";
 import { Button } from "@/components/ui/Button";
 import { ScoreBadge, Stars } from "@/components/ui/Rating";
 import { amenityLabels } from "@/data/amenities";
+import { useLocalePath } from "@/lib/i18n/provider";
 import type { Hotel } from "@/types";
 import { cn, formatPrice } from "@/lib/utils";
 
@@ -21,6 +24,10 @@ interface HotelListItemProps {
  * Shared by the hotels index and the homepage feature so the two stay identical.
  */
 export function HotelListItem({ hotel, className, priority }: HotelListItemProps) {
+  // Locale-aware, or a Georgian or Hebrew reader is bounced to English on click.
+  const path = useLocalePath();
+  const href = path(`/hotels/${hotel.slug}`);
+
   return (
     <article
       className={cn(
@@ -30,7 +37,7 @@ export function HotelListItem({ hotel, className, priority }: HotelListItemProps
     >
       <div className="flex flex-col gap-5 p-4 sm:flex-row sm:gap-6 sm:p-5">
         <Link
-          href={`/hotels/${hotel.slug}`}
+          href={href}
           tabIndex={-1}
           aria-hidden
           className="relative aspect-4/3 w-full shrink-0 overflow-hidden rounded-sm bg-line sm:aspect-square sm:w-56 lg:w-64"
@@ -53,7 +60,7 @@ export function HotelListItem({ hotel, className, priority }: HotelListItemProps
           </div>
 
           <h3 className="type-h3 mt-2">
-            <Link href={`/hotels/${hotel.slug}`} className="focus-visible:outline-offset-4">
+            <Link href={href} className="focus-visible:outline-offset-4">
               <span className="bg-[linear-gradient(currentColor,currentColor)] bg-[length:0%_1px] bg-left-bottom bg-no-repeat transition-[background-size] duration-400 ease-(--ease-out-soft) group-hover:bg-[length:100%_1px]">
                 {hotel.name}
               </span>
@@ -100,7 +107,7 @@ export function HotelListItem({ hotel, className, priority }: HotelListItemProps
                 <span className="type-h4 text-ink">{formatPrice(hotel.priceFrom)}</span>
                 <span className="type-caption block text-muted">per night</span>
               </p>
-              <Button href={`/hotels/${hotel.slug}`} size="sm">
+              <Button href={href} size="sm">
                 View property
               </Button>
             </div>

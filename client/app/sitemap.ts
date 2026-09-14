@@ -102,7 +102,18 @@ function entries(path: string, lastModified?: Date): MetadataRoute.Sitemap {
  * The pages that exist regardless of what is in the catalogue. Listed by hand
  * because they are routes, not records — there is nothing to read them from.
  */
-const STATIC_PATHS = ["/", "/tours", "/hotels", "/transfers", "/about", "/contact"];
+const STATIC_PATHS = [
+  "/",
+  "/tours",
+  "/hotels",
+  "/packages",
+  "/transfers",
+  "/about",
+  "/contact",
+  "/privacy",
+  "/terms",
+  "/cookies",
+];
 
 const modified = (value: string | undefined): Date | undefined => {
   if (!value) return undefined;

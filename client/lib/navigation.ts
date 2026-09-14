@@ -78,6 +78,14 @@ export function footerNavigation(t: UiDictionary): FooterGroup[] {
         { label: t.nav.account.portal, href: "/portal" },
       ],
     },
+    {
+      title: t.nav.groups.legal,
+      items: [
+        { label: t.nav.privacy, href: "/privacy" },
+        { label: t.nav.terms, href: "/terms" },
+        { label: t.nav.cookies, href: "/cookies" },
+      ],
+    },
   ];
 }
 

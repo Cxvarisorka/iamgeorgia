@@ -75,6 +75,9 @@ export const en = {
     about: "About",
     contact: "Contact",
     planTrip: "Plan a trip",
+    privacy: "Privacy policy",
+    terms: "Terms of service",
+    cookies: "Cookie policy",
     descriptions: {
       tours: "Multi-day journeys across the Caucasus",
       packages: "Stay, transfer and tour, booked as one",
@@ -101,6 +104,7 @@ export const en = {
     groups: {
       explore: "Explore",
       company: "Company",
+      legal: "Legal",
       follow: "Follow",
     },
   },
@@ -169,8 +173,6 @@ export const en = {
      */
     hourShort: "h",
     minuteShort: "m",
-    prototypeNotice:
-      "This is a front-end prototype. No booking is made, no payment is taken and nothing is stored.",
   },
 
   /**
@@ -338,7 +340,7 @@ export const en = {
     emailPlaceholder: "your@email.com",
     newsletterThanks: "Thank you — we'll be in touch.",
     newsletterError: "Please enter a valid email address.",
-    rights: "© {year} {name}. A front-end design prototype.",
+    rights: "© {year} {name}. All rights reserved.",
   },
 
   /** Studio contact details. Addresses and opening hours are read, not parsed. */
@@ -346,10 +348,10 @@ export const en = {
     address: "12 Erekle II Street, Old Tbilisi, 0105 Georgia",
     hours: "Mon–Sat · 09:00–19:00 (GMT+4)",
     credentials: [
-      { value: "11 yrs", label: "Crafting journeys in Georgia" },
-      { value: "4,800+", label: "Travellers hosted" },
-      { value: "38", label: "Local guides & drivers" },
-      { value: "4.9/5", label: "Average traveller rating" },
+      { value: "Live", label: "Real availability, confirmed instantly" },
+      { value: "Local", label: "Hotels, guides and drivers based in Georgia" },
+      { value: "4 languages", label: "English, Georgian, Russian and Hebrew" },
+      { value: "Clear terms", label: "Cancellation rules shown before you book" },
     ],
   },
 
@@ -985,7 +987,7 @@ export const en = {
     pets: "Pets",
     payment: "Payment",
     houseRules: "House rules",
-    mapPlaceholder: "Interactive map not included in this prototype.",
+    mapPlaceholder: "A map view is not available for this property. Use the address above for directions.",
     relatedEyebrow: "Other properties",
     relatedTitle: "You might also consider",
     notFound: "Property not found",
@@ -1332,7 +1334,7 @@ export const en = {
         },
       ],
       disclaimer:
-        "Transfers are a front-end prototype. Prices, providers and availability shown here are illustrative, and no booking is placed.",
+        "The fare you see is the fare you pay: it is fixed when you book, and your reference is confirmed by email. No card is needed — you settle with the driver, in cash or by card, on the day.",
     },
 
     search: {
@@ -1372,7 +1374,7 @@ export const en = {
       searchPlaceholder: "Airport, city, hotel or address",
       searchLabel: "Search {field} locations",
       noResults: "Nothing matches “{query}”. Try a city, or the airport code.",
-      note: "Prototype location list. A live product would search real addresses.",
+      note: "Pick-up points come from our transfer network — airports, cities, resorts and landmarks across Georgia. If your exact spot is not listed, choose the nearest one and add the address at checkout.",
       groups: {
         airport: "Airports",
         city: "Cities & towns",
@@ -1661,8 +1663,6 @@ export const en = {
       ],
       ifChanges: "If anything changes",
       ifChangesBody: "Quote your reference and we will move or cancel the transfer.",
-      prototypeNote:
-        "This is a front-end prototype. No transfer has been booked, no message has been sent and no payment has been taken. The reference above was generated in your browser.",
       viewDetails: "View transfer details",
       backHome: "Back to homepage",
       nothingTitle: "Nothing to confirm",
@@ -1681,65 +1681,279 @@ export const en = {
   about: {
     metaTitle: "About",
     metaDescription:
-      "I'am Georgia is a travel studio in Tbilisi designing private journeys across the Caucasus, run by Georgian guides, drivers and winemakers.",
-    heroEyebrow: "Since {year}",
-    heroTitle: "We are the people who kept telling you to visit",
+      "I'am Georgia is a Georgian travel platform for booking hotels, tours, transfers and packages from local partners — in four languages, with real availability and clear cancellation terms.",
+    heroEyebrow: "About the platform",
+    heroTitle: "A Georgian travel platform, built with local partners",
     heroDescription:
-      "A travel studio in Tbilisi, run by Georgians, for travellers who want more than the highlights.",
+      "Hotels, tours, transfers and packages across Georgia — with real availability, clear prices and cancellation terms you can read before you book.",
     heroImageAlt: "A Georgian church standing on mountain pasture",
-    startEyebrow: "How it started",
-    startTitle:
-      "It began because a friend from Berlin asked what there was to do in Georgia, and the honest answer took four hours.",
-    startBody1:
-      "In 2014 there were two of us: a mountain guide from Kazbegi and a former journalist who could not stop writing itineraries for visiting friends. We had no office, one second-hand Delica, and a conviction that the country was being undersold by everyone trying to sell it.",
-    startBody2:
-      "Eleven years later there are thirty-eight of us. We still argue about routes. We still take people to the same family in Kakheti, who now expect us in September and are offended if we are late.",
-    whyEyebrow: "Why Georgia",
-    whyTitle: "Three climate zones, five hours apart",
-    whyBody1:
-      "You can start the day on a Black Sea beach in Batumi and finish it at 2,200 metres in a village of stone towers where the language split from Georgian four thousand years ago. Very few countries this size can do that.",
-    whyBody2:
-      "Then there is the wine — eight thousand years of it, fermented in clay buried in the ground, a method UNESCO protects and Georgians simply call Tuesday.",
-    whyBody3:
-      "And there is the table. Georgian hospitality is not a service standard. It is a structural feature of the culture, and it will exhaust you in the best way.",
-    whyImageAlt: "Fog lying across the hills of the Khada gorge",
+    introEyebrow: "What this is",
+    introTitle: "One place to book a trip to Georgia, from the people who run it.",
+    introBody1:
+      "I'am Georgia brings together stays, tours, transfers and combined packages from local partners — hotels, guesthouses, tour operators and transfer companies working in Georgia. You book here; they host you.",
+    introBody2:
+      "The site works in English, Georgian, Russian and Hebrew, and every price you see is one that can actually be booked: rooms come with live availability, departures with real seats, and transfer fares are fixed the moment you confirm.",
+    howEyebrow: "How booking works",
+    howTitle: "Choose, confirm, pay on the spot",
+    howBody1:
+      "Pick a stay, tour or transfer for your dates and party. What we show is what the supplier can sell for those exact dates — not a brochure.",
+    howBody2:
+      "Confirm with the lead traveller's details and you receive a reference by email. Some tours are sold on request, in which case we say plainly that the operator still has to accept.",
+    howBody3:
+      "There is no online payment. You settle with the property, operator or driver directly, on the terms shown at checkout, and the cancellation policy you agreed to is the one that applies.",
+    howImageAlt: "Fog lying across the hills of the Khada gorge",
     valuesEyebrow: "What we hold to",
-    valuesTitle: "Four things we do not compromise on",
+    valuesTitle: "Four things you can expect",
     values: [
       {
-        title: "Local first, always",
+        title: "Local partners",
         description:
-          "Every guide, driver and cook we work with is Georgian and lives in the region they take you through. It is the only way the stories are first-hand.",
+          "Every stay, tour and transfer on this site is provided by a partner based in Georgia. The money you spend goes to the people doing the work.",
       },
       {
-        title: "We say no",
+        title: "Real availability",
         description:
-          "If a place is wrong for you, we will tell you — even when it is the thing everyone else is selling. Twelve people on a Tusheti road is not a holiday.",
+          "Dated searches return only what can be sold for those dates. We would rather show fewer results than rooms nobody can book.",
       },
       {
-        title: "Nothing is commissioned",
+        title: "Transparent terms",
         description:
-          "No hotel or winery pays to be in an itinerary. Our recommendations are worth exactly as much as our independence.",
+          "Prices, taxes and cancellation policies are shown before you confirm and repeated in your confirmation email. No surprise line at the end.",
       },
       {
-        title: "Leave it as we found it",
+        title: "Kosher-aware travel",
         description:
-          "Small groups, local guesthouses, and money that stays in the valleys we visit. Mountains do not recover quickly from being popular.",
+          "Properties and packages that offer kosher catering or facilities are marked, with the certification shown, so observant travellers can plan with confidence.",
       },
     ],
-    peopleEyebrow: "The people",
-    peopleTitle: "Thirty-eight guides, drivers, cooks and one very patient office",
-    peopleDescription:
-      "Our guides are climbers, sommeliers, archaeologists and shepherds' children. Several are all four.",
-    peopleImageAlts: [
+    sellEyebrow: "What you can book",
+    sellTitle: "Stays, tours, transfers — and the three arranged as one trip",
+    sellDescription:
+      "From a night in Tbilisi to a week across the Caucasus with the driver and guide already arranged, everything on this site is booked from local partners and confirmed by email.",
+    sellImageAlts: [
       "Guides walking a mountain trail",
       "A shepherd moving a flock in the highlands",
       "A Georgian polyphonic ensemble",
     ],
-    ctaTitle: "Come and argue with us about where you should go.",
+    ctaTitle: "Ready to plan?",
     ctaBody:
-      "Tell us how long you have, what you like eating and whether you would rather walk or be driven. We will send back a route.",
-    ctaBrowse: "Browse our tours",
+      "Browse what is available for your dates, or tell us about the trip you have in mind and we will help put it together.",
+    ctaPlan: "Get in touch",
+    ctaBrowse: "Browse tours",
+  },
+
+  /**
+   * The legal pages. `{address}`, `{email}` and `{name}` are filled from
+   * `constants/site` at render time, so the registered details live in one
+   * place rather than in four languages.
+   */
+  legal: {
+    templateNote:
+      "This text is a template prepared for I am Georgia LLC and is pending review by a qualified lawyer. It may change before it becomes final.",
+    privacy: {
+      metaTitle: "Privacy policy",
+      metaDescription:
+        "What personal data I am Georgia LLC collects when you book through iamgeorgia.travel, why, who it is shared with, how long it is kept and the rights you have.",
+      title: "Privacy policy",
+      updated: "Last updated: 14 September 2026",
+      intro:
+        "This policy explains what personal data {name} collects when you use this website, why we collect it, who we share it with and the rights you have over it.",
+      sections: [
+        {
+          heading: "Who we are",
+          body: [
+            "{name}, {address}, is the data controller for this website. You can reach us at {email}.",
+          ],
+        },
+        {
+          heading: "What we collect",
+          body: [
+            "When you book, we collect the lead guest's name, email address and phone number, the details of the stay, tour, transfer or package you booked, and any requests you add — for example dietary needs, a flight number or a pick-up note. For tours that require it, we may also collect passport details and nationality.",
+            "Partners, staff and drivers who sign in to the partner extranet or the driver panel give us a name, email address and password, and — for drivers — the documents needed to verify them.",
+            "We keep technical logs (IP address, browser, time of request) to keep the service secure and running.",
+          ],
+        },
+        {
+          heading: "Why we use it",
+          body: [
+            "To make, change and cancel bookings and pass them to the supplier who fulfils them; to send you confirmation, change and cancellation emails; to answer your enquiries; to verify partners and drivers; to prevent fraud and abuse; and to meet our legal obligations.",
+          ],
+        },
+        {
+          heading: "Legal bases",
+          body: [
+            "We process booking data because it is necessary to arrange the contract you ask us to make. We process account, security and log data on the basis of our legitimate interest in running a safe, reliable service. Where the law requires it — tax and accounting records, for example — we process data to meet a legal obligation. Where we rely on your consent, you can withdraw it at any time.",
+          ],
+        },
+        {
+          heading: "Who we share it with",
+          body: [
+            "The supplier that fulfils your booking — the property, tour operator or transfer driver — receives what they need to host you: the lead guest's name and contact details, the size of the party and your requests. The provider that delivers our emails processes the messages we send you.",
+            "We do not sell personal data and we do not share it with advertisers.",
+          ],
+        },
+        {
+          heading: "Payment",
+          body: [
+            "We take no payment online. You pay the property, operator or driver directly, so we never see or store card details.",
+          ],
+        },
+        {
+          heading: "How long we keep it",
+          body: [
+            "Booking records are kept for as long as needed to provide the service, and afterwards for the period Georgian tax and accounting law requires. Account data is kept while the account is active. Technical logs are kept for a short period and then deleted.",
+          ],
+        },
+        {
+          heading: "Your rights",
+          body: [
+            "You can ask for a copy of the data we hold about you, ask us to correct or delete it, object to or restrict certain processing, and ask for your data in a portable format. Write to {email} and we will answer within one month.",
+            "If you believe we have handled your data unlawfully, you may complain to the Personal Data Protection Service of Georgia or to the supervisory authority in your own country.",
+          ],
+        },
+        {
+          heading: "International transfers",
+          body: [
+            "Our servers and service providers may be located outside Georgia, including in the European Union. Where your data leaves your country we rely on appropriate safeguards, such as standard contractual clauses.",
+          ],
+        },
+        {
+          heading: "Changes and contact",
+          body: [
+            "We may update this policy as the service changes; the date at the top tells you when. Questions about it go to {email}.",
+          ],
+        },
+      ],
+    },
+    terms: {
+      metaTitle: "Terms of service",
+      metaDescription:
+        "The terms that govern bookings made through iamgeorgia.travel: our role as agent, how a booking is formed, prices, payment, cancellations, liability and governing law.",
+      title: "Terms of service",
+      updated: "Last updated: 14 September 2026",
+      intro:
+        "These terms govern your use of this website and every booking made through it. By making a booking you agree to them.",
+      sections: [
+        {
+          heading: "Who you are dealing with",
+          body: [
+            "{name} ({address}) operates this platform as an agent. The stays, tours, transfers and packages listed here are provided by independent partner suppliers — hotels, guesthouses, tour operators and transfer companies — and your contract for the service itself is with that supplier. We arrange the booking and pass it on.",
+          ],
+        },
+        {
+          heading: "How a booking is formed",
+          body: [
+            "A booking is confirmed when we send you a confirmation email carrying a booking reference. Until then no contract exists.",
+            "Some options are sold on request. We forward your request to the supplier, who may accept or decline it; you will hear back within the period stated on the page, and a declined request costs nothing.",
+          ],
+        },
+        {
+          heading: "Prices and currency",
+          body: [
+            "Prices are shown in Georgian lari (GEL) unless another currency is indicated, and include applicable taxes unless stated otherwise. The price shown at the moment you confirm is the price of your booking; if a price changes while you are completing checkout we show you the new price before you commit.",
+          ],
+        },
+        {
+          heading: "Payment",
+          body: [
+            "We take no payment online. You pay the property, operator or driver directly, on the terms shown at checkout — on arrival, for example, or to the driver on the day. Where a supplier requires a card to guarantee a room, that arrangement is between you and the supplier.",
+          ],
+        },
+        {
+          heading: "Changes and cancellations",
+          body: [
+            "Each booking carries the cancellation policy shown at checkout and repeated in your confirmation email. You can change or cancel through the Manage booking page using your reference and the email address the booking was made under. Any charge that applies is the one stated in that policy.",
+          ],
+        },
+        {
+          heading: "The supplier's responsibility",
+          body: [
+            "The supplier is responsible for delivering the service as described — the room, the tour, the vehicle. If something is wrong on the day, tell the supplier first and then us; we will help resolve it, but we do not own or operate the accommodation, vehicles or tours.",
+          ],
+        },
+        {
+          heading: "Your responsibility",
+          body: [
+            "You are responsible for giving accurate details, for holding valid travel documents, and for the conduct of your party. A supplier may refuse service to anyone who is abusive or unsafe.",
+          ],
+        },
+        {
+          heading: "Our liability",
+          body: [
+            "To the extent permitted by law, our liability is limited to our role as agent and to the value of the booking concerned. We are not liable for the acts or omissions of suppliers, for events outside our reasonable control, or for indirect losses.",
+          ],
+        },
+        {
+          heading: "Governing law",
+          body: [
+            "These terms are governed by the law of Georgia. Disputes that cannot be settled by agreement fall under the jurisdiction of the courts of Georgia, without prejudice to any mandatory consumer protection you enjoy where you live.",
+          ],
+        },
+        {
+          heading: "Contact",
+          body: ["Questions about these terms go to {email}."],
+        },
+      ],
+    },
+    cookies: {
+      metaTitle: "Cookie policy",
+      metaDescription:
+        "iamgeorgia.travel sets only strictly necessary cookies — a language preference and a sign-in session for partners and drivers. No analytics, no advertising.",
+      title: "Cookie policy",
+      updated: "Last updated: 14 September 2026",
+      intro:
+        "This site uses only the cookies it needs to work. There is no analytics, advertising or tracking cookie of any kind.",
+      sections: [
+        {
+          heading: "What a cookie is",
+          body: [
+            "A cookie is a small text file a website stores in your browser so it can recognise you on your next request — to remember a setting, or to keep you signed in.",
+          ],
+        },
+        {
+          heading: "Strictly necessary cookies",
+          body: [
+            "iag_locale — remembers the language you chose so the site opens in it next time. It is set for one year and contains nothing but the language code.",
+            "Session cookie — set only when a partner, member of staff or driver signs in to the partner extranet or the driver panel. It keeps you signed in and is removed when the session ends or you sign out.",
+          ],
+        },
+        {
+          heading: "What we do not use",
+          body: [
+            "No analytics cookies, no advertising cookies, no social media pixels and no third-party trackers. We do not build profiles of visitors.",
+          ],
+        },
+        {
+          heading: "Browser storage",
+          body: [
+            "Your browser's local and session storage hold a few conveniences that never leave your device: whether you dismissed the cookie notice, and a draft of your booking while you complete checkout so that a refresh does not lose your progress. Nothing in them is sent to us.",
+          ],
+        },
+        {
+          heading: "Managing cookies",
+          body: [
+            "You can delete or block cookies in your browser settings. Blocking the language cookie means the site picks a language from your browser on each visit; blocking the session cookie means you cannot sign in to the partner or driver areas.",
+          ],
+        },
+        {
+          heading: "Changes",
+          body: [
+            "If we ever add a cookie that is not strictly necessary, we will update this page and ask for your consent before setting it.",
+          ],
+        },
+        {
+          heading: "Contact",
+          body: ["Questions about cookies go to {email}."],
+        },
+      ],
+    },
+  },
+
+  cookieNotice: {
+    label: "Cookie notice",
+    body: "We only use cookies that are strictly necessary to run the site.",
+    link: "Cookie policy",
+    dismiss: "OK",
   },
 
   contact: {
@@ -1810,14 +2024,6 @@ export const en = {
         "December",
       ],
     },
-  },
-
-  requestModal: {
-    title: "Talk to a trip planner",
-    subtitle: "That's with our team",
-    successTitle: "Request received",
-    successBody:
-      "In a live product this is where you would receive a confirmation email and a reference number. Here, it is the end of the prototype flow.",
   },
 
   filters: {

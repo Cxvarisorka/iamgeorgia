@@ -359,7 +359,7 @@ export default async function HotelDetailPage(props: PageProps<"/[locale]/hotels
                 {hotel.address}
               </p>
 
-              {/* Deliberately not a live map — this prototype integrates no map service. */}
+              {/* No map service is wired to the public hotel page; the address carries the location. */}
               <div className="mt-6 flex items-center justify-center rounded-sm border border-dashed border-line bg-surface-earth/50 px-6 py-14 text-center">
                 <div>
                   <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-background text-brand-text">

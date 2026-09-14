@@ -19,7 +19,7 @@ import {
 } from "@/lib/hotels/filters";
 import { fill } from "@/lib/i18n/dictionaries";
 import { plural } from "@/lib/i18n/plural";
-import { useI18n } from "@/lib/i18n/provider";
+import { useI18n, useLocalePath } from "@/lib/i18n/provider";
 import type { UiDictionary } from "@/lib/i18n/ui/en";
 import type { Hotel } from "@/types";
 
@@ -50,6 +50,7 @@ interface HotelExplorerProps {
  */
 export function HotelExplorer({ hotels }: HotelExplorerProps) {
   const { t, locale } = useI18n();
+  const path = useLocalePath();
   const [filters, setFilters] = useState<HotelFilterState>(defaultFilters);
   const [sort, setSort] = useState<HotelSort>("recommended");
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -156,7 +157,7 @@ export function HotelExplorer({ hotels }: HotelExplorerProps) {
                   title={t.hotels.emptyTitle}
                   description={t.hotels.emptyBody}
                   onReset={reset}
-                  action={{ label: t.actions.askUsToFindOne, href: "/contact" }}
+                  action={{ label: t.actions.askUsToFindOne, href: path("/contact") }}
                 />
               </div>
             )}

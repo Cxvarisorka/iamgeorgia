@@ -5,6 +5,7 @@ import { Check, Info } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { useLocalePath } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
 
 interface FormValues {
@@ -57,6 +58,7 @@ const initialValues: FormValues = {
  * local success state — nothing is sent, stored or emailed.
  */
 export function ContactForm() {
+  const path = useLocalePath();
   const [values, setValues] = useState<FormValues>(initialValues);
   const [errors, setErrors] = useState<Errors>({});
   const [submitted, setSubmitted] = useState(false);
@@ -115,7 +117,7 @@ export function ContactForm() {
           >
             Send another
           </Button>
-          <Button href="/tours">Browse tours</Button>
+          <Button href={path("/tours")}>Browse tours</Button>
         </div>
       </motion.div>
     );
