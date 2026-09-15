@@ -126,24 +126,9 @@ services:
       #     name: iamgeorgia-redis
       #     property: connectionString
 
-  # --- Web app ---------------------------------------------------------------
-  # Delete this block if the client is hosted on Vercel instead.
-  - type: web
-    name: iamgeorgia-web
-    runtime: docker
-    region: frankfurt
-    plan: starter
-    rootDir: client
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
-    healthCheckPath: /
-    autoDeployTrigger: commit
-    envVars:
-      # Render exposes env vars as Docker build args, and the Dockerfile
-      # declares this one, so it is inlined into the bundle at build time.
-      # Set it to the API's public URL, e.g. https://api.iamgeorgia.travel
-      - key: NEXT_PUBLIC_API_URL
-        sync: false
+  # The Next.js client is hosted on Vercel (root directory `client`, env
+  # NEXT_PUBLIC_API_URL = this API's public URL). client/Dockerfile remains
+  # for the docker-compose.prod.yml alternative.
 
 # Shared rate-limit counters, needed only once the API has 2+ instances.
 # - type: keyvalue
