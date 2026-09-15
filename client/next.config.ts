@@ -5,9 +5,13 @@ const nextConfig: NextConfig = {
    * A self-contained build under .next/standalone: the traced server, only the
    * node_modules it imports, and nothing else. The Dockerfile copies that
    * folder rather than the whole tree, which is the difference between a
-   * 150 MB image and a 1 GB one. Vercel ignores this setting.
+   * 150 MB image and a 1 GB one.
+   *
+   * Not on Vercel: its builder does its own tracing and fails with a missing
+   * `next-server.js.nft.json` when standalone output is on. Vercel sets the
+   * VERCEL variable during every build, so the setting keys off that.
    */
-  output: "standalone",
+  ...(process.env.VERCEL ? {} : { output: "standalone" as const }),
 
   images: {
     /**
