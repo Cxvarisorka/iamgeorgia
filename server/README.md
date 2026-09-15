@@ -59,6 +59,7 @@ stack — is covered in [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md).
 | `npm run prisma:deploy` | Apply pending migrations (production) |
 | `npm run prisma:studio` | Browse the data in Prisma Studio |
 | `node scripts/create-admin.js <email> <first> <last>` | Create the first administrator |
+| `npm run seed:all` / `node scripts/seed-all.js [--no-demo] [--admin email …] [--dry-run]` | Every seed below in dependency order, stopping at the first failure. `--no-demo` leaves out the demo bookings, drivers and cars; `--admin you@x.com --first F --last L` bootstraps the administrator too; `seed:catalogue` is the `--no-demo` shorthand |
 | `node scripts/seed-reference.js` | Load the reference tables (amenities, bed types, meal plans, policy templates). Idempotent; re-run after editing `db/seed/*` |
 | `node scripts/check-media-storage.js` | Round-trip an object through the configured storage driver. Run after setting the R2 credentials — `npm test` only ever exercises the local driver |
 | `node scripts/seed-catalogue.js` | Seed the real catalogue from `client/data/*.ts`: destination tree, nine hotels with rooms, rate plans, a year of seasonal rates and inventory, and images through the media pipeline. Idempotent by slug; removes `smoke-*` test fixtures first |

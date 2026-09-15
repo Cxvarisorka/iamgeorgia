@@ -167,6 +167,16 @@ node scripts/create-admin.js you@example.com Your Name "Str0ngLocalPass!"
 
 ### 4.7 Optional: seed a catalogue worth testing
 
+One command runs every seed below in the right order and stops at the first
+failure. Add `--admin you@example.com` to create the administrator in the same
+run, or `--no-demo` to leave out the demo bookings, drivers and cars:
+
+```bash
+npm run seed:all
+```
+
+Or step by step:
+
 An empty database technically works, but every search returns nothing. To get
 real data:
 

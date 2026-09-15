@@ -13,8 +13,9 @@ pair for media (Cloudflare R2) and an SMTP relay for mail.
 
 Two supported ways to run it:
 
-- **Render** (recommended): `render.yaml` at the repo root creates the
-  database, the API and the web app from one Blueprint. Zero servers to patch.
+- **Render + Vercel** (what production runs): `render.yaml` at the repo root
+  creates the database and the API from one Blueprint; the Next.js client is
+  deployed by Vercel from the `client` folder. Zero servers to patch.
 - **One host with Docker Compose**: `docker-compose.prod.yml` runs everything,
   Caddy included, on a single VPS. Cheaper, and all the operations are yours.
 
@@ -61,12 +62,12 @@ Both use the same images and the same environment contract
 ### 3.1 Create everything from the Blueprint
 
 1. Render dashboard → **New → Blueprint** → pick this repository. Render reads
-   `render.yaml` and lists what it will create: `iamgeorgia-db`,
-   `iamgeorgia-api`, `iamgeorgia-web`.
+   `render.yaml` and lists what it will create: `iamgeorgia-db` and
+   `iamgeorgia-api`.
 2. It prompts for every variable marked `sync: false`. Fill them from the
    table below. Secrets marked `generateValue: true` are minted by Render.
-3. Approve. Render builds both images, applies the migrations through the
-   pre-deploy command, then starts the API and the web app.
+3. Approve. Render builds the API image, applies the migrations through the
+   pre-deploy command, then starts the API once `/health` answers.
 
 Region is `frankfurt` in the file — the closest to Georgia. Change it in
 `render.yaml` *before* the first apply; a database cannot move region later.
@@ -84,7 +85,6 @@ Region is `frankfurt` in the file — the closest to Georgia. Change it in
 | `MEDIA_S3_ACCESS_KEY_ID`, `MEDIA_S3_SECRET_ACCESS_KEY` | The R2 API token |
 | `MEDIA_PUBLIC_BUCKET`, `MEDIA_PRIVATE_BUCKET` | Bucket **names**, never URLs |
 | `MEDIA_PUBLIC_BASE_URL` | The public bucket's URL, e.g. `https://pub-….r2.dev` |
-| `NEXT_PUBLIC_API_URL` (web service) | `https://api.iamgeorgia.travel` |
 
 Everything else (`NODE_ENV`, `PORT`, `TRUST_PROXY=1`, `DATABASE_URL` from the
 database, the six signing secrets) is set by the Blueprint.
@@ -92,10 +92,16 @@ database, the six signing secrets) is set by the Blueprint.
 ### 3.3 Custom domains
 
 1. `iamgeorgia-api` → Settings → Custom Domains → add `api.iamgeorgia.travel`.
-2. `iamgeorgia-web` → add `iamgeorgia.travel` and `www.iamgeorgia.travel`.
-3. Create the CNAME/A records Render shows. Certificates are issued
-   automatically once DNS resolves.
-4. Only now does sign-in work end to end (rule 1 above).
+2. Vercel → project → Settings → Domains → add `iamgeorgia.travel` and
+   `www.iamgeorgia.travel`.
+3. Create the CNAME/A records each dashboard shows. Certificates are issued
+   automatically once DNS resolves. The domain itself must have nameservers
+   published first — if `nslookup iamgeorgia.travel` says "non-existent
+   domain", nothing under it can resolve yet.
+4. Set `CLIENT_ORIGIN` and `APP_URL` on the API to `https://iamgeorgia.travel`,
+   and `NEXT_PUBLIC_API_URL` on Vercel to `https://api.iamgeorgia.travel`, then
+   redeploy the client.
+5. Only now does sign-in work end to end (rule 1 above).
 
 ### 3.4 First-run tasks
 
@@ -107,6 +113,8 @@ node scripts/create-admin.js you@iamgeorgia.travel First Last
 node scripts/check-media-storage.js            # round-trips an object through R2
 ```
 
+Or seed the whole catalogue in one go from your machine — see §3.4a.
+
 The admin script prints an activation link; the email goes out through SMTP
 too. Then verify:
 
@@ -114,6 +122,29 @@ too. Then verify:
 curl https://api.iamgeorgia.travel/health       # {"status":"ok",...}
 curl https://api.iamgeorgia.travel/health/db    # {"status":"ok","now":"..."}
 ```
+
+### 3.4a Seeding the hosted database
+
+Two seed scripts read editorial files from `client/data`, which the API image
+does not contain, so seed from your machine against the hosted database:
+
+1. Database → **Access Control** → add your public IP, and copy the
+   **External Database URL** from the same page.
+2. In `server/`, point `DATABASE_URL` at it for this shell only and run the
+   combined seed. `--no-demo` leaves out the demo bookings, drivers and cars;
+   drop it on a staging system where you want them.
+
+   ```powershell
+   $env:DATABASE_URL = "<external url>?sslmode=require"
+   npm run seed:all -- --no-demo --admin you@iamgeorgia.travel --first First --last Last
+   Remove-Item Env:DATABASE_URL
+   ```
+
+   Images are pushed through the media pipeline into the R2 buckets named in
+   your local `.env`, which must be the same buckets the API is configured
+   with. A certificate error means the URL needs `?sslmode=no-verify` instead.
+3. Remove your IP from Access Control again. The API reaches the database
+   over the private network and never needs the public door.
 
 ### 3.5 Database plan, backups, access
 
@@ -139,12 +170,18 @@ curl https://api.iamgeorgia.travel/health/db    # {"status":"ok","now":"..."}
 | Read logs | Service → Logs. They are JSON (pino); search by `reqId`, `err.message`, `statusCode`. |
 | Scale the API to 2+ instances | Uncomment the `keyvalue` block and the `REDIS_URL` variable in `render.yaml`, and set `DATABASE_POOL_MAX` so `pool × instances` stays under the database's connection limit. |
 
-### 3.7 Client on Vercel instead
+### 3.7 The client on Vercel
 
-If you prefer Vercel for the Next.js app: delete the `iamgeorgia-web` block
-from `render.yaml`, import the repo in Vercel with **Root Directory** `client`,
-set `NEXT_PUBLIC_API_URL`, and attach `iamgeorgia.travel`. Nothing else
-changes; the `output: "standalone"` setting is ignored by Vercel.
+Import the repo in Vercel with **Root Directory** `client`, set
+`NEXT_PUBLIC_API_URL` to the API's public URL for the Production environment,
+and attach `iamgeorgia.travel`. Every push to `main` redeploys. The
+`output: "standalone"` setting in `next.config.ts` switches itself off under
+Vercel's builder (it keys off the `VERCEL` variable), so the same config
+serves both the Docker image and Vercel.
+
+To host the client on Render instead, add a second Docker web service with
+`rootDir: client` and `NEXT_PUBLIC_API_URL` as an env var — Render passes env
+vars as build args, which is what `client/Dockerfile` expects.
 
 ---
 
