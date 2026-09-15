@@ -150,6 +150,7 @@ media to a scratch directory so no test needs credentials or a network.
 | Document | What it covers |
 | --- | --- |
 | [docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md) | Running the whole platform locally, step by step, with troubleshooting |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Hosting it: Render Blueprint or one-host Docker Compose, domains, migrations, backups, CI |
 | [docs/API_TESTING_GUIDE.md](docs/API_TESTING_GUIDE.md) | Every endpoint with its exact expected result — written for testers |
 | [docs/postman/](docs/postman/) | Importable Postman collection, ~80 requests, each asserting its documented result |
 | [server/README.md](server/README.md) | Backend stack, layout, data model and every design decision behind it |
@@ -160,10 +161,11 @@ media to a scratch directory so no test needs credentials or a network.
 
 Both apps refuse to boot on bad configuration rather than starting a server
 that cannot serve anything. `server/.env.example` documents every variable in
-full; the ones that must be set in any deployed environment (anything other
-than `development` or `test`) are `AUTH_TOKEN_PEPPER`,
-`HOTEL_OFFER_TOKEN_SECRET`, `TRANSFER_QUOTE_TOKEN_SECRET`, the `SMTP_*`
-credentials, and the `MEDIA_S3_*` object-storage settings.
+full, and `server/.env.production.example` is the short list a deployed API
+needs. Outside `development` and `test` the server refuses to start without
+`CLIENT_ORIGIN`, `APP_URL`, `TRUST_PROXY`, `AUTH_TOKEN_PEPPER`, the five
+signing secrets (hotel, transfer, tour, package, rating), the `SMTP_*`
+credentials and the `MEDIA_S3_*` object-storage settings.
 
 Real `.env` files are never committed. Only the `*.example` templates and
 `server/.env.test` are in the repository.

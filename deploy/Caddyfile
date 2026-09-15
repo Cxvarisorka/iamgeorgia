@@ -1,0 +1,26 @@
+# Reverse proxy for docker-compose.prod.yml. Caddy obtains and renews the
+# certificates itself; the only requirement is that both DNS names already
+# point at this host before the stack is started.
+#
+# SITE_DOMAIN and API_DOMAIN come from the compose environment.
+
+{$SITE_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy web:3000
+}
+
+{$API_DOMAIN} {
+	encode zstd gzip
+	# Express sets its own security headers (helmet); Caddy only adds HSTS.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	# Uploads: the API caps images at 10 MB and documents at 25 MB.
+	request_body {
+		max_size 30MB
+	}
+	reverse_proxy api:5000
+}
+
+# Bare www → apex, so the session cookie has exactly one host.
+www.{$SITE_DOMAIN} {
+	redir https://{$SITE_DOMAIN}{uri} permanent
+}

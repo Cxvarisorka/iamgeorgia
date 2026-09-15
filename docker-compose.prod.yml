@@ -1,0 +1,116 @@
+# The whole platform on one host: Caddy for TLS, the Next.js app, the API, a
+# one-shot migration step and PostGIS. For a single VPS (Hetzner, DigitalOcean)
+# or a full production rehearsal on a laptop.
+#
+#   cp server/.env.production.example server/.env.production   # fill it in
+#   docker compose --env-file server/.env.production -f docker-compose.prod.yml up -d --build
+#
+# The --env-file is read twice: by Compose, to interpolate the ${...} values
+# below, and by the api/migrate services through `env_file`, which is why
+# DATABASE_URL is overridden — inside the network the database is called `db`.
+#
+# Rollout order is enforced, not hoped for: db healthy → migrate exits 0 →
+# api starts → api healthy → web starts. A failed migration stops the deploy
+# with the previous api still running.
+
+services:
+  db:
+    # PostGIS on postgres:17 — the schema uses geography(Point, 4326).
+    image: postgis/postgis:17-3.5-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-iamgeorgia}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the env file}
+      POSTGRES_DB: ${POSTGRES_DB:-iamgeorgia}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-iamgeorgia} -d ${POSTGRES_DB:-iamgeorgia}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    # No `ports`: nothing outside this network may reach the database.
+
+  migrate:
+    build: ./server
+    image: iamgeorgia-api
+    command: ["npx", "prisma", "migrate", "deploy"]
+    env_file: ${ENV_FILE:-server/.env.production}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-iamgeorgia}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-iamgeorgia}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: iamgeorgia-api
+    restart: unless-stopped
+    env_file: ${ENV_FILE:-server/.env.production}
+    environment:
+      NODE_ENV: production
+      PORT: "5000"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-iamgeorgia}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-iamgeorgia}
+      # Exactly one proxy (Caddy) in front of the API.
+      TRUST_PROXY: "1"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    # Longer than SHUTDOWN_TIMEOUT_MS (default 10 s), so in-flight bookings
+    # finish before the process is killed.
+    stop_grace_period: 20s
+    # Uncomment to run several instances; then also set REDIS_URL and lower
+    # DATABASE_POOL_MAX so pool x replicas stays under the Postgres limit.
+    # deploy:
+    #   replicas: 2
+
+  web:
+    build:
+      context: ./client
+      args:
+        # Inlined into the browser bundle: must be the URL a visitor can reach.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set NEXT_PUBLIC_API_URL, e.g. https://api.iamgeorgia.travel}
+    image: iamgeorgia-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      # The two hostnames Caddy obtains certificates for. Both must share a
+      # registrable domain — the session cookie is SameSite=Strict.
+      SITE_DOMAIN: ${SITE_DOMAIN:?set SITE_DOMAIN, e.g. iamgeorgia.travel}
+      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN, e.g. api.iamgeorgia.travel}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - api
+
+  # Only needed once `api` runs more than one replica.
+  # redis:
+  #   image: redis:7-alpine
+  #   restart: unless-stopped
+  #   command: ["redis-server", "--save", "", "--appendonly", "no"]
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

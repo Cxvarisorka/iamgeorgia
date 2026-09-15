@@ -1,0 +1,28 @@
+# Installed and generated inside the image, never copied in.
+node_modules
+generated
+
+# Secrets stay on the host; the container gets them through its environment.
+.env
+.env.*
+!.env.example
+
+# Uploaded media under the local storage driver.
+.media
+.media-test
+
+# Not needed at runtime.
+test
+docs
+*.md
+docker-compose*.yml
+Dockerfile
+.dockerignore
+.git
+.gitignore
+.claude
+.agents
+.windsurf
+skills-lock.json
+*.log
+npm-debug.log*

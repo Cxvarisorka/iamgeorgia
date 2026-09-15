@@ -1,0 +1,20 @@
+node_modules
+.next
+out
+build
+coverage
+
+# NEXT_PUBLIC_API_URL is a build argument; never bake a local env file in.
+.env
+.env.*
+!.env.local.example
+
+.git
+.gitignore
+.vercel
+.claude
+.agents
+*.md
+Dockerfile
+.dockerignore
+*.log

@@ -1,6 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  /**
+   * A self-contained build under .next/standalone: the traced server, only the
+   * node_modules it imports, and nothing else. The Dockerfile copies that
+   * folder rather than the whole tree, which is the difference between a
+   * 150 MB image and a 1 GB one. Vercel ignores this setting.
+   */
+  output: "standalone",
+
   images: {
     /**
      * Catalogue imagery comes from the media bucket the API serializes URLs

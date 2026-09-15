@@ -1,0 +1,154 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# One click from "New → Blueprint" creates the database, the API and the web
+# app. Values marked `sync: false` are prompted for in the dashboard on first
+# deploy and never written to this file; `generateValue: true` secrets are
+# minted by Render once and kept.
+#
+# After the first deploy, attach custom domains to both services. They MUST
+# share a registrable domain (iamgeorgia.travel + api.iamgeorgia.travel): the
+# session cookie is SameSite=Strict, and two *.onrender.com hosts are different
+# sites, so sign-in silently fails without this.
+
+databases:
+  - name: iamgeorgia-db
+    databaseName: iamgeorgia
+    user: iamgeorgia
+    plan: basic-256mb
+    region: frankfurt
+    postgresMajorVersion: "17"
+    # Internal access only. Add your office IP here if you need psql from
+    # outside; the API reaches the database over the private network.
+    ipAllowList: []
+
+services:
+  # --- API -------------------------------------------------------------------
+  - type: web
+    name: iamgeorgia-api
+    runtime: docker
+    region: frankfurt
+    plan: starter
+    rootDir: server
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Liveness. app.js keeps /health free of database work on purpose.
+    healthCheckPath: /health
+    # Runs in the freshly built image before it takes traffic. A failing
+    # migration cancels the deploy and the previous version keeps serving.
+    preDeployCommand: npx prisma migrate deploy
+    # Must exceed SHUTDOWN_TIMEOUT_MS (10 s) so in-flight requests finish.
+    maxShutdownDelaySeconds: 30
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "5000"
+      - key: LOG_LEVEL
+        value: info
+      - key: DATABASE_URL
+        fromDatabase:
+          name: iamgeorgia-db
+          property: connectionString
+      # Render's Basic Postgres allows ~97 connections; one API instance at 10
+      # leaves room for a second instance and a psql session.
+      - key: DATABASE_POOL_MAX
+        value: "10"
+      # Render terminates TLS and forwards through exactly one proxy.
+      - key: TRUST_PROXY
+        value: "1"
+      - key: SHUTDOWN_TIMEOUT_MS
+        value: "10000"
+
+      # The browser app's origin, e.g. https://iamgeorgia.travel
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: APP_URL
+        sync: false
+
+      # Secrets — generated once by Render, never seen by a human.
+      - key: AUTH_TOKEN_PEPPER
+        generateValue: true
+      - key: HOTEL_OFFER_TOKEN_SECRET
+        generateValue: true
+      - key: TRANSFER_QUOTE_TOKEN_SECRET
+        generateValue: true
+      - key: TOUR_OFFER_TOKEN_SECRET
+        generateValue: true
+      - key: PACKAGE_OFFER_TOKEN_SECRET
+        generateValue: true
+      - key: TRANSFER_RATING_TOKEN_SECRET
+        generateValue: true
+
+      # Mail
+      - key: MAIL_TRANSPORT
+        value: smtp
+      - key: MAIL_FROM
+        value: I am Georgia <no-reply@iamgeorgia.travel>
+      - key: MAIL_REPLY_TO
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: TRANSFER_OPS_EMAIL
+        sync: false
+
+      # Media on Cloudflare R2
+      - key: MEDIA_DRIVER
+        value: s3
+      - key: MEDIA_S3_ENDPOINT
+        sync: false
+      - key: MEDIA_S3_REGION
+        value: auto
+      - key: MEDIA_S3_ACCESS_KEY_ID
+        sync: false
+      - key: MEDIA_S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: MEDIA_PUBLIC_BUCKET
+        sync: false
+      - key: MEDIA_PRIVATE_BUCKET
+        sync: false
+      - key: MEDIA_PUBLIC_BASE_URL
+        sync: false
+
+      # Uncomment together with the keyvalue service below when scaling the
+      # API to more than one instance.
+      # - key: REDIS_URL
+      #   fromService:
+      #     type: keyvalue
+      #     name: iamgeorgia-redis
+      #     property: connectionString
+
+  # --- Web app ---------------------------------------------------------------
+  # Delete this block if the client is hosted on Vercel instead.
+  - type: web
+    name: iamgeorgia-web
+    runtime: docker
+    region: frankfurt
+    plan: starter
+    rootDir: client
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    autoDeployTrigger: commit
+    envVars:
+      # Render exposes env vars as Docker build args, and the Dockerfile
+      # declares this one, so it is inlined into the bundle at build time.
+      # Set it to the API's public URL, e.g. https://api.iamgeorgia.travel
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
+
+# Shared rate-limit counters, needed only once the API has 2+ instances.
+# - type: keyvalue
+#   name: iamgeorgia-redis
+#   region: frankfurt
+#   plan: free
+#   maxmemoryPolicy: allkeys-lru
+#   ipAllowList: []

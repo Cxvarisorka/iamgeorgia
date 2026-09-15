@@ -41,6 +41,9 @@ links are printed through the logger instead of being emailed. Set it to `smtp`
 with `SMTP_*` credentials to send for real; the test suite uses `capture`,
 which collects messages into an in-memory outbox the tests assert on.
 
+Deploying it — the Dockerfile, the Render Blueprint and the one-host Compose
+stack — is covered in [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md).
+
 ## Scripts
 
 | Script | What it does |
@@ -475,6 +478,7 @@ as production would be, so it is held to the same list.
 | `APP_URL` | Where the browser reaches the front end; every emailed link is built from it |
 | `AUTH_TOKEN_PEPPER` | Mixed into every token hash, so a database dump alone cannot rebuild a link |
 | `TRUST_PROXY` | Required behind a reverse proxy, or the per-IP rate limits protect nothing |
+| `REDIS_URL` | Shared rate-limit counters; required once the API runs on more than one instance |
 | `MAIL_TRANSPORT` | `smtp`, `log` (development) or `capture` (tests); anything else refuses to boot |
 | `MAIL_FROM`, `SMTP_*` | Mail credentials; required outside development and test |
 | `SMTP_CONNECTION_TIMEOUT_MS` / `SMTP_SOCKET_TIMEOUT_MS` | How long a send may wait on the relay (default 10s / 30s) |
@@ -486,6 +490,8 @@ as production would be, so it is held to the same list.
 | `SHUTDOWN_TIMEOUT_MS` | Grace period before shutdown is forced |
 | `HOTEL_COMPLETION_SWEEP_INTERVAL_MS` | How often confirmed stays past check-out roll to `COMPLETED` (default hourly); orders with a hotel wait on it |
 | `TOUR_OFFER_TOKEN_SECRET` / `PACKAGE_OFFER_TOKEN_SECRET` | Sign tour offers and package quotes; required outside development and test, like the hotel and transfer secrets |
+| `TRANSFER_RATING_TOKEN_SECRET` | Signs the rating links emailed after a transfer; required outside development and test |
+| `MEDIA_DRIVER` | `s3` or `local`; inferred from `MEDIA_S3_ENDPOINT` when unset, set explicitly in production |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` / `POSTGRES_PORT` | Consumed by `docker-compose.yml`; keep in sync with `DATABASE_URL` |
 
 Startup fails immediately if `DATABASE_URL` is missing, rather than booting a
