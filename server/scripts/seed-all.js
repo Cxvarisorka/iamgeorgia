@@ -54,7 +54,8 @@ const plan = [
                       adminEmail,
                       value('--first') || 'Admin',
                       value('--last') || 'I am Georgia',
-                      ...(value('--password') ? [value('--password')] : [])
+                      ...(value('--password') ? [value('--password')] : []),
+                      '--if-missing'
                   ],
                   why: 'the first administrator'
               }

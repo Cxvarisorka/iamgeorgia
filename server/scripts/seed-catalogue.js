@@ -12,11 +12,11 @@ import { addDays, todayInTimezone, dateOnlyToUtc, weekdayOf } from '../lib/time.
  *
  *   node scripts/seed-catalogue.js
  *
- * The prose in `client/data/hotels.ts` and `client/data/destinations.ts` is the
+ * The prose in `db/seed/hotels.js` and `db/seed/destinations.js` is the
  * platform's actual content — nine Georgian properties and eight destinations,
- * written for this product. Importing those files directly (Node strips their
- * type-only imports) keeps a single source of truth instead of a hand-copied
- * second one that would drift.
+ * written for this product. Both were client fixtures until the site started
+ * reading the catalogue from the API; they moved here with the seed that loads
+ * them, so the editorial source of truth lives beside the data model.
  *
  * What the fixtures cannot say, this file adds: the destination tree with real
  * coordinates, structured beds parsed from the prose bed lines, rate plans on
@@ -552,8 +552,8 @@ const seedHotel = async (fixture, destination, templates) => {
 
 const run = async () => {
     const [{ hotels }, { destinations }] = await Promise.all([
-        import('../../client/data/hotels.ts'),
-        import('../../client/data/destinations.ts')
+        import('../db/seed/hotels.js'),
+        import('../db/seed/destinations.js')
     ]);
 
     const [flexible, nonRefundable, payNow, mealPlanRows] = await Promise.all([

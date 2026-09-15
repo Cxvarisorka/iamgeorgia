@@ -12,11 +12,18 @@ import { emailField } from '../validation/normalize.js';
  * from an admin already inside the panel. Run as:
  *
  *   node scripts/create-admin.js tamar@iamgeorgia.travel Tamar Gelashvili [password]
+ *   node scripts/create-admin.js tamar@iamgeorgia.travel Tamar Gelashvili --if-missing
  *
  * With no password one is generated and printed once. It is never printed again
  * and cannot be recovered — use the password reset flow if it is lost.
+ *
+ * An existing account is an error, because running this twice by hand is
+ * almost always a mistake — except from `seed-all.js`, which is idempotent and
+ * passes `--if-missing` so a second seed of the same database leaves the
+ * account, and its changed password, alone.
  */
-const [, , rawEmail, firstName, lastName, rawPassword] = process.argv;
+const ifMissing = process.argv.includes('--if-missing');
+const [, , rawEmail, firstName, lastName, rawPassword] = process.argv.filter((arg) => arg !== '--if-missing');
 
 const usage = () => {
     console.error('Usage: node scripts/create-admin.js <email> <firstName> <lastName> [password]');
@@ -40,6 +47,11 @@ const run = async () => {
     const existing = await prisma.user.findUnique({ where: { email } });
 
     if (existing) {
+        if (ifMissing) {
+            console.log(`An account already exists for ${email} (role ${existing.role}) — left as is.`);
+            return;
+        }
+
         console.error(`An account already exists for ${email} (role ${existing.role}).`);
         process.exitCode = 1;
         return;
