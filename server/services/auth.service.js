@@ -24,6 +24,10 @@ const cookieOptions = () => ({
     // and its session cookies are just as interceptable, so anything that is
     // not a developer's machine or the test suite gets `Secure`.
     secure: config.isDeployed,
+    // Only when configured: `undefined` leaves the attribute out entirely,
+    // which keeps the cookie host-only. Shared with clearSessionCookie, since a
+    // cookie is only removed by a Set-Cookie naming the same domain and path.
+    domain: config.auth.cookieDomain,
     path: '/',
     maxAge: config.auth.sessionTtlMs
 });

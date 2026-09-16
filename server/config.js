@@ -147,6 +147,16 @@ export const config = {
     auth: {
         cookieName: process.env.AUTH_COOKIE_NAME || 'iag_session',
 
+        // Unset, the cookie is host-only: it belongs to the API's own host and
+        // is never sent to the site. That is fine locally, where cookies ignore
+        // ports, but a deployed site on its own host renders the panels on the
+        // server with the cookies *it* received — so there the cookie must name
+        // the domain both hosts share, e.g. `preview.iamgeorgia.com.ge` for
+        // preview.iamgeorgia.com.ge + api.preview.iamgeorgia.com.ge. The
+        // narrowest one: a parent domain would leak it to every other
+        // environment under it.
+        cookieDomain: process.env.AUTH_COOKIE_DOMAIN || undefined,
+
         // Long-lived because the cookie is revocable server-side: a suspension
         // kills the session row, so a generous TTL costs nothing in safety.
         sessionTtlMs: numberEnv('SESSION_TTL_MS', 30 * 24 * 60 * 60 * 1000),

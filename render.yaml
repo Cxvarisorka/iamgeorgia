@@ -8,7 +8,8 @@
 # After the first deploy, attach custom domains to both services. They MUST
 # share a registrable domain (iamgeorgia.travel + api.iamgeorgia.travel): the
 # session cookie is SameSite=Strict, and two *.onrender.com hosts are different
-# sites, so sign-in silently fails without this.
+# sites, so sign-in silently fails without this. AUTH_COOKIE_DOMAIN must then
+# name the domain they share (see below), or the site never sees the cookie.
 
 databases:
   - name: iamgeorgia-db
@@ -64,6 +65,16 @@ services:
       - key: CLIENT_ORIGIN
         sync: false
       - key: APP_URL
+        sync: false
+      # The domain the site and the API share, so the session cookie reaches
+      # the site as well as the API: the admin, partner and driver panels check
+      # the session while rendering on the site's host. Must match THIS
+      # environment's front end, and be the narrowest shared domain — e.g.
+      # `preview.iamgeorgia.com.ge` for preview.iamgeorgia.com.ge +
+      # api.preview.iamgeorgia.com.ge, never `iamgeorgia.com.ge`, which would
+      # hand the cookie to every other environment. Unset, sign-in succeeds
+      # and the panel bounces straight back to its sign-in page.
+      - key: AUTH_COOKIE_DOMAIN
         sync: false
 
       # Secrets — generated once by Render, never seen by a human.
