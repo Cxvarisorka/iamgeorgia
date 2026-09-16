@@ -4,7 +4,7 @@ Two files:
 
 | File | What it is |
 | --- | --- |
-| `I-am-Georgia.postman_collection.json` | The collection — 9 folders, ~90 requests, every one asserting its expected result |
+| `I-am-Georgia.postman_collection.json` | The collection — 28 folders, ~700 requests covering **every** endpoint the server mounts, each asserting its expected result |
 | `I-am-Georgia.local.postman_environment.json` | The environment — base URL and credentials |
 
 Works in the Postman desktop app, the web app, and `newman` on the command line.
@@ -20,13 +20,14 @@ From `server/` — the full walkthrough is in [../LOCAL_SETUP.md](../LOCAL_SETUP
 ```bash
 npm run db:up
 npm run prisma:migrate
-node scripts/seed-reference.js
-node scripts/seed-catalogue.js       # hotels — search returns nothing without this
-node scripts/seed-transfers.js       # transfer points, routes and prices
-node --env-file=.env.test scripts/seed-tours.js   # ten tours with options, price sheets and departures
+npm run seed:all                     # reference data, hotels, transfers, kosher, tours, services, packages,
+                                     # plus the demo transfer bookings, drivers and cars the operations folders use
 node scripts/create-admin.js you@example.com Your Name
 npm run dev
 ```
+
+`seed:all` runs every seed script in order; the individual scripts still work on
+their own if you only want part of the catalogue.
 
 Keep the password `create-admin.js` prints — it is shown once and cannot be
 recovered.
@@ -48,8 +49,10 @@ Click the environment name → **Edit**, and set:
 | `baseUrl` | `http://localhost:5000` (already filled) |
 | `adminEmail` | the address you passed to `create-admin.js` |
 | `adminPassword` | the password it printed |
-| `partnerEmail` | *(optional)* a partner account, for folder 05 |
+| `partnerEmail` | *(optional)* a partner account, for folders 05 and 05b |
 | `partnerPassword` | *(optional)* |
+| `driverEmail` | *(optional)* a `DRIVER` login, for folder 06i. Pre-filled with the first demo driver `seed-fleet.js` creates; clear it to skip |
+| `driverPassword` | *(optional)* `driver-demo-password` unless you seeded with `--password` |
 
 Leave everything else alone — the rest is filled in automatically as you go.
 
@@ -79,13 +82,22 @@ several results that look wrong are deliberate.
 | Setting | Value | Why |
 | --- | --- | --- |
 | Iterations | `1` | The booking flow creates real records |
-| Delay | `100` ms | Keeps the 100-requests-per-minute global limiter happy |
+| Delay | `650` ms | The global limiter allows 100 requests a minute per address; ~700 requests need this spacing. Use `100` ms when running a single folder |
 | Keep variable values | **on** | So captured tokens and references survive the run |
 | Folders | all, **in order** | Later folders consume tokens the earlier ones captured |
 
 **Order matters.** Folder 03 needs the offer token folder 03's own search
 captured; folder 06 asserts against the booking folder 03 created. Running
 folder 06 alone will show a couple of skipped assertions, not failures.
+
+**The admin folders write.** Folders 06b–06m create their own records — a
+hotel, a partner, a tour, a route, a car, a driver and so on — every one named
+with the run token (`pm-hotel-<runId>`, plate `PM-<runId>`,
+`pm-<runId>@example.test`) and archived or deleted again at the end of the
+folder. Nothing seeded is edited. Where the API refuses a hard delete by design
+(points retire, vehicles archive, a booked service cannot be deleted) a
+terminal row tagged with the run token is left behind. Run them against a
+development database, not a shared one.
 
 ### From the command line
 
@@ -96,8 +108,10 @@ newman run docs/postman/I-am-Georgia.postman_collection.json \
   -e docs/postman/I-am-Georgia.local.postman_environment.json \
   --env-var adminEmail=you@example.com \
   --env-var adminPassword='the-printed-password' \
-  --delay-request 100
+  --delay-request 650
 ```
+
+The whole collection takes about eight minutes at that spacing.
 
 Add `--reporters cli,html --reporter-html-export report.html` for a shareable
 report, or `--folder "03 · Hotel search & booking"` to run one folder.
@@ -110,13 +124,32 @@ report, or `--folder "03 · Hotel search & booking"` to run one folder.
 | --- | --- |
 | **00 · Health** | Liveness and readiness. Start here — if readiness is 503, nothing else will work |
 | **01 · Auth** | Login, session cookie, `/me`, logout, forgot-password. Failure cases run **before** the successful login, because the login limiter only counts failures |
+| **01b · Account links** | Activation, password reset and invitation tokens (paste one from the email or the admin response to see the happy path), change-password rules |
 | **02 · Public catalogue** | Destinations, hotels, amenities — no authentication, no dates |
 | **03 · Hotel search & booking** | The full money path: search → offer token → hold → booking → amend → cancel. Includes the idempotency replay and the "can I send my own price?" attacks |
 | **04 · Transfers** | Points, routes, vehicles, quotes, booking, cancellation — plus the window rules (`TOO_SOON`, `BEYOND_HORIZON`, `SAME_POINT`) |
 | **04b · Tours** | Catalogue, departures for a party, hold → confirm → replay → cancel as a guest, then the admin register, price sheets, the departure calendar and the on-request answer |
+| **04c · Services** | The service catalogue and a direct trade booking |
+| **04d · Packages** | Browse, detail, quotes (including a kosher package across Shabbat) and the admin preview quote |
+| **04e · Orders** | A package booked as one thing: holds, confirm, replay, partial and whole cancellation, the on-request queue |
+| **04f · Public — more** | Transfer route and vehicle pages, package re-validation, recommendations for a stay, order holds and paperwork, the emailed rating link. Runs after the booking folders so it can use their references |
 | **05 · Partner portal** | The approval gate, role restrictions, and cross-tenant isolation. Skips itself if no partner account is configured |
-| **06 · Admin** | The staff surface, and the other half of the staff-only field test |
-| **07 · Security & error contract** | Requests that are *supposed* to fail: 401, 403, 404, 400, 413, 429, and the cross-site write check |
+| **05b · Partner portal — more** | The supplier extranet (room types, calendar, inventory and rate writes), the partner registers, service bookings, transfer bookings and driver choice, bank details. Skips without a partner account |
+| **06 · Admin** | The staff surface, read across; the other half of the staff-only field test |
+| **06b · Admin — Partners** | Create, invite, approve, suspend, reactivate, reject, financial details, audit trail, delete |
+| **06c · Admin — Reference data** | Destinations, amenities, the media library, pricing rules, cancelling a booking as staff |
+| **06d · Admin — Hotels & rooms** | A hotel from draft to published and back: gallery, translations, amenities, room types, beds, rate plans, restrictions, rates, inventory, the calendar |
+| **06e · Admin — Hotel policies & files** | Child policy, cancellation and payment policies, meal plans, taxes and fees, private documents, kosher certificate edits and removal |
+| **06f · Admin — Transfer catalogue** | Points, providers, vehicle classes, routes with price grids and stops, bulk repricing, extras, blackouts, staff view of a transfer booking |
+| **06g · Operations — Fleet & drivers** | Cars and drivers: create, verify, link, gallery, private documents with signed links, driver login links, deactivate, delete |
+| **06h · Operations — Dispatch** | The dispatch board: legs, candidates, assign, status moves, unassign, assignments history, schedule, blocks, ratings moderation |
+| **06i · Driver panel** | Signed in as a driver: profile, cars, jobs, accept / decline / status, notifications. Uses the demo driver unless `driverEmail` is cleared |
+| **06j · Admin — Tours** | A tour from draft to published: options, price sheets, departures, translations, gallery, kosher, lifecycle, the operator's answer to a request |
+| **06k · Admin — Orders** | Detail, cancellation quote, per-item confirm / decline / cancel, whole-order cancel |
+| **06l · Admin — Services** | A service from draft to published, translations, the bookings register with confirm / decline / cancel, retire and delete |
+| **06m · Admin — Packages** | A package template with a hotel slot: validation of slots, kosher profile and override, translations, gallery, publish, retire, delete |
+| **07 · Kosher** | Kosher services and certification on a hotel, the kosher search filters, a requirement the hotel cannot meet |
+| **08 · Security & error contract** | Requests that are *supposed* to fail: 401, 403, 404, 400, 413, 429, and the cross-site write check |
 
 ---
 
@@ -135,7 +168,14 @@ Partner login    → partnerId, partnerStatus, partnerRole
 
 Dates are regenerated on **every** request by the collection pre-request script
 — a stay 120 days out, a transfer 90 days out — so the collection never expires
-and never needs editing.
+and never needs editing. The same script mints one `runId` per run; every record
+the admin folders create carries it, so you can find (and, if a run was
+interrupted, tidy up) everything a run left behind by searching for it.
+
+Requests that depend on something the run cannot produce — an emailed token, a
+completed transfer leg, a file to upload — say so in their description and
+accept the refusal codes as well as the success, so the collection runs green
+without hand-holding and still shows the happy path when you supply the input.
 
 Authentication needs no setup at all: the session is an `httpOnly` cookie
 (`iag_session`) and Postman's cookie jar handles it. There is no bearer token
@@ -160,6 +200,8 @@ Check this list before filing.
 | Transfer *revalidate* returning 200 on a moved fare | It is a preview; it shows the new fare. Only *booking* refuses with 409 |
 | Postman not blocked by the cross-site check | Postman sends no `Origin`/`Sec-Fetch-Site`, and a browser cannot suppress those. Only requests from a page are checked |
 | `429` after a lot of clicking | The global limit is 100/minute per IP. Restart the server to clear it |
+| `400` from a media upload | No file was picked in the request's form-data tab. Everything downstream of it tolerates the missing id |
+| `404` / `409` from a folder-06 request on `{{bookingReference}}`, `{{transferReference}}` or `{{orderReference}}` | The earlier folder already cancelled that record; the description says how to see the 200 |
 
 ---
 
