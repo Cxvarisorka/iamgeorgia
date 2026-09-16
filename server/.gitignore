@@ -4,6 +4,7 @@ node_modules
 /generated/prisma
 .media/
 .media-test/
+.media-audit/
 
 # Vendored Prisma skill packs — local agent tooling, not project source.
 .agents/

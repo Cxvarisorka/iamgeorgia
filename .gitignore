@@ -31,6 +31,7 @@ generated/
 # Uploaded media (local storage driver)
 .media/
 .media-test/
+.media-audit/
 
 # Logs
 *.log

@@ -6,29 +6,22 @@
  * The prose was written for the front-end prototype and lived in
  * `client/data/i18n/transfers.ts` and `transferLocations.ts`. Those files are
  * gone — the catalogue is in Postgres now — but the translations are real work
- * by a translator and belong with the rows they describe rather than in a
- * deleted file's history.
+ * by a translator, so they moved to `db/seed/transferOfferTranslations.js` and
+ * `db/seed/transferPointTranslations.js`, beside the seed that loads them.
  *
- * Read from the last commit that held them rather than from a copy: a copy is a
- * second source of truth that starts drifting the day it is made, and this only
- * ever needs to run once per environment.
+ * They were briefly read out of git history instead. That broke the first time
+ * the files left HEAD, and could never work from a Docker image, which carries
+ * no history at all.
  *
  * Idempotent. Re-running overwrites the same translation rows with the same
  * values.
  */
 
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
-
+import { transferOfferContent } from '../db/seed/transferOfferTranslations.js';
+import { transferLocationContent } from '../db/seed/transferPointTranslations.js';
 import { prisma, connect, disconnect } from '../db/index.js';
 import { logger } from '../lib/logger.js';
 import { SUPPORTED_LOCALES, defaultLocale } from '../lib/locales.js';
-
-/** The commit the fixtures were last present in. */
-const SOURCE_REF = process.env.TRANSFER_I18N_REF ?? 'HEAD';
 
 /**
  * Prototype ids to catalogue slugs.
@@ -55,37 +48,6 @@ const VEHICLE_BY_OFFER_ID = {
     'transfer-7': 'private-coach-transfer',
     'transfer-8': 'shared-shuttle-transfer',
     'transfer-9': 'shared-coach-seat-transfer'
-};
-
-/**
- * Pulls a file out of git into a temp directory and imports it.
- *
- * The fixtures are TypeScript with type-only imports, which Node strips at load
- * time — the same mechanism `seed-catalogue.js` relies on to read the client's
- * data files directly. The type imports are dropped first because they point at
- * client paths that do not resolve from here.
- */
-const importFromGit = async (path, exportName) => {
-    const source = execFileSync('git', ['show', `${SOURCE_REF}:${path}`], {
-        cwd: join(process.cwd(), '..'),
-        encoding: 'utf8',
-        maxBuffer: 32 * 1024 * 1024
-    });
-
-    const withoutTypeImports = source
-        .split('\n')
-        .filter((line) => !line.startsWith('import type'))
-        .join('\n')
-        .replace(/: LocalisedContent<[^>]+>/g, '');
-
-    const dir = mkdtempSync(join(tmpdir(), 'iag-i18n-'));
-    const file = join(dir, 'fixture.mjs');
-
-    writeFileSync(file, withoutTypeImports);
-
-    const module = await import(pathToFileURL(file).href);
-
-    return module[exportName];
 };
 
 const localesToWrite = SUPPORTED_LOCALES.filter((locale) => locale !== defaultLocale);
@@ -218,13 +180,8 @@ const seedRouteTitles = async () => {
 const main = async () => {
     await connect();
 
-    const [locationContent, offerContent] = await Promise.all([
-        importFromGit('client/data/i18n/transferLocations.ts', 'transferLocationContent'),
-        importFromGit('client/data/i18n/transfers.ts', 'transferOfferContent')
-    ]);
-
-    await seedPointTranslations(locationContent);
-    await seedVehicleTranslations(offerContent);
+    await seedPointTranslations(transferLocationContent);
+    await seedVehicleTranslations(transferOfferContent);
     await seedRouteTitles();
 
     const [points, vehicles, routes] = await Promise.all([
