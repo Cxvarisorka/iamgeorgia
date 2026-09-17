@@ -206,11 +206,22 @@ describe('orders', { skip: dbAvailable ? false : 'Postgres is not reachable' }, 
             data: { bookedUnits: 2 }
         });
 
+        // Scoped to this package's orders. Test files share one database and
+        // run side by side, so a count of every `order.*` event moves whenever
+        // another file confirms an order between the two reads.
+        const orderEvents = async () => {
+            const orders = await prisma.order.findMany({ where: { packageId: pkg.id }, select: { id: true } });
+
+            return prisma.outboxEvent.count({
+                where: { topic: { startsWith: 'order.' }, entityId: { in: orders.map(({ id }) => id) } }
+            });
+        };
+
         const before = {
             orders: await prisma.order.count({ where: { packageId: pkg.id } }),
             hotelBookings: await prisma.hotelBooking.count({ where: { hotelId: hotel.hotel.id } }),
             holds: await prisma.bookingHold.count({ where: { roomTypeId: hotel.roomType.id } }),
-            outbox: await prisma.outboxEvent.count({ where: { topic: { startsWith: 'order.' } } })
+            outbox: await orderEvents()
         };
 
         const refused = await request(app).post('/api/orders').send({ packageToken: quote.token, leadGuest: lead });
@@ -224,7 +235,7 @@ describe('orders', { skip: dbAvailable ? false : 'Postgres is not reachable' }, 
         assert.equal(await prisma.order.count({ where: { packageId: pkg.id } }), before.orders);
         assert.equal(await prisma.hotelBooking.count({ where: { hotelId: hotel.hotel.id } }), before.hotelBookings);
         assert.equal(await prisma.bookingHold.count({ where: { roomTypeId: hotel.roomType.id } }), before.holds);
-        assert.equal(await prisma.outboxEvent.count({ where: { topic: { startsWith: 'order.' } } }), before.outbox);
+        assert.equal(await orderEvents(), before.outbox);
         const night = await prisma.roomInventory.findFirst({ where: { roomTypeId: hotel.roomType.id, date: new Date(`${START}T00:00:00.000Z`) } });
         assert.equal(night.bookedUnits, 0);
         assert.equal(night.heldUnits, 0);
