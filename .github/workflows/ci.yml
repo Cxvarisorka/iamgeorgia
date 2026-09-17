@@ -21,6 +21,7 @@ jobs:
   client:
     name: Client — types, lint, build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: client
@@ -45,6 +46,9 @@ jobs:
   server:
     name: Server — schema, tests
     runs-on: ubuntu-latest
+    # The whole job takes about two minutes. Without a limit a hung test
+    # process holds the runner for GitHub's default of six hours.
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: server
@@ -81,12 +85,21 @@ jobs:
       # Prisma cannot declare an index on an Unsupported type, so the schema
       # and the migrations never diff clean. `migrate deploy` above already
       # fails on a migration that does not apply.
+      #
+      # The suite reads the reference tables (house cancellation policies,
+      # amenities, meal plans) rather than creating them, as a developer's
+      # database always has them. Without this step a test dies half way
+      # through a supertest request, the listening server it opened is never
+      # closed, and the run sits there until the six-hour limit.
+      - name: Seed reference data
+        run: node --env-file=.env.test scripts/seed-reference.js
       - run: npm test
       - run: npm audit --omit=dev --audit-level=high
 
   images:
     name: Docker images build
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [client, server]
     steps:
       - uses: actions/checkout@v4

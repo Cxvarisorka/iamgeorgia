@@ -249,6 +249,17 @@ describe('transfer quotes over HTTP', { skip: dbAvailable ? false : 'Postgres is
 
         await makeTransferPrice(route.id, sedan.id, { oneWayCents: 17_500 });
         await makeTransferPrice(route.id, van.id, { oneWayCents: 31_500 });
+
+        // Extra codes are a closed list, so this cannot be a unique one. A
+        // seeded database already has the row and it is left alone; a bare one
+        // (CI) gets it for the length of the file.
+        if (!(await prisma.transferExtra.findUnique({ where: { code: 'childSeat' } }))) {
+            tracker.transferExtra(
+                await prisma.transferExtra.create({
+                    data: { code: 'childSeat', name: 'Child seat', basis: 'FIXED', priceCents: 2_000 }
+                })
+            );
+        }
     });
 
     after(async () => {

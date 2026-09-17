@@ -17,7 +17,7 @@
     "seed:all": "node scripts/seed-all.js",
     "seed:catalogue": "node scripts/seed-all.js --no-demo",
     "postinstall": "prisma generate",
-    "test": "node --env-file=.env.test --test \"test/*.test.js\""
+    "test": "node --env-file=.env.test --test --test-force-exit \"test/*.test.js\""
   },
   "engines": {
     "node": ">=22.18.0"
