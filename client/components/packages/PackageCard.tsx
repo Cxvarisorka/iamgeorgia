@@ -69,7 +69,7 @@ export function PackageCard({
             />
           )}
           {pkg.kosher && (
-            <div className="absolute top-4 left-4">
+            <div className="absolute start-4 top-4">
               <Badge tone="light">{t.packages.kosher.badge}</Badge>
             </div>
           )}
@@ -79,7 +79,7 @@ export function PackageCard({
           <div className="type-caption flex flex-wrap items-center gap-x-3 gap-y-1 text-muted">
             {pkg.destination && (
               <span className="inline-flex items-center gap-1.5">
-                <MapPin size={13} aria-hidden />
+                <MapPin size={13} className="shrink-0" aria-hidden />
                 {pkg.destination.name}
               </span>
             )}
@@ -96,7 +96,7 @@ export function PackageCard({
           <h3
             className={cn(
               "mt-2 text-ink transition-colors group-hover:text-brand-text",
-              isFeature ? "type-h3" : "type-h5",
+              isFeature ? "type-h3" : "type-h4",
             )}
           >
             {pkg.name}
@@ -111,7 +111,7 @@ export function PackageCard({
           {pkg.priceFrom && (
             <p className="mt-3">
               <span className="type-caption text-muted">{t.packages.from} </span>
-              <span className="type-h6 text-ink">
+              <span className="type-h4 text-ink">
                 {formatMoney(pkg.priceFrom.amountCents, pkg.priceFrom.currency, intlLocale)}
               </span>
               <span className="type-caption text-muted"> {t.packages.perTrip}</span>

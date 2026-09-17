@@ -63,15 +63,18 @@ export function PortalShell({
 
       <header className="border-b border-line bg-surface">
         <div className="mx-auto flex w-full max-w-(--container-page) items-center gap-4 px-5 py-4 sm:px-8 lg:px-12">
-          <Link href={path("/portal")} className="font-display text-[1.125rem] text-ink">
+          <Link href={path("/portal")} className="min-w-0 font-display text-[1.125rem] text-ink">
             I am Georgia
             <span className="ms-2 text-[0.75rem] tracking-[0.12em] text-muted uppercase">
               Partners
             </span>
           </Link>
 
+          {/* From `md`, not `sm`: wordmark, three links, the account name and
+              sign-out need ~740px and overflowed a small tablet. The name
+              waits for `lg`. */}
           {approved && (
-            <nav aria-label="Partner platform" className="ms-6 hidden items-center gap-1 sm:flex">
+            <nav aria-label="Partner platform" className="ms-6 hidden items-center gap-1 md:flex">
               {NAV.map((item) => {
                 const active = current === item.href || current.startsWith(`${item.href}/`);
 
@@ -96,8 +99,8 @@ export function PortalShell({
           )}
 
           {session && (
-            <div className="ms-auto flex items-center gap-4">
-              <span className="hidden text-end sm:block">
+            <div className="ms-auto flex shrink-0 items-center gap-4">
+              <span className="hidden text-end lg:block">
                 <span className="block text-[0.8125rem] font-medium text-ink">
                   {session.user.fullName}
                 </span>
@@ -108,7 +111,7 @@ export function PortalShell({
               <button
                 type="button"
                 onClick={handleSignOut}
-                className="inline-flex h-9 items-center gap-2 rounded-sm border border-line px-3 text-[0.8125rem] text-body transition-colors hover:border-ink/40 hover:text-ink"
+                className="inline-flex h-9 items-center gap-2 rounded-sm border border-line px-3 text-[0.8125rem] whitespace-nowrap text-body transition-colors hover:border-ink/40 hover:text-ink"
               >
                 <LogOut size={14} className="rtl:-scale-x-100" aria-hidden />
                 Sign out
@@ -121,7 +124,7 @@ export function PortalShell({
       {approved && (
         <nav
           aria-label="Partner platform"
-          className="flex gap-1 border-b border-line bg-surface px-5 pb-3 sm:hidden"
+          className="flex gap-1 border-b border-line bg-surface px-5 pb-3 sm:px-8 md:hidden"
         >
           {NAV.map((item) => {
             const active = current === item.href || current.startsWith(`${item.href}/`);

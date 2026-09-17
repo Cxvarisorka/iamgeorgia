@@ -84,7 +84,7 @@ export function HotelExplorer({ hotels }: HotelExplorerProps) {
              * that cannot scroll simply cuts the last rows off. Its own scroll
              * region keeps the bottom of the list reachable.
              */}
-            <div className="sticky top-28 max-h-[calc(100vh-8rem)] overflow-y-auto pr-1 pb-2">
+            <div className="sticky top-28 max-h-[calc(100dvh-8rem)] overflow-y-auto pe-1 pb-2">
               <div className="flex items-baseline justify-between gap-3">
                 <h2 className="type-h4">{t.actions.filters}</h2>
                 {activeFilterCount > 0 && (
@@ -182,11 +182,13 @@ export function HotelExplorer({ hotels }: HotelExplorerProps) {
            * and on a phone that is the one control that has to stay under the
            * thumb while the list behind it changes.
            */}
-          <div className="sticky bottom-0 flex gap-3 border-t border-line bg-background px-6 py-4">
-            <Button variant="outline" fullWidth onClick={reset}>
+          <div className="sticky bottom-0 flex flex-wrap gap-3 border-t border-line bg-background px-6 py-4">
+            {/* `grow` rather than `fullWidth`: both share the row when they fit
+                and "Show 12 properties" takes a row of its own when it does not. */}
+            <Button variant="outline" className="grow" onClick={reset}>
               {t.actions.clearAll}
             </Button>
-            <Button fullWidth onClick={() => setFiltersOpen(false)}>
+            <Button className="grow" onClick={() => setFiltersOpen(false)}>
               {fill(t.hotels.showProperties, {
                 count: plural(locale, results.length, t.units.property),
               })}

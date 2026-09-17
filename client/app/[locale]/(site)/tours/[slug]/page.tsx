@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { Check, Clock, Gauge, MapPin, Minus, Users } from "lucide-react";
 
+import { MobileBookingBar } from "@/components/booking/MobileBookingBar";
 import { CompleteYourTrip } from "@/components/packages/CompleteYourTrip";
 import { RelatedTours } from "@/components/tours/RelatedTours";
 import { TourDepartures } from "@/components/tours/TourDepartures";
@@ -215,7 +215,7 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
             </div>
             <h1 className="type-h1 mt-4 max-w-3xl text-balance">{tour.title}</h1>
             <p className="type-body mt-3 flex items-center gap-2 text-muted">
-              <MapPin size={15} aria-hidden />
+              <MapPin size={15} className="shrink-0" aria-hidden />
               {tour.location}
             </p>
           </div>
@@ -422,32 +422,21 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
       </Container>
 
       {/* Mobile booking bar — the pattern travellers expect on a phone. */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-background/95 backdrop-blur-md lg:hidden">
-        <div className="flex items-center justify-between gap-4 px-5 py-3">
-          <p>
-            <span className="type-caption block text-muted">{t.common.from}</span>
-            <span className="type-h4 tabular-nums">
-              {cheapest
-                ? formatMoney(cheapest.quote.totals.totalCents, cheapest.quote.currency, intlLocale)
-                : tour.priceFrom
-                  ? formatMoney(tour.priceFrom.amountCents, tour.priceFrom.currency, intlLocale, {
-                      maximumFractionDigits: 0,
-                    })
-                  : "—"}
-              {!cheapest && tour.priceFrom && (
-                <span className="type-caption font-normal text-muted"> {t.tours.perPerson}</span>
-              )}
-            </span>
-          </p>
-
-          <Link
-            href={stay ? "#departures" : "#tour-search"}
-            className="inline-flex h-11 items-center justify-center rounded-sm bg-brand px-6 text-[0.9375rem] font-medium text-on-dark transition-colors hover:bg-brand-hover"
-          >
-            {stay ? t.tours.results.viewDepartures : t.tours.availability.noDatesTitle}
-          </Link>
-        </div>
-      </div>
+      <MobileBookingBar
+        caption={t.common.from}
+        price={
+          cheapest
+            ? formatMoney(cheapest.quote.totals.totalCents, cheapest.quote.currency, intlLocale)
+            : tour.priceFrom
+              ? formatMoney(tour.priceFrom.amountCents, tour.priceFrom.currency, intlLocale, {
+                  maximumFractionDigits: 0,
+                })
+              : "—"
+        }
+        note={!cheapest && tour.priceFrom ? t.tours.perPerson : undefined}
+        href={stay ? "#departures" : "#tour-search"}
+        action={stay ? t.tours.results.viewDepartures : t.tours.availability.noDatesTitle}
+      />
 
       {/* Both rails depend on a second API call and stream in rather than
           holding the journey behind them. The cross-sell needs a real date to

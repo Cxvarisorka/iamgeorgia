@@ -171,7 +171,7 @@ export function LocationSelector({
   return (
     <div className={cn("flex flex-col", className)}>
       <label htmlFor={id} className="type-caption flex items-center gap-1.5 text-muted">
-        <MapPin size={13} aria-hidden />
+        <MapPin size={13} className="shrink-0" aria-hidden />
         {label}
       </label>
 

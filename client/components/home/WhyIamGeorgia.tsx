@@ -8,7 +8,7 @@ export async function WhyIamGeorgia() {
   const { t } = await getI18n();
   const reasons = t.home.why.reasons;
   return (
-    <section className="py-24 lg:py-32">
+    <section className="py-16 sm:py-24 lg:py-32">
       <Container>
         <div className="grid gap-14 lg:grid-cols-12 lg:gap-16">
           {/* The intro pins while the numbered list scrolls past it. `self-start`

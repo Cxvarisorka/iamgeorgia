@@ -140,10 +140,14 @@ export function TransferSearch({
         ))}
       </fieldset>
 
-      <div className="grid divide-y divide-line lg:grid-cols-[2.6fr_1fr_0.85fr_1.25fr] lg:divide-x lg:divide-y-0">
+      {/* Stacked on a phone; from `sm` the route takes a row and date, time and
+          party share the next one — three full-width rows left a tablet with a
+          very tall form; one row from `lg`. Borders are per cell rather than
+          `divide-*`, because the seams move with the column count. */}
+      <div className="grid sm:grid-cols-3 lg:grid-cols-[minmax(0,2.6fr)_minmax(0,1fr)_minmax(0,0.85fr)_minmax(0,1.25fr)]">
         {/* Pick-up and drop-off share a sub-grid so the swap control can sit
             exactly on the seam between them at every breakpoint. */}
-        <div className="relative grid divide-y divide-line sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+        <div className="relative grid divide-y divide-line border-b border-line sm:col-span-3 sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:col-span-1 lg:border-b-0">
           <LocationSelector
             id="transfer-from"
             label={t.transfers.search.pickUp}
@@ -153,7 +157,7 @@ export function TransferSearch({
             excludeId={query.to || undefined}
             suggestions={suggestions}
             error={messageFor(errors.from)}
-            className={cn(fieldClass, "min-w-0")}
+            className={cn(fieldClass, "min-w-0 pe-16 sm:pe-4")}
           />
           <LocationSelector
             id="transfer-to"
@@ -164,20 +168,20 @@ export function TransferSearch({
             excludeId={query.from || undefined}
             suggestions={suggestions}
             error={messageFor(errors.to)}
-            className={cn(fieldClass, "min-w-0")}
+            className={cn(fieldClass, "min-w-0 pe-16 sm:pe-4")}
           />
 
           <button
             type="button"
             onClick={swap}
             aria-label={t.transfers.search.swap}
-            className="absolute top-1/2 left-full z-10 flex size-9 -translate-x-[calc(100%+0.75rem)] -translate-y-1/2 items-center justify-center rounded-full border border-line bg-surface text-muted shadow-card transition-colors hover:border-ink hover:text-ink sm:left-1/2 sm:-translate-x-1/2"
+            className="absolute end-3 top-1/2 z-10 flex size-9 -translate-y-1/2 items-center justify-center rounded-full border border-line bg-surface text-muted shadow-card transition-colors hover:border-ink hover:text-ink sm:end-auto sm:start-1/2 sm:-translate-x-1/2 rtl:sm:translate-x-1/2"
           >
             <ArrowLeftRight size={15} className="sm:rotate-0 rotate-90" aria-hidden />
           </button>
         </div>
 
-        <div className={fieldClass}>
+        <div className={cn(fieldClass, "min-w-0 border-b border-line sm:border-b-0 lg:border-s")}>
           <label htmlFor="transfer-date" className={labelClass}>
             <CalendarDays size={13} aria-hidden />
             {t.transfers.search.date}
@@ -199,7 +203,7 @@ export function TransferSearch({
           )}
         </div>
 
-        <div className={fieldClass}>
+        <div className={cn(fieldClass, "min-w-0 border-b border-line sm:border-s sm:border-b-0")}>
           <label htmlFor="transfer-time" className={labelClass}>
             <Clock size={13} aria-hidden />
             {t.transfers.search.time}
@@ -224,7 +228,7 @@ export function TransferSearch({
           value={query}
           onChange={update}
           error={messageFor(errors.passengers)}
-          className={fieldClass}
+          className={cn(fieldClass, "min-w-0 border-line sm:border-s")}
         />
       </div>
 

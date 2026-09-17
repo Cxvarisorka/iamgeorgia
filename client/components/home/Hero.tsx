@@ -28,7 +28,7 @@ export async function Hero() {
       <div className="scrim-full absolute inset-0" aria-hidden />
       <div className="scrim-side absolute inset-0" aria-hidden />
 
-      <Container className="relative pt-32 pb-12 lg:pb-16">
+      <Container className="relative pt-28 pb-12 sm:pt-32 lg:pb-16">
         <div className="max-w-4xl">
           <p className="type-eyebrow animate-hero-rise text-on-dark/70" style={{ animationDelay: "0.1s" }}>
             {t.home.hero.eyebrow}

@@ -14,6 +14,7 @@ import {
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { CheckoutSummary } from "./CheckoutSummary";
+import { MobileCheckoutSummary } from "./MobileCheckoutSummary";
 import { Button } from "@/components/ui/Button";
 import { Container } from "@/components/ui/Container";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -32,6 +33,7 @@ import { KosherRequests } from "./KosherRequests";
 import { featureLabel } from "@/lib/hotels/kosher";
 import { fill } from "@/lib/i18n/dictionaries";
 import { useI18n, useLocalePath } from "@/lib/i18n/provider";
+import { formatMoney } from "@/lib/money";
 import type { BookingGuestInput, BookingGuestType, BookingRequestInput } from "@/types/booking";
 import { cn } from "@/lib/utils";
 
@@ -66,7 +68,7 @@ const countdown = (msLeft: number): string => {
 export function CheckoutForm({ holdToken }: CheckoutFormProps) {
   const router = useRouter();
   const path = useLocalePath();
-  const { t } = useI18n();
+  const { t, intlLocale } = useI18n();
 
   // sessionStorage is an external store, and `ready` is what distinguishes
   // "not read yet" from "nothing there" — a skeleton from a wrong message.
@@ -287,6 +289,18 @@ export function CheckoutForm({ holdToken }: CheckoutFormProps) {
     <Container className="pt-6 pb-24 lg:pb-32">
       <div className="grid gap-10 lg:grid-cols-12 lg:gap-12">
         <div className="min-w-0 lg:col-span-7">
+          <MobileCheckoutSummary
+            title={t.booking.checkout.summary}
+            total={
+              draft?.offer
+                ? formatMoney(draft.offer.quote.totals.totalCents, draft.offer.quote.currency, intlLocale)
+                : null
+            }
+            className="mb-8"
+          >
+            <CheckoutSummary draft={draft} nights={nights} />
+          </MobileCheckoutSummary>
+
           {expiresAt !== null && (
             <p className="flex items-center gap-2.5 rounded-sm border border-success/30 bg-success/5 px-4 py-3 text-sm text-success">
               <Clock size={16} className="shrink-0" aria-hidden />
@@ -529,7 +543,7 @@ export function CheckoutForm({ holdToken }: CheckoutFormProps) {
           </form>
         </div>
 
-        <aside className="lg:col-span-5">
+        <aside className="hidden lg:col-span-5 lg:block">
           <div className="lg:sticky lg:top-36">
             <CheckoutSummary draft={draft} nights={nights} />
           </div>

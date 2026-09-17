@@ -7,6 +7,7 @@ import { ArrowUpRight, X } from "lucide-react";
 import { useEffect } from "react";
 
 import { AccountNavRow } from "./AccountNav";
+import { LanguageMenuRow } from "./LanguageMenu";
 import { Logo } from "./Logo";
 import { Button } from "@/components/ui/Button";
 import { useI18n, useLocalePath } from "@/lib/i18n/provider";
@@ -126,6 +127,11 @@ export function MobileNavigation({ open, onClose }: MobileNavigationProps) {
                   another thing to browse. */}
               <div className="mt-6">
                 <AccountNavRow onNavigate={onClose} />
+              </div>
+              {/* The header's language menu is `sm` and up only; this is the
+                  way to change language on a phone. */}
+              <div className="mt-6">
+                <LanguageMenuRow onNavigate={onClose} />
               </div>
               <p className="type-caption mt-8 text-on-dark/50">{site.contact.address}</p>
               <a

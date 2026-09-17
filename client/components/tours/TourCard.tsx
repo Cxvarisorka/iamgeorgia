@@ -54,7 +54,7 @@ export function TourCard({ tour, variant = "default", query = "", className, pri
               className="object-cover transition-transform duration-700 ease-(--ease-out-soft) group-hover:scale-[1.04]"
             />
           )}
-          <div className="absolute top-4 left-4">
+          <div className="absolute start-4 top-4">
             <Badge tone="light">{t.tours.categories[tour.category]}</Badge>
           </div>
         </div>

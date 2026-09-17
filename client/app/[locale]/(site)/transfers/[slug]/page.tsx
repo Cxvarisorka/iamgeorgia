@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Briefcase, Check, Clock, Info, MapPin, Route, Users, X } from "lucide-react";
 
+import { MobileBookingBar } from "@/components/booking/MobileBookingBar";
 import { featureIcons } from "@/components/transfers/featureIcons";
 import { TransferBookingSummary } from "@/components/transfers/TransferBookingSummary";
 import { TransferGallery } from "@/components/transfers/TransferGallery";
@@ -386,19 +387,12 @@ export default async function TransferDetailPage(
 
       {/* Mobile action bar — the same pattern as the hotel detail page. */}
       {quote && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-background/95 backdrop-blur-md lg:hidden">
-          <div className="flex items-center justify-between gap-4 px-5 py-3">
-            <p>
-              <span className="type-caption block text-muted">{t.common.total}</span>
-              <span className="type-h4 tabular-nums">
-                {formatMoney(quote.totals.totalCents, currency, intlLocale)}
-              </span>
-            </p>
-            <Button href={continueHref} size="md">
-              {t.actions.continue}
-            </Button>
-          </div>
-        </div>
+        <MobileBookingBar
+          caption={t.common.total}
+          price={formatMoney(quote.totals.totalCents, currency, intlLocale)}
+          href={continueHref}
+          action={t.actions.continue}
+        />
       )}
     </>
   );

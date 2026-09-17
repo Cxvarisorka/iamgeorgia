@@ -30,7 +30,8 @@ import { cn } from "@/lib/utils";
 function hasImmersiveHero(pathname: string): boolean {
   const path = stripLocale(pathname);
   if (path === "/" || path === "/about") return true;
-  return ["/tours", "/hotels", "/transfers"].includes(path);
+  // `/packages` opens with the same `PageHero` as the other three indexes.
+  return ["/tours", "/hotels", "/packages", "/transfers"].includes(path);
 }
 
 export function Header() {

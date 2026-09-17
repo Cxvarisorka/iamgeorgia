@@ -70,9 +70,11 @@ export function HotelSectionNav({ hasKosher = false }: { hasKosher?: boolean }) 
   return (
     <nav
       aria-label="Property sections"
-      className="sticky top-18 z-30 -mx-5 border-b border-line bg-background/90 backdrop-blur-md sm:-mx-8 lg:top-20"
+      className="sticky top-18 z-30 -mx-5 border-b border-line bg-background/90 backdrop-blur-md sm:-mx-8 lg:top-20 lg:-mx-12"
     >
-      <ul className="scrollbar-none flex gap-1 overflow-x-auto px-5 sm:px-8">
+      {/* Bleeds to the container's edges at every size, matching its padding
+          (`Container`: px-5 / sm:px-8 / lg:px-12). */}
+      <ul className="scrollbar-none flex gap-1 overflow-x-auto px-5 sm:px-8 lg:px-12">
         {sections.map((section) => (
           <li key={section.id}>
             <a

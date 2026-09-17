@@ -20,7 +20,7 @@ export async function CTASection() {
       />
       <div className="scrim-full absolute inset-0" aria-hidden />
 
-      <Container className="relative py-28 lg:py-36">
+      <Container className="relative py-20 sm:py-28 lg:py-36">
         <Reveal className="max-w-3xl">
           <p className="type-eyebrow text-on-dark/55">{t.home.cta.eyebrow}</p>
           <h2 className="type-h1 mt-6 text-on-dark text-balance">{t.home.cta.title}</h2>

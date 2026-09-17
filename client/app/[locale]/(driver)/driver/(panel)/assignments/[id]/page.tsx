@@ -37,7 +37,7 @@ export default async function DriverAssignmentPage({
 
   const row = (icon: React.ReactNode, label: string, value: React.ReactNode) => (
     <div className="flex items-start gap-3 py-3">
-      <span className="mt-0.5 text-subtle">{icon}</span>
+      <span className="mt-0.5 shrink-0 text-subtle">{icon}</span>
       <div className="min-w-0">
         <p className="text-[0.75rem] text-muted">{label}</p>
         <div className="text-[0.9375rem] text-ink">{value}</div>

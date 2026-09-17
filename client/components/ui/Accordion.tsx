@@ -42,7 +42,7 @@ export function Accordion({ items, defaultOpen = 0, className }: AccordionProps)
                 aria-expanded={isOpen}
                 aria-controls={panelId}
                 onClick={() => setOpenId(isOpen ? null : item.id)}
-                className="flex w-full items-start justify-between gap-6 py-5 text-left transition-colors hover:text-brand-text"
+                className="flex w-full items-start justify-between gap-6 py-5 text-start transition-colors hover:text-brand-text"
               >
                 <span className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-5">
                   {item.meta && (
@@ -75,7 +75,7 @@ export function Accordion({ items, defaultOpen = 0, className }: AccordionProps)
                   transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
                   className="overflow-hidden"
                 >
-                  <div className="pb-7 sm:pl-21">{item.content}</div>
+                  <div className="pb-7 sm:ps-21">{item.content}</div>
                 </motion.div>
               )}
             </AnimatePresence>

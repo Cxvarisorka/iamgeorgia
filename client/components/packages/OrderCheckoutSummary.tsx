@@ -49,7 +49,7 @@ export function OrderCheckoutSummary({ packageName, quote, className }: OrderChe
 
   return (
     <aside className={cn("border border-line bg-surface p-5 shadow-card", className)}>
-      <h2 className="type-h5">{t.orders.checkout.summary}</h2>
+      <h2 className="type-h4">{t.orders.checkout.summary}</h2>
       <p className="type-body-sm mt-1 text-ink">{packageName}</p>
       <p className="type-caption mt-1 text-muted">
         {formatStayDate(quote.startDate, intlLocale)} – {formatStayDate(quote.endDate, intlLocale)}{" "}
@@ -122,7 +122,7 @@ export function OrderCheckoutSummary({ packageName, quote, className }: OrderChe
 
         <div className="mt-2 flex items-baseline justify-between gap-4 border-t border-line pt-3">
           <dt className="type-body font-semibold text-ink">{t.orders.manage.total}</dt>
-          <dd className="type-h5 tabular-nums text-ink">{money(quote.totals.totalCents)}</dd>
+          <dd className="type-h4 tabular-nums text-ink">{money(quote.totals.totalCents)}</dd>
         </div>
       </dl>
 

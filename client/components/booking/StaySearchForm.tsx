@@ -145,6 +145,14 @@ export function StaySearchForm({
   const field = "flex flex-col gap-1.5 px-4 py-3.5";
   const label = "type-caption flex items-center gap-1.5 text-muted";
   const control = "h-6 w-full bg-transparent text-sm text-ink focus:outline-none";
+  /*
+   * Date fields get a minimum rather than a fixed height: iOS Safari draws its
+   * own date control, taller than 24px once the text is 16px on a touch
+   * screen, and centres the value — so a fixed `h-6` clipped it. The value is
+   * aligned to the start like every other field in the form.
+   */
+  const dateControl =
+    "min-h-6 w-full bg-transparent text-start text-sm text-ink focus:outline-none [&::-webkit-date-and-time-value]:text-start";
   const stepper =
     "flex size-8 items-center justify-center rounded-sm border border-line text-body transition-colors hover:border-ink disabled:opacity-35";
 
@@ -183,7 +191,7 @@ export function StaySearchForm({
         {destinations && (
           <label className={cn(field, "border-b border-line lg:border-b-0")}>
             <span className={label}>
-              <MapPin size={13} aria-hidden />
+              <MapPin size={13} className="shrink-0" aria-hidden />
               {t.hotels.searchDestination}
             </span>
             <select
@@ -218,7 +226,7 @@ export function StaySearchForm({
             value={stay.checkIn}
             min={todayISO()}
             onChange={(event) => setCheckIn(event.target.value)}
-            className={control}
+            className={dateControl}
           />
         </label>
 
@@ -241,7 +249,7 @@ export function StaySearchForm({
             onChange={(event) =>
               setStay((current) => ({ ...current, checkOut: event.target.value }))
             }
-            className={control}
+            className={dateControl}
           />
         </label>
 

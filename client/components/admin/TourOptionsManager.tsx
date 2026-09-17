@@ -216,47 +216,50 @@ function OptionCard({
               </div>
             </div>
 
-            <table className="mt-3 w-full text-[0.75rem]">
-              <thead>
-                <tr className="text-start text-muted">
-                  <th scope="col" className="py-1 text-start font-medium">Party</th>
-                  {option.pricingBasis === "PER_PERSON" ? (
-                    <>
-                      <th scope="col" className="py-1 text-end font-medium">Adult net</th>
-                      <th scope="col" className="py-1 text-end font-medium">Child net</th>
-                      <th scope="col" className="py-1 text-end font-medium">Infant net</th>
-                    </>
-                  ) : (
-                    <th scope="col" className="py-1 text-end font-medium">Group net</th>
-                  )}
-                  <th scope="col" className="py-1 text-end font-medium">Fixed sell</th>
-                </tr>
-              </thead>
-              <tbody>
-                {season.tiers.map((tier) => (
-                  <tr key={tier.id} className="border-t border-line tabular-nums">
-                    <td className="py-1.5">
-                      {tier.minPax}
-                      {tier.maxPax === null ? "+" : tier.maxPax === tier.minPax ? "" : `–${tier.maxPax}`}
-                    </td>
+            {/* Scrolls inside the panel on a narrow screen rather than widening the page. */}
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-[0.75rem]">
+                <thead>
+                  <tr className="text-start text-muted">
+                    <th scope="col" className="py-1 text-start font-medium">Party</th>
                     {option.pricingBasis === "PER_PERSON" ? (
                       <>
-                        <td className="py-1.5 text-end">{money(tier.adultNetCents, season.currency)}</td>
-                        <td className="py-1.5 text-end">{money(tier.childNetCents, season.currency)}</td>
-                        <td className="py-1.5 text-end">{money(tier.infantNetCents ?? 0, season.currency)}</td>
+                        <th scope="col" className="py-1 text-end font-medium">Adult net</th>
+                        <th scope="col" className="py-1 text-end font-medium">Child net</th>
+                        <th scope="col" className="py-1 text-end font-medium">Infant net</th>
                       </>
                     ) : (
-                      <td className="py-1.5 text-end">{money(tier.groupNetCents, season.currency)}</td>
+                      <th scope="col" className="py-1 text-end font-medium">Group net</th>
                     )}
-                    <td className="py-1.5 text-end text-muted">
-                      {option.pricingBasis === "PER_PERSON"
-                        ? money(tier.adultSellCents, season.currency)
-                        : money(tier.groupSellCents, season.currency)}
-                    </td>
+                    <th scope="col" className="py-1 text-end font-medium">Fixed sell</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {season.tiers.map((tier) => (
+                    <tr key={tier.id} className="border-t border-line tabular-nums">
+                      <td className="py-1.5">
+                        {tier.minPax}
+                        {tier.maxPax === null ? "+" : tier.maxPax === tier.minPax ? "" : `–${tier.maxPax}`}
+                      </td>
+                      {option.pricingBasis === "PER_PERSON" ? (
+                        <>
+                          <td className="py-1.5 text-end">{money(tier.adultNetCents, season.currency)}</td>
+                          <td className="py-1.5 text-end">{money(tier.childNetCents, season.currency)}</td>
+                          <td className="py-1.5 text-end">{money(tier.infantNetCents ?? 0, season.currency)}</td>
+                        </>
+                      ) : (
+                        <td className="py-1.5 text-end">{money(tier.groupNetCents, season.currency)}</td>
+                      )}
+                      <td className="py-1.5 text-end text-muted">
+                        {option.pricingBasis === "PER_PERSON"
+                          ? money(tier.adultSellCents, season.currency)
+                          : money(tier.groupSellCents, season.currency)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
             {editingSeason?.id === season.id && (
               <SeasonForm
@@ -450,7 +453,7 @@ function OptionForm({
         <NumberInput label="Horizon (days)" min={1} max={730} value={horizonDays} onChange={(e) => setHorizonDays(Number(e.target.value) || 1)} />
         <fieldset className="sm:col-span-2 lg:col-span-3">
           <legend className="block text-[0.75rem] font-semibold text-muted">Operates on</legend>
-          <div className="mt-1.5 flex gap-1">
+          <div className="mt-1.5 flex flex-wrap gap-1">
             {WEEKDAYS.map((label, index) => {
               const value = index + 1;
               const on = weekdays.includes(value);
@@ -612,7 +615,7 @@ function SeasonForm({
         />
         <fieldset className="sm:col-span-2">
           <legend className="block text-[0.75rem] font-semibold text-muted">Days</legend>
-          <div className="mt-1.5 flex gap-1">
+          <div className="mt-1.5 flex flex-wrap gap-1">
             {WEEKDAYS.map((label, index) => {
               const value = index + 1;
               const on = weekdays.includes(value);
@@ -637,58 +640,61 @@ function SeasonForm({
         <CheckboxField label="Active" checked={isActive} onChange={setIsActive} className="self-end" />
       </div>
 
-      <table className="mt-4 w-full text-[0.75rem]">
-        <thead>
-          <tr className="text-muted">
-            <th scope="col" className="py-1 text-start font-medium">From pax</th>
-            <th scope="col" className="py-1 text-start font-medium">To pax</th>
-            {perPerson ? (
-              <>
-                <th scope="col" className="py-1 text-start font-medium">Adult net</th>
-                <th scope="col" className="py-1 text-start font-medium">Child net</th>
-                <th scope="col" className="py-1 text-start font-medium">Infant net</th>
-              </>
-            ) : (
-              <th scope="col" className="py-1 text-start font-medium">Group net</th>
-            )}
-            <th scope="col" className="py-1 text-start font-medium">Fixed sell</th>
-            <th scope="col" className="py-1" />
-          </tr>
-        </thead>
-        <tbody>
-          {tiers.map((tier, index) => (
-            <tr key={index} className="border-t border-line">
-              <td className="py-1.5 pe-2">
-                <input type="number" min={1} max={500} required value={tier.minPax} onChange={(e) => setTier(index, { minPax: e.target.value })} className={cn(field, "w-20 text-end tabular-nums")} />
-              </td>
-              <td className="py-1.5 pe-2">
-                <input type="number" min={1} max={500} placeholder="∞" value={tier.maxPax} onChange={(e) => setTier(index, { maxPax: e.target.value })} className={cn(field, "w-20 text-end tabular-nums")} />
-              </td>
+      {/* Six fixed-width inputs a row (~620px): scroll here, not the page. */}
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full text-[0.75rem]">
+          <thead>
+            <tr className="text-muted">
+              <th scope="col" className="py-1 text-start font-medium">From pax</th>
+              <th scope="col" className="py-1 text-start font-medium">To pax</th>
               {perPerson ? (
                 <>
-                  <td className="py-1.5 pe-2"><input inputMode="decimal" value={tier.adult} onChange={(e) => setTier(index, { adult: e.target.value })} className={cn(field, "w-24 text-end tabular-nums")} /></td>
-                  <td className="py-1.5 pe-2"><input inputMode="decimal" value={tier.child} onChange={(e) => setTier(index, { child: e.target.value })} className={cn(field, "w-24 text-end tabular-nums")} /></td>
-                  <td className="py-1.5 pe-2"><input inputMode="decimal" value={tier.infant} onChange={(e) => setTier(index, { infant: e.target.value })} className={cn(field, "w-24 text-end tabular-nums")} /></td>
+                  <th scope="col" className="py-1 text-start font-medium">Adult net</th>
+                  <th scope="col" className="py-1 text-start font-medium">Child net</th>
+                  <th scope="col" className="py-1 text-start font-medium">Infant net</th>
                 </>
               ) : (
-                <td className="py-1.5 pe-2"><input inputMode="decimal" value={tier.group} onChange={(e) => setTier(index, { group: e.target.value })} className={cn(field, "w-28 text-end tabular-nums")} /></td>
+                <th scope="col" className="py-1 text-start font-medium">Group net</th>
               )}
-              <td className="py-1.5 pe-2"><input inputMode="decimal" placeholder="markup" value={tier.sell} onChange={(e) => setTier(index, { sell: e.target.value })} className={cn(field, "w-24 text-end tabular-nums")} /></td>
-              <td className="py-1.5">
-                <button
-                  type="button"
-                  disabled={tiers.length === 1}
-                  onClick={() => setTiers((current) => current.filter((_, at) => at !== index))}
-                  aria-label="Remove tier"
-                  className="text-subtle hover:text-error-text disabled:opacity-30"
-                >
-                  <X size={14} aria-hidden />
-                </button>
-              </td>
+              <th scope="col" className="py-1 text-start font-medium">Fixed sell</th>
+              <th scope="col" className="py-1" />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {tiers.map((tier, index) => (
+              <tr key={index} className="border-t border-line">
+                <td className="py-1.5 pe-2">
+                  <input type="number" min={1} max={500} required value={tier.minPax} onChange={(e) => setTier(index, { minPax: e.target.value })} className={cn(field, "w-20 text-end tabular-nums")} />
+                </td>
+                <td className="py-1.5 pe-2">
+                  <input type="number" min={1} max={500} placeholder="∞" value={tier.maxPax} onChange={(e) => setTier(index, { maxPax: e.target.value })} className={cn(field, "w-20 text-end tabular-nums")} />
+                </td>
+                {perPerson ? (
+                  <>
+                    <td className="py-1.5 pe-2"><input inputMode="decimal" value={tier.adult} onChange={(e) => setTier(index, { adult: e.target.value })} className={cn(field, "w-24 text-end tabular-nums")} /></td>
+                    <td className="py-1.5 pe-2"><input inputMode="decimal" value={tier.child} onChange={(e) => setTier(index, { child: e.target.value })} className={cn(field, "w-24 text-end tabular-nums")} /></td>
+                    <td className="py-1.5 pe-2"><input inputMode="decimal" value={tier.infant} onChange={(e) => setTier(index, { infant: e.target.value })} className={cn(field, "w-24 text-end tabular-nums")} /></td>
+                  </>
+                ) : (
+                  <td className="py-1.5 pe-2"><input inputMode="decimal" value={tier.group} onChange={(e) => setTier(index, { group: e.target.value })} className={cn(field, "w-28 text-end tabular-nums")} /></td>
+                )}
+                <td className="py-1.5 pe-2"><input inputMode="decimal" placeholder="markup" value={tier.sell} onChange={(e) => setTier(index, { sell: e.target.value })} className={cn(field, "w-24 text-end tabular-nums")} /></td>
+                <td className="py-1.5">
+                  <button
+                    type="button"
+                    disabled={tiers.length === 1}
+                    onClick={() => setTiers((current) => current.filter((_, at) => at !== index))}
+                    aria-label="Remove tier"
+                    className="text-subtle hover:text-error-text disabled:opacity-30"
+                  >
+                    <X size={14} aria-hidden />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <p className="mt-1 text-[0.6875rem] text-muted">
         A blank “fixed sell” means the buyer’s markup applies. A child priced blank is charged the adult rate.
       </p>

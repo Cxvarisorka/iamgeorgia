@@ -148,7 +148,7 @@ export function OrderDetail({ order, cancel, className }: OrderDetailProps) {
       </section>
 
       <section className="border border-line bg-surface p-5">
-        <h2 className="type-h5">{t.orders.manage.priceTitle}</h2>
+        <h2 className="type-h4">{t.orders.manage.priceTitle}</h2>
         <dl className="mt-4 flex flex-col gap-2">
           <div className="type-body-sm flex items-baseline justify-between gap-4">
             <dt className="text-muted">{t.orders.manage.partsTotal}</dt>
@@ -168,7 +168,7 @@ export function OrderDetail({ order, cancel, className }: OrderDetailProps) {
           )}
           <div className="mt-2 flex items-baseline justify-between gap-4 border-t border-line pt-3">
             <dt className="type-body font-semibold text-ink">{t.orders.manage.total}</dt>
-            <dd className="type-h5 tabular-nums text-ink">{money(order.totalCents)}</dd>
+            <dd className="type-h4 tabular-nums text-ink">{money(order.totalCents)}</dd>
           </div>
           {typeof order.marginCents === "number" && (
             <div className="type-caption flex items-baseline justify-between gap-4 text-muted">
@@ -180,7 +180,7 @@ export function OrderDetail({ order, cancel, className }: OrderDetailProps) {
       </section>
 
       <section className="border border-line bg-surface p-5">
-        <h2 className="type-h5">{t.orders.manage.leadGuest}</h2>
+        <h2 className="type-h4">{t.orders.manage.leadGuest}</h2>
         <p className="type-body-sm mt-2 text-ink">{order.leadName}</p>
         <p className="type-caption text-muted">{order.leadEmail}</p>
         {order.leadPhone && <p className="type-caption text-muted">{order.leadPhone}</p>}

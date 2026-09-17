@@ -60,10 +60,16 @@ export function CookieNotice() {
   if (dismissed) return null;
 
   return (
+    /*
+     * `z-60`: above the header and the mobile booking bar (z-40), below the
+     * mobile menu (z-90) and every dialog and lightbox (z-100). At z-100 and
+     * later in the DOM it used to paint over an open dialog's action buttons.
+     * `--booking-bar-offset` lifts it clear of that bar where a page has one.
+     */
     <div
       role="region"
       aria-label={t.cookieNotice.label}
-      className="fixed inset-x-0 bottom-0 z-100 px-4 pb-4 sm:px-6 sm:pb-6"
+      className="fixed inset-x-0 bottom-(--booking-bar-offset) z-60 px-4 pb-4 sm:px-6 sm:pb-6"
     >
       <div className="mx-auto flex max-w-3xl flex-col gap-4 rounded-sm border border-line bg-surface p-4 shadow-card sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:p-5">
         <p className="type-body-sm text-body">

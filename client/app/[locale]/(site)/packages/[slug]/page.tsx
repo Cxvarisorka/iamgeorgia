@@ -140,7 +140,7 @@ export default async function PackageDetailPage(props: PageProps<"/[locale]/pack
             <div className="type-caption flex flex-wrap items-center gap-x-3 gap-y-1 text-muted">
               {pkg.destination && (
                 <span className="inline-flex items-center gap-1.5">
-                  <MapPin size={13} aria-hidden />
+                  <MapPin size={13} className="shrink-0" aria-hidden />
                   {pkg.destination.name}
                 </span>
               )}
@@ -192,7 +192,7 @@ export default async function PackageDetailPage(props: PageProps<"/[locale]/pack
         {search && quote ? (
           <PackageBuilder slug={pkg.slug} name={pkg.name} search={search} quote={quote} />
         ) : (
-          <div className="grid gap-10 lg:grid-cols-[1fr_22rem] lg:gap-12">
+          <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-12">
             <div>
               {pkg.description.length > 0 && (
                 <section>

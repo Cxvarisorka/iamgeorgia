@@ -13,8 +13,15 @@ type Variant =
   | "light";
 type Size = "sm" | "md" | "lg";
 
+/*
+ * Heights are minimums and labels are allowed to wrap. A fixed height with
+ * `whitespace-nowrap` made every label as wide as its longest translation, and
+ * in a two-button row on a phone — or a Russian cancel dialog at any width —
+ * the text ran out of the button and was clipped by the dialog. A button that
+ * has room still sits on one line at exactly its old height.
+ */
 const base =
-  "inline-flex items-center justify-center gap-2 rounded-sm font-sans font-semibold whitespace-nowrap " +
+  "inline-flex max-w-full items-center justify-center gap-2 rounded-sm text-center font-sans leading-tight font-semibold [&>svg]:shrink-0 " +
   "transition-[background-color,color,border-color,transform] duration-200 ease-(--ease-out-soft) " +
   "active:translate-y-px disabled:pointer-events-none disabled:opacity-50";
 
@@ -37,9 +44,11 @@ const variants: Record<Variant, string> = {
 };
 
 const sizes: Record<Size, string> = {
-  sm: "h-9 px-4 text-[0.8125rem]",
-  md: "h-11 px-6 text-[0.9375rem]",
-  lg: "h-13 px-8 text-base",
+  sm: "min-h-9 px-4 py-1.5 text-[0.8125rem]",
+  md: "min-h-11 px-6 py-2 text-[0.9375rem]",
+  // Narrower sides on a phone: 32px of padding either side left a long
+  // Georgian label less than 220px on a 320px screen.
+  lg: "min-h-13 px-5 py-2.5 text-base sm:px-8",
 };
 
 interface CommonProps {

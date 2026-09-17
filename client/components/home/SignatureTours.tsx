@@ -44,7 +44,7 @@ export async function SignatureTours() {
   if (!lead) return null;
 
   return (
-    <section className="py-24 lg:py-32">
+    <section className="py-16 sm:py-24 lg:py-32">
       <Container>
         <Reveal>
           <SectionHeading
@@ -84,7 +84,7 @@ export async function SignatureTours() {
  */
 export function SignatureToursFallback() {
   return (
-    <section className="py-24 lg:py-32">
+    <section className="py-16 sm:py-24 lg:py-32">
       <Container>
         <Skeleton className="h-3 w-28" />
         <Skeleton className="mt-5 h-10 w-2/3 max-w-lg" />

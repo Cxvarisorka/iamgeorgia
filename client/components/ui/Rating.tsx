@@ -83,7 +83,7 @@ export function ScoreBadge({ score, reviewCount, size = "md", className }: Score
           // brand-600 rather than the logo orange: the numeral is small text, and
           // the deeper shade clears AA against white (4.5:1) while still reading
           // unmistakably as the brand.
-          "flex items-center justify-center rounded-sm rounded-bl-none bg-brand-600 px-2 font-semibold text-white tabular-nums",
+          "flex items-center justify-center rounded-sm rounded-es-none bg-brand-600 px-2 font-semibold text-white tabular-nums",
           box,
         )}
       >

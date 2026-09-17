@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { Check, MapPin, Navigation } from "lucide-react";
 
+import { MobileBookingBar } from "@/components/booking/MobileBookingBar";
 import { RoomOffers } from "@/components/booking/RoomOffers";
 import { StayPanel } from "@/components/booking/StayPanel";
 import { StaySearchForm } from "@/components/booking/StaySearchForm";
@@ -270,7 +270,7 @@ export default async function HotelDetailPage(props: PageProps<"/[locale]/hotels
             </div>
             <h1 className="type-h1 mt-4 text-balance">{hotel.name}</h1>
             <p className="type-body-sm mt-3 flex items-center gap-2 text-muted">
-              <MapPin size={15} aria-hidden />
+              <MapPin size={15} className="shrink-0" aria-hidden />
               {hotel.address}
             </p>
           </div>
@@ -295,12 +295,13 @@ export default async function HotelDetailPage(props: PageProps<"/[locale]/hotels
         </div>
       </Container>
 
-      <Container className="pt-8">
+      {/* The section nav shares a container with the sections it points at:
+          `sticky` can only travel within its parent, and in a container of its
+          own it had nowhere to go and scrolled away with the page. */}
+      <Container className="pt-8 pb-28 lg:pb-32">
         <HotelSectionNav hasKosher={Boolean(api.kosher?.offersKosher)} />
-      </Container>
 
-      <Container className="pt-12 pb-28 lg:pb-32">
-        <div className="grid gap-12 lg:grid-cols-12 lg:gap-12 xl:gap-16">
+        <div className="mt-12 grid gap-12 lg:grid-cols-12 lg:gap-12 xl:gap-16">
           <div className="min-w-0 lg:col-span-8">
             <section id="overview" className="scroll-mt-36">
               <h2 className="type-h2">{t.hotels.about}</h2>
@@ -469,31 +470,17 @@ export default async function HotelDetailPage(props: PageProps<"/[locale]/hotels
       </Container>
 
       {/* Mobile booking bar — the pattern travellers expect on a phone. */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-background/95 backdrop-blur-md lg:hidden">
-        <div className="flex items-center justify-between gap-4 px-5 py-3">
-          <p>
-            <span className="type-caption block text-muted">{t.common.from}</span>
-            <span className="type-h4 tabular-nums">
-              {cheapest
-                ? formatMoney(cheapest.quote.totals.totalCents, cheapest.quote.currency, intlLocale)
-                : formatPrice(hotel.priceFrom, intlLocale)}
-              <span className="type-caption font-normal text-muted">
-                {" "}
-                {cheapest
-                  ? `· ${plural(locale, nights, t.units.night)}`
-                  : t.common.perNightShort}
-              </span>
-            </span>
-          </p>
-
-          <Link
-            href={stay ? "#rooms" : "#stay-search"}
-            className="inline-flex h-11 items-center justify-center rounded-sm bg-brand px-6 text-[0.9375rem] font-medium text-on-dark transition-colors hover:bg-brand-hover"
-          >
-            {stay ? t.hotels.seeRooms : t.booking.availability.selectDates}
-          </Link>
-        </div>
-      </div>
+      <MobileBookingBar
+        caption={t.common.from}
+        price={
+          cheapest
+            ? formatMoney(cheapest.quote.totals.totalCents, cheapest.quote.currency, intlLocale)
+            : formatPrice(hotel.priceFrom, intlLocale)
+        }
+        note={cheapest ? `· ${plural(locale, nights, t.units.night)}` : t.common.perNightShort}
+        href={stay ? "#rooms" : "#stay-search"}
+        action={stay ? t.hotels.seeRooms : t.booking.availability.selectDates}
+      />
 
       {/* Both rails depend on a second API call and stream in rather than
           holding the property behind them. The cross-sell needs real dates to

@@ -70,7 +70,7 @@ export function ShareSave({ title, className }: ShareSaveProps) {
           <button
             type="button"
             onClick={copyLink}
-            className="mt-5 flex w-full items-center justify-between gap-4 rounded-sm border border-line px-4 py-3.5 text-left transition-colors hover:border-ink"
+            className="mt-5 flex w-full items-center justify-between gap-4 rounded-sm border border-line px-4 py-3.5 text-start transition-colors hover:border-ink"
           >
             <span className="min-w-0 flex-1">
               <span className="type-caption block text-muted">{t.share.pageLink}</span>

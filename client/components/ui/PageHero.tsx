@@ -48,7 +48,7 @@ export function PageHero({
       <div className="scrim-full absolute inset-0" aria-hidden />
       <div className="scrim-side absolute inset-0" aria-hidden />
 
-      <Container className="relative pt-32 pb-14 lg:pb-16">
+      <Container className="relative pt-28 pb-14 sm:pt-32 lg:pb-16">
         {breadcrumbs && (
           <div className="animate-hero-rise mb-6" style={{ animationDelay: "0.05s" }}>
             <Breadcrumbs items={breadcrumbs} tone="light" />

@@ -15,7 +15,7 @@ export async function Footer() {
     <footer className="mt-auto bg-ink text-on-dark">
       <Container className="py-20 lg:py-24">
         <div className="grid gap-14 lg:grid-cols-12 lg:gap-10">
-          <div className="lg:col-span-5">
+          <div className="lg:col-span-4">
             <p className="flex items-center gap-3 font-display text-2xl tracking-[0.06em]">
               <Logo className="size-10" />
               {site.wordmark}
@@ -48,7 +48,11 @@ export async function Footer() {
             </ul>
           </div>
 
-          <div className="grid grid-cols-2 gap-10 sm:grid-cols-3 lg:col-span-4">
+          {/* Three link columns need more than a third of the row: squeezed into
+              four twelfths at 1024px they were ~67px each and "Управление
+              бронированием" ran into its neighbour. Two columns in the `lg`
+              band, three again from `xl`. */}
+          <div className="grid grid-cols-2 gap-10 sm:grid-cols-3 lg:col-span-5 lg:grid-cols-2 lg:gap-x-6 xl:grid-cols-3">
             {footerNavigation(t).map((group) => (
               <div key={group.title}>
                 <h2 className="type-eyebrow text-on-dark/40">{group.title}</h2>

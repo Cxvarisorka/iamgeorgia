@@ -259,7 +259,10 @@ function AvailableRow({
   const scarce = option.unitKind === "SEAT" ? offer.availableUnits <= 4 : offer.availableUnits <= 1;
 
   return (
-    <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[1fr_15rem]">
+    // Side by side only from `xl`: on a tour page this row sits in seven
+    // twelfths of the layout, and at 1024px a 15rem price column left the
+    // departure details about 220px.
+    <div className="grid gap-4 p-4 sm:p-5 xl:grid-cols-[minmax(0,1fr)_15rem]">
       <div className="min-w-0">
         <p className="type-body-sm font-medium text-ink">
           {formatNightDate(offer.date, intlLocale)}
@@ -334,7 +337,7 @@ function AvailableRow({
         )}
       </div>
 
-      <div className="flex flex-col justify-between gap-4 border-t border-line pt-4 lg:border-t-0 lg:border-s lg:pt-0 lg:ps-6">
+      <div className="flex flex-col justify-between gap-4 border-t border-line pt-4 xl:border-t-0 xl:border-s xl:pt-0 xl:ps-6">
         <div className="text-end">
           <p className="type-h3 tabular-nums">
             {formatMoney(quote.totals.totalCents, currency, intlLocale)}
