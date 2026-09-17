@@ -31,6 +31,22 @@ Both use the same images and the same environment contract
    and `api.iamgeorgia.travel` are one site; `x.onrender.com` and
    `y.onrender.com` (or `x.vercel.app`) are two different sites and sign-in
    will silently fail. Attach custom domains before testing login.
+
+   Sharing a site is not enough on its own. Without a `Domain` attribute the
+   cookie belongs to the API's host only, and the admin, partner and driver
+   panels check the session while rendering on the *site's* host — so sign-in
+   returns 200 and the panel sends you straight back to its sign-in page. Set
+   `AUTH_COOKIE_DOMAIN` on the API to the narrowest domain both hosts share:
+
+   | Site | API | `AUTH_COOKIE_DOMAIN` |
+   | --- | --- | --- |
+   | `iamgeorgia.travel` | `api.iamgeorgia.travel` | `iamgeorgia.travel` |
+   | `preview.iamgeorgia.com.ge` | `api.preview.iamgeorgia.com.ge` | `preview.iamgeorgia.com.ge` |
+
+   Never a parent of the environment's own domain (`iamgeorgia.com.ge` for the
+   preview): that sends the preview's cookie to production and every other
+   host under it. Locally it stays unset — `localhost:3000` and
+   `localhost:5000` already share cookies, because cookies ignore ports.
 2. **`NEXT_PUBLIC_API_URL` is baked into the client at build time.** It must be
    the API's *public* URL, and the API's `CLIENT_ORIGIN` must be the site's
    public URL. Changing either means rebuilding the client.
@@ -78,6 +94,7 @@ Region is `frankfurt` in the file — the closest to Georgia. Change it in
 | --- | --- |
 | `CLIENT_ORIGIN` | `https://iamgeorgia.travel` — the site's public origin, no trailing slash |
 | `APP_URL` | Same as `CLIENT_ORIGIN` |
+| `AUTH_COOKIE_DOMAIN` | The domain the site and the API share (rule 1): `iamgeorgia.travel` in production, `preview.iamgeorgia.com.ge` for the preview |
 | `MAIL_REPLY_TO` | The mailbox humans reply to |
 | `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` | From the email provider |
 | `TRANSFER_OPS_EMAIL` | Where "leg still has no driver" alerts go |
@@ -99,8 +116,11 @@ database, the six signing secrets) is set by the Blueprint.
    published first — if `nslookup iamgeorgia.travel` says "non-existent
    domain", nothing under it can resolve yet.
 4. Set `CLIENT_ORIGIN` and `APP_URL` on the API to `https://iamgeorgia.travel`,
-   and `NEXT_PUBLIC_API_URL` on Vercel to `https://api.iamgeorgia.travel`, then
-   redeploy the client.
+   `AUTH_COOKIE_DOMAIN` on the API to `iamgeorgia.travel`, and
+   `NEXT_PUBLIC_API_URL` on Vercel to `https://api.iamgeorgia.travel`, then
+   redeploy the client. `render.yaml` only prompts for `AUTH_COOKIE_DOMAIN`
+   when a Blueprint is first applied — on a service that already exists, add it
+   under Environment by hand.
 5. Only now does sign-in work end to end (rule 1 above).
 
 ### 3.4 First-run tasks

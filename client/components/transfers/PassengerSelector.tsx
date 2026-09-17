@@ -128,10 +128,12 @@ export function PassengerSelector({
         </p>
       )}
 
+      {/* From `sm` this field is the last column of its row, so the panel opens
+          back towards the form; anchored to its start it ran off the screen. */}
       {open && (
         <div
           id={panelId}
-          className="absolute top-full z-30 mt-2 w-[min(20rem,calc(100vw-2.5rem))] rounded-sm border border-line bg-surface p-4 shadow-lift start-0"
+          className="absolute top-full z-30 mt-2 w-[min(20rem,calc(100vw-2.5rem))] rounded-sm border border-line bg-surface p-4 shadow-lift start-0 sm:start-auto sm:end-0"
         >
           <ul className="divide-y divide-line">
             {rows.map((row) => (

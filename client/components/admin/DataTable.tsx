@@ -47,7 +47,10 @@ export function DataTable({
     // column 44rem wide and the page scroll sideways on a phone. Containment
     // sizes the wrapper from its parent alone; the table scrolls inside it.
     <div className={cn("w-full contain-inline-size overflow-x-auto", className)}>
-      <table className="w-full min-w-[44rem] border-collapse text-start">
+      {/* The floor applies from `md`. Below that the `hideBelow` columns are
+          already gone, and a 44rem minimum forced every table into a sideways
+          scroll on a phone anyway; the wrapper still scrolls if a row needs it. */}
+      <table className="w-full border-collapse text-start md:min-w-[44rem]">
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr className="border-b border-line">

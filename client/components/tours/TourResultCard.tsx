@@ -45,14 +45,14 @@ export async function TourResultCard({ result, stay }: TourResultCardProps) {
             className="object-cover"
           />
         )}
-        <div className="absolute top-3 left-3">
+        <div className="absolute start-3 top-3">
           <Badge tone="light">{t.tours.categories[result.category]}</Badge>
         </div>
       </Link>
 
       <div className="min-w-0">
         <p className="type-eyebrow flex items-center gap-1.5 text-muted">
-          <MapPin size={12} aria-hidden />
+          <MapPin size={12} className="shrink-0" aria-hidden />
           {result.location}
         </p>
         <h3 className="type-h3 mt-2">

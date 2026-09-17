@@ -54,12 +54,14 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // `/en/...` is a duplicate of the unprefixed URL. Collapse it.
+  // `/en/...` is a duplicate of the unprefixed URL. Collapse it — permanently,
+  // so a search engine that finds the prefixed form transfers its signals to
+  // the one address rather than treating the pair as two pages.
   if (first === defaultLocale) {
     const rest = segments.slice(1).join("/");
     const url = request.nextUrl.clone();
     url.pathname = rest ? `/${rest}` : "/";
-    return NextResponse.redirect(url);
+    return NextResponse.redirect(url, 308);
   }
 
   // Bare root: send visitors to their own language the first time.

@@ -2209,5 +2209,9 @@ export const he: UiDictionary = {
   share: {
     copied: "הקישור הועתק",
     pageLink: "קישור לדף",
+    title: "שיתוף",
+    native: "שיתוף…",
+    nativeHint: "שליחה דרך אפליקציה במכשיר זה",
+    copyLink: "העתקת קישור",
   },
 };

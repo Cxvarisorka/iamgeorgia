@@ -112,6 +112,14 @@ export function TourSearchForm({ value, action, minAge, className }: TourSearchF
   const field = "flex flex-col gap-1.5 px-4 py-3.5";
   const label = "type-caption flex items-center gap-1.5 text-muted";
   const control = "h-6 w-full bg-transparent text-sm text-ink focus:outline-none";
+  /*
+   * Date fields get a minimum rather than a fixed height: iOS Safari draws its
+   * own date control, taller than 24px once the text is 16px on a touch
+   * screen, and centres the value — so a fixed `h-6` clipped it. The value is
+   * aligned to the start like every other field in the form.
+   */
+  const dateControl =
+    "min-h-6 w-full bg-transparent text-start text-sm text-ink focus:outline-none [&::-webkit-date-and-time-value]:text-start";
   const stepper =
     "flex size-8 items-center justify-center rounded-sm border border-line text-body transition-colors hover:border-ink disabled:opacity-35";
 
@@ -144,7 +152,7 @@ export function TourSearchForm({ value, action, minAge, className }: TourSearchF
             value={stay.date}
             min={todayISO()}
             onChange={(event) => setStay((current) => ({ ...current, date: event.target.value }))}
-            className={control}
+            className={dateControl}
           />
         </label>
 

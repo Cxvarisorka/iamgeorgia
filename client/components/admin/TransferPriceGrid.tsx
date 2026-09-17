@@ -128,7 +128,9 @@ export function TransferPriceGrid({
             { label: "Vehicle class" },
             { label: "Seats", align: "end", hideBelow: "sm" },
             { label: "One way (GEL)", align: "end" },
-            { label: "Return (GEL)", align: "end", hideBelow: "md" },
+            // Never hidden: this column holds an input, and hiding it on a phone
+            // made the return fare impossible to edit there.
+            { label: "Return (GEL)", align: "end" },
           ]}
         >
           {vehicles.map((vehicle) => (
@@ -155,7 +157,7 @@ export function TransferPriceGrid({
                   className="h-9 w-28 rounded-sm border border-line bg-surface px-2 text-end text-[0.875rem] text-ink tabular-nums focus:border-ink focus:outline-none"
                 />
               </Cell>
-              <Cell align="end" hideBelow="md">
+              <Cell align="end">
                 <input
                   type="number"
                   min={0}

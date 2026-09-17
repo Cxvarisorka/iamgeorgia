@@ -108,3 +108,54 @@ export function LanguageMenu({ tone = "dark" }: { tone?: "dark" | "light" }) {
     </div>
   );
 }
+
+/**
+ * The same choice as a row of links, for the mobile menu.
+ *
+ * The header dropdown only appears from `sm` up — below that there is no room
+ * beside the wordmark and the burger — so without this a phone reader would
+ * be locked into whichever language they arrived in. Every option is visible
+ * at once: four endonyms fit on a 320px row, and a menu inside a menu is one
+ * tap too many on a phone.
+ */
+export function LanguageMenuRow({ onNavigate }: { onNavigate?: () => void }) {
+  const pathname = usePathname();
+  const { locale, t } = useI18n();
+  const canonicalPath = stripLocale(pathname);
+
+  return (
+    <nav aria-label={t.a11y.changeLanguage} className="flex items-start gap-3">
+      <Globe size={18} className="mt-2 shrink-0 text-on-dark/60" aria-hidden />
+      <ul className="flex min-w-0 flex-wrap gap-2">
+        {locales.map((code) => {
+          const meta = localeMeta[code];
+          const active = code === locale;
+          return (
+            <li key={code}>
+              <Link
+                href={localePath(code, canonicalPath)}
+                hrefLang={meta.htmlLang}
+                lang={meta.htmlLang}
+                dir={meta.dir}
+                aria-current={active ? "true" : undefined}
+                onClick={() => {
+                  rememberLocale(code);
+                  onNavigate?.();
+                }}
+                className={cn(
+                  "inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-[0.8125rem] font-medium transition-colors",
+                  active
+                    ? "border-on-dark bg-on-dark text-ink"
+                    : "border-on-dark/25 text-on-dark/80 hover:border-on-dark/60 hover:text-on-dark",
+                )}
+              >
+                {active && <Check size={13} aria-hidden />}
+                {meta.label}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}

@@ -89,7 +89,9 @@ export function TransferGallery({ vehicle, from, to, className }: TransferGaller
       </div>
 
       {frames.length > 1 && (
-        <ul className="mt-3 flex gap-3">
+        // Three equal columns on a phone, where three fixed 96px frames came
+        // to more than a 320px screen; fixed frames again from `sm`.
+        <ul className="mt-3 grid grid-cols-3 gap-2 sm:flex sm:gap-3">
           {frames.map((frame) => {
             const isActive = frame.id === active.id;
             return (
@@ -99,7 +101,7 @@ export function TransferGallery({ vehicle, from, to, className }: TransferGaller
                   onClick={() => setActiveId(frame.id)}
                   aria-pressed={isActive}
                   className={cn(
-                    "relative block h-16 w-24 overflow-hidden rounded-sm border-2 transition-colors sm:h-20 sm:w-30",
+                    "relative block aspect-3/2 w-full overflow-hidden rounded-sm border-2 transition-colors sm:aspect-auto sm:h-20 sm:w-30",
                     isActive ? "border-brand" : "border-transparent hover:border-subtle",
                   )}
                 >

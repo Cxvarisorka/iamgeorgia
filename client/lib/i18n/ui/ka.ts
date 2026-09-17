@@ -2204,5 +2204,9 @@ export const ka: UiDictionary = {
   share: {
     copied: "ბმული დაკოპირდა",
     pageLink: "გვერდის ბმული",
+    title: "გაზიარება",
+    native: "გაზიარება…",
+    nativeHint: "გაგზავნეთ ამ მოწყობილობის აპლიკაციით",
+    copyLink: "ბმულის კოპირება",
   },
 };

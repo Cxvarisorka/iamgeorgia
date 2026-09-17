@@ -193,7 +193,7 @@ function OfferRow({
   const refundable = terms.cancellation.refundable !== false && terms.cancellation.freeUntil;
 
   return (
-    <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[1fr_15rem]">
+    <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_15rem]">
       <div className="min-w-0">
         <p className="type-body-sm font-medium text-ink">{offer.name}</p>
 

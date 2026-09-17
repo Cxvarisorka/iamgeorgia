@@ -68,7 +68,7 @@ export function HotelListItem({ hotel, className, priority }: HotelListItemProps
           </h3>
 
           <p className="type-caption mt-2 flex items-center gap-1.5 text-muted">
-            <MapPin size={13} aria-hidden />
+            <MapPin size={13} className="shrink-0" aria-hidden />
             {hotel.address}
           </p>
 
@@ -102,7 +102,7 @@ export function HotelListItem({ hotel, className, priority }: HotelListItemProps
           <div className="mt-5 flex flex-wrap items-end justify-between gap-4 border-t border-line pt-4 sm:mt-auto">
             <ScoreBadge score={hotel.guestScore} reviewCount={hotel.reviewCount} size="sm" />
             <div className="flex items-end gap-5">
-              <p className="text-right">
+              <p className="text-end">
                 <span className="type-caption block text-muted">From</span>
                 <span className="type-h4 text-ink">{formatPrice(hotel.priceFrom)}</span>
                 <span className="type-caption block text-muted">per night</span>

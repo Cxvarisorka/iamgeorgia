@@ -179,7 +179,17 @@ export default async function TransfersPage() {
                 <div className="flex aspect-4/3 items-center justify-center rounded-sm bg-surface-earth/70 p-6 text-ink">
                   <VehicleIllustration vehicleClass={vehicle.body} className="max-w-48" />
                 </div>
-                <h3 className="type-h4 mt-5">{vehicle.name}</h3>
+                {/* The class name is the one link a crawler has into the
+                    vehicle page from an indexable page — the search results
+                    that otherwise lead there are kept out of the index. */}
+                <h3 className="type-h4 mt-5">
+                  <Link
+                    href={path(`/transfers/${vehicle.slug}`)}
+                    className="transition-colors hover:text-brand-text"
+                  >
+                    {vehicle.name}
+                  </Link>
+                </h3>
                 <p className="type-caption mt-1 text-muted">
                   {t.transfers.vehicleClasses[vehicle.body]} · {vehicle.vehicleExample}
                 </p>

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { site } from "@/constants/site";
 import { localeMeta, locales, type Locale } from "@/lib/i18n/config";
 import { getLocale } from "@/lib/i18n/server";
+import { platformSocialImage, type SocialImage } from "@/lib/seo/social";
 import { localeAlternates } from "@/lib/seo/urls";
 
 /**
@@ -53,10 +54,11 @@ export interface PageMetadataInput {
   title: string;
   description: string;
   /**
-   * Card image. A path under /public or an absolute URL from the media bucket;
-   * falls back to the brand image when the record has none.
+   * Card image. A path under /public, an absolute URL from the media bucket,
+   * or a `SocialImage` from `socialImage()` carrying its real dimensions;
+   * falls back to the brand card when the record has none.
    */
-  image?: string | null;
+  image?: string | SocialImage | null;
   imageAlt?: string;
   /** Opts out of the `%s — I'am Georgia` template, for the home page. */
   absoluteTitle?: boolean;
@@ -84,10 +86,12 @@ export async function pageMetadata({
   const alternates = localeAlternates(locale, path);
   const summary = clamp(description);
 
+  const picked = typeof image === "string" ? (image ? { url: image } : null) : (image ?? null);
+  const chosen = picked?.url ? picked : platformSocialImage();
   const card = {
-    url: image || site.seo.image,
+    url: chosen.url,
     alt: imageAlt ?? site.seo.imageAlt,
-    ...(image ? {} : { width: site.seo.imageWidth, height: site.seo.imageHeight }),
+    ...(chosen.width && chosen.height ? { width: chosen.width, height: chosen.height } : {}),
   };
 
   return {
@@ -112,4 +116,15 @@ export async function pageMetadata({
       images: [card],
     },
   };
+}
+
+/**
+ * A record that does not exist for this viewer.
+ *
+ * The page itself answers 404, so the only thing this metadata does is keep a
+ * crawler that arrives before the status from indexing an empty shell. No
+ * canonical and no hreflang: there is no page to point at.
+ */
+export function notFoundMetadata(title: string): Metadata {
+  return { title, robots: { index: false, follow: true } };
 }

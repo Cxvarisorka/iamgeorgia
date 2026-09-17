@@ -73,6 +73,9 @@ describe('authentication', { skip: dbAvailable ? false : 'Postgres is not reacha
         // on `isDeployed` rather than `isProduction`, so a staging host — which
         // is just as interceptable as production — still gets the flag.
         assert.equal(/Secure/i.test(header), config.isDeployed);
+        // Host-only unless AUTH_COOKIE_DOMAIN names the domain the site and the
+        // API share.
+        assert.equal(/Domain=/i.test(header), Boolean(config.auth.cookieDomain));
 
         assert.ok(!JSON.stringify(body).includes('token'));
         assert.equal(body.user.passwordHash, undefined);

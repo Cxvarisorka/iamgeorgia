@@ -23,6 +23,7 @@ Everything changed on the front end, why it changed, and what is still outstandi
 11. [Tours went live](#11-tours-went-live)
 12. [Packages and orders went live](#12-packages-and-orders-went-live)
 13. [Responsive audit](#13-responsive-audit)
+14. [SEO, sharing and public URLs](#14-seo-sharing-and-public-urls)
 
 ---
 
@@ -803,6 +804,68 @@ the tour list's two selects.
 - Audit script and findings live outside the repo; the check is worth
   turning into a Playwright test that asserts `scrollWidth === innerWidth`
   for a route list at three widths.
+
+---
+
+## 14. SEO, sharing and public URLs
+
+An audit of how the four entity pages — hotel, tour, transfer vehicle,
+package — look to a search engine and to a link-preview crawler, followed by
+the fixes. Everything is server-rendered (App Router, dynamic per request), so
+the metadata a crawler needs was already in the initial HTML; the gaps were in
+what that metadata said and in which status codes went with it.
+
+### What was already in place
+
+`lib/seo/metadata.ts` (`pageMetadata`: title template, clamped description,
+self-referencing canonical, reciprocal hreflang, Open Graph, Twitter card),
+`lib/seo/jsonLd.tsx` (Organization, WebSite, BreadcrumbList, Hotel,
+TouristTrip), `app/robots.ts`, `app/sitemap.ts` read from the catalogue, and
+`noindex` on the admin, driver and portal trees and on every checkout, token
+and results page. The API serializers gate net rates, suppliers, commissions
+and channel flags behind the viewer, and the sitemap reads anonymously.
+
+### What was wrong
+
+| Problem | Effect | Fix |
+| --- | --- | --- |
+| `/transfers/[slug]` was `noindex` with no canonical, hreflang, card image or JSON-LD | Vehicle pages invisible to search; shared links got the generic card | `pageMetadata` + `Service` JSON-LD; bare URL indexed, dated variants canonicalise to it |
+| `/packages/[slug]` had no JSON-LD and no `priority` on its gallery | No rich-result eligibility; LCP image lazy | `BreadcrumbList` + `TouristTrip` (itinerary from the rendered days, `Offer` only from the brochure's own "from" price); gallery lead is the LCP |
+| Packages and vehicles missing from the sitemap | New records never discovered | Two more sections, read anonymously like the rest |
+| The API resolves `id OR slug` and lowercases the slug, so `/hotels/<uuid>` and `/hotels/Vera-House` rendered as duplicates | Duplicate URLs, database ids in circulation | `lib/seo/slug.ts` — a 308 to the record's own slug, query string preserved |
+| `hotels/`, `tours/` and `transfers/` each had a `loading.tsx` above their `[slug]` route | Every 404 and redirect on a detail page streamed as a **200** (soft 404) | Listing page and skeleton moved into an `(index)` route group; the retired `destinations`/`experiences` skeletons deleted. Detail pages now answer 404 and 308 for real |
+| `/en/...` redirected with 307 | Signals not consolidated | 308 |
+| Fallback card was the 1800×1196 hero declared as 1200×630 | Previews cropped to a lie | `public/images/social/default.jpg`, a real 1200×630 JPEG |
+| Card images used whichever URL the gallery used first | WebP renditions are skipped by several preview crawlers | `lib/seo/social.ts` — cover, then first photo, then editorial frame, preferring the JPEG/PNG original, with dimensions |
+| Share copied `window.location.href` (dates, filters, `utm_*`); no Web Share API; untranslated dialog | Shared links pointed at one visitor's session | `ShareSave` takes the canonical path, resolves it against the visitor's origin, offers the device share sheet where one exists and a copy row everywhere |
+| Vehicle pages reachable only from the `noindex` search results | Orphaned for crawlers | Fleet names on `/transfers` link to the vehicle pages |
+
+### Verified against the dev stack
+
+For a hotel, tour, package and vehicle in all four locales: title with brand
+suffix, description, self-referencing canonical, five hreflang links,
+`og:title/description/image/url/type/locale`, `twitter:card/title/image`,
+one `<h1>`, valid JSON-LD (`BreadcrumbList` plus `Hotel` / `TouristTrip` /
+`Service`), and no supplier, net, margin or channel fields in the HTML. Status
+codes: id and upper-case slug → 308 to the slug; unknown, trade-only and
+archived records → 404; `/en/…` and trailing slash → 308. The sitemap carries
+every section with per-locale alternates; robots disallows the three private
+trees at all four prefixes.
+
+### Not done, and why
+
+- **Dev media bucket.** The dev database's uploaded images point at R2 objects
+  that no longer exist (404), so hotel cards in dev preview with a broken
+  image. Production uploads land beside their records; nothing to fix in code.
+- **410 for archived records.** The API answers 404 for archived and unknown
+  alike; a 410 needs the server to distinguish them. Google treats both the
+  same, so this is low value.
+- **Slug renames.** The schema keys on `id` so a slug can change, but nothing
+  records the old one. A rename today is a 404 on every link that used it; a
+  slug-history table with a 308 is the missing piece.
+- **Dedicated per-entity preview cards** (name over the cover photograph via
+  `ImageResponse`) would sharpen previews for entities without a photograph;
+  the vehicle classes are the only such case today and get the brand card.
 
 ---
 

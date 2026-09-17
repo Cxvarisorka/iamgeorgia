@@ -2222,5 +2222,9 @@ export const ru: UiDictionary = {
   share: {
     copied: "Ссылка скопирована",
     pageLink: "Ссылка на страницу",
+    title: "Поделиться",
+    native: "Поделиться…",
+    nativeHint: "Отправить через приложение на этом устройстве",
+    copyLink: "Скопировать ссылку",
   },
 };

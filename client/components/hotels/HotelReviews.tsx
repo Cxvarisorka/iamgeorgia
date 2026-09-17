@@ -55,7 +55,7 @@ export function HotelReviews({
                   {review.country} · {review.tripType}
                 </p>
               </div>
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-sm rounded-bl-none bg-brand-600 text-sm font-semibold text-white tabular-nums">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-sm rounded-es-none bg-brand-600 text-sm font-semibold text-white tabular-nums">
                 {review.score.toFixed(1)}
               </span>
             </div>

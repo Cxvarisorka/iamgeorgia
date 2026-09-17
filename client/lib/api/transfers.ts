@@ -105,6 +105,12 @@ export const getTransferRoute = (slug: string, locale?: string) =>
 export const listTransferVehicles = (query: { locale?: string } = {}) =>
   serverFetch<{ data: TransferVehicle[] }>(`/api/transfers/vehicles${toQueryString(query)}`);
 
+/** Without the viewer's cookies — for the sitemap, which has no session. */
+export const listTransferVehiclesAnonymous = (
+  query: { locale?: string } = {},
+  init: RequestOptions = {},
+) => apiFetch<{ data: TransferVehicle[] }>(`/api/transfers/vehicles${toQueryString(query)}`, init);
+
 export const getTransferVehicle = (slug: string, locale?: string) =>
   serverFetch<TransferVehicle>(`/api/transfers/vehicles/${slug}${toQueryString({ locale })}`);
 

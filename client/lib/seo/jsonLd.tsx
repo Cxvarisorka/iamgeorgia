@@ -290,3 +290,88 @@ export function tourSchema(input: TourSchemaInput) {
     ...(input.offer ? { offers: offerSchema(input.offer) } : {}),
   };
 }
+
+export interface PackageSchemaInput {
+  name: string;
+  description: string;
+  url: string;
+  images: string[];
+  /** Where the trip goes, as the page names it. */
+  destination: string | null;
+  /**
+   * The day-by-day the brochure renders: one entry per day, its description
+   * the slot labels shown under it.
+   */
+  itinerary: { name: string; description: string }[];
+  /** The indicative "from" figure the brochure shows, or nothing. */
+  offer: OfferInput | null;
+  locale: Locale;
+}
+
+/**
+ * A package is a multi-day trip assembled from stays, transfers and tours,
+ * which is what `TouristTrip` describes. No `duration`: the record counts
+ * nights, and a night count stated as days is a different number.
+ */
+export function packageSchema(input: PackageSchemaInput) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "TouristTrip",
+    name: input.name,
+    description: input.description,
+    url: absoluteUrl(input.url),
+    inLanguage: localeMeta[input.locale].htmlLang,
+    ...(input.images.length > 0 ? { image: input.images.map(absoluteUrl) } : {}),
+    ...(input.destination
+      ? { arrivalLocation: { "@type": "Place", name: input.destination } }
+      : {}),
+    provider: { "@id": ORGANIZATION_ID },
+    ...(input.itinerary.length > 0
+      ? {
+          itinerary: {
+            "@type": "ItemList",
+            numberOfItems: input.itinerary.length,
+            itemListElement: input.itinerary.map((day, index) => ({
+              "@type": "ListItem",
+              position: index + 1,
+              name: day.name,
+              description: day.description,
+            })),
+          },
+        }
+      : {}),
+    ...(input.offer ? { offers: offerSchema(input.offer) } : {}),
+  };
+}
+
+export interface TransferServiceSchemaInput {
+  name: string;
+  description: string;
+  url: string;
+  /** The operator the page names beside the vehicle, when it names one. */
+  providerName: string | null;
+  locale: Locale;
+}
+
+/**
+ * A vehicle class is a service, not a product: what is sold is a journey on a
+ * date, and the page prices nothing until it is given one. No `offers` — the
+ * quote a visitor arrives with is for their own route and party, not a price
+ * of the page.
+ */
+export function transferServiceSchema(input: TransferServiceSchemaInput) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "Service",
+    serviceType: "Airport and intercity transfer",
+    name: input.name,
+    description: input.description,
+    url: absoluteUrl(input.url),
+    inLanguage: localeMeta[input.locale].htmlLang,
+    areaServed: { "@type": "Country", name: "Georgia" },
+    provider: input.providerName
+      ? { "@type": "Organization", name: input.providerName }
+      : { "@id": ORGANIZATION_ID },
+    broker: { "@id": ORGANIZATION_ID },
+  };
+}

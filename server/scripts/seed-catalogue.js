@@ -1,11 +1,16 @@
+// `readFile` is no longer called directly — scripts/lib/client-images.js reads
+// the local file now. The import stays so the original block in
+// `uploadClientImage` (commented out below) can be restored as it was.
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { config } from '../config.js';
 import { prisma, disconnect } from '../db/index.js';
 import { publishHotel } from '../services/hotel/hotel.service.js';
 import { uploadFile } from '../services/media/upload.service.js';
 import { addDays, todayInTimezone, dateOnlyToUtc, weekdayOf } from '../lib/time.js';
+import { ClientImageError, createClientImageSource } from './lib/client-images.js';
 
 /**
  * Seeds the real catalogue from the client's editorial fixtures.
@@ -31,9 +36,30 @@ import { addDays, todayInTimezone, dateOnlyToUtc, weekdayOf } from '../lib/time.
  *
  * Prerequisite: `node scripts/seed-reference.js` (amenities, bed types, meal
  * plans, policy templates).
+ *
+ * Images: read from `client/public` when the monorepo is checked out, and
+ * downloaded from APP_URL (the deployed client, same `/images/...` path) when
+ * they are not on disk — which is the case inside the API's Docker image on
+ * Render. See scripts/lib/client-images.js.
  */
 
 const CLIENT = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..', 'client');
+
+/**
+ * Local-file-first, APP_URL-second source for catalogue images.
+ *
+ * APP_URL is taken from the project config, but only when it is actually set:
+ * `config.appUrl` falls back to CLIENT_ORIGIN / localhost, and downloading from
+ * a guessed address would hide the misconfiguration instead of reporting it.
+ */
+const clientImages = createClientImageSource({
+    publicDir: join(CLIENT, 'public'),
+    appUrl: process.env.APP_URL ? config.appUrl : undefined,
+    maxBytes: config.media.maxImageBytes
+});
+
+/** Images that could not be obtained this run; reported, and fail the run, at the end. */
+const imageFailures = [];
 
 // The system actor: audit rows record 'system' when actor is null.
 const ACTOR = null;
@@ -146,28 +172,71 @@ const uploadClientImage = async (publicPath, altText) => {
         return assetCache.get(publicPath);
     }
 
+    // --- ORIGINAL: local file only --------------------------------------------
+    // Disabled in favour of the local-then-APP_URL source below. To go back to
+    // the old behaviour (a file missing on disk is skipped, never downloaded),
+    // uncomment this block and delete the "NEW" block that follows it.
+    //
+    // let buffer;
+    //
+    // try {
+    //     buffer = await readFile(join(CLIENT, 'public', publicPath));
+    // } catch {
+    //     console.log(`    (missing on disk, skipped: ${publicPath})`);
+    //     assetCache.set(publicPath, null);
+    //     return null;
+    // }
+    // --- END ORIGINAL ---------------------------------------------------------
+
+    // --- NEW: local file first, then APP_URL ---------------------------------
+    // Same Buffer either way, handed to the same uploadFile call below. A
+    // download that fails is skipped like a missing file used to be, but it is
+    // also recorded, and the run exits non-zero once every hotel is done.
     let buffer;
+    let source;
 
     try {
-        buffer = await readFile(join(CLIENT, 'public', publicPath));
-    } catch {
-        console.log(`    (missing on disk, skipped: ${publicPath})`);
+        const loaded = await clientImages.load(publicPath);
+        buffer = loaded.buffer;
+        source = loaded;
+
+        if (loaded.source === 'remote') {
+            console.log(`    (not on disk, downloaded: ${loaded.location})`);
+        }
+    } catch (err) {
+        if (!(err instanceof ClientImageError)) throw err;
+
+        console.log(`    (image unavailable, skipped: ${err.message})`);
+        imageFailures.push(err);
         assetCache.set(publicPath, null);
         return null;
     }
+    // --- END NEW --------------------------------------------------------------
 
     const category = publicPath.includes('/rooms/') ? 'ROOM_IMAGE' : 'HOTEL_IMAGE';
 
-    const asset = await uploadFile(
-        {
-            buffer,
-            originalFilename: publicPath.split('/').pop(),
-            declaredMimeType: 'image/jpeg',
-            category,
-            altText
-        },
-        ACTOR
-    );
+    let asset;
+
+    try {
+        asset = await uploadFile(
+            {
+                buffer,
+                originalFilename: publicPath.split('/').pop(),
+                declaredMimeType: 'image/jpeg',
+                category,
+                altText
+            },
+            ACTOR
+        );
+    } catch (err) {
+        // Still fatal, as before — storage that refuses one image refuses them
+        // all. The message now says which image, from where, into which driver.
+        throw new Error(
+            `Could not store image ${publicPath} (read from ${source.location}) ` +
+                `in media storage (driver: ${config.media.driver}): ${err.message}`,
+            { cause: err }
+        );
+    }
 
     assetCache.set(publicPath, asset);
     return asset;
@@ -574,6 +643,27 @@ const run = async () => {
         mealPlans: new Map(mealPlanRows.map((plan) => [plan.code, plan.id]))
     };
 
+    // Before anything is written: every image a new hotel needs must be either
+    // on disk or downloadable from a usable APP_URL. Failing here leaves the
+    // database untouched instead of half a hotel that a re-run would skip.
+    const existingHotelSlugs = new Set(
+        (
+            await prisma.hotel.findMany({
+                where: { slug: { in: hotels.map((fixture) => fixture.slug) } },
+                select: { slug: true }
+            })
+        ).map((row) => row.slug)
+    );
+    const pendingImagePaths = hotels
+        .filter((fixture) => !existingHotelSlugs.has(fixture.slug))
+        .flatMap((fixture) => [...fixture.gallery.map((image) => image.src), ...fixture.rooms.map((room) => room.image)]);
+    const imagePlan = await clientImages.preflight(pendingImagePaths);
+
+    console.log(
+        `Images for new hotels: ${imagePlan.local} on disk, ${imagePlan.remote} to download` +
+            (imagePlan.remote > 0 ? ` from ${new URL(config.appUrl).origin}` : '')
+    );
+
     console.log('Removing smoke-test data');
     await removeSmokeData();
 
@@ -605,6 +695,17 @@ const run = async () => {
             `${planCount} rate plans, ${rateCount.toLocaleString()} rates, ` +
             `${inventoryCount.toLocaleString()} inventory nights.`
     );
+
+    if (imageFailures.length > 0) {
+        console.error(`\n${imageFailures.length} image(s) could not be obtained:`);
+        for (const err of imageFailures) console.error(`  - ${err.message}`);
+        console.error(
+            '\nThe hotels above were created without those images (a hotel with none is left as DRAFT). ' +
+                'Fix the cause, then run `node scripts/clear-hotels.js` and this seed again — ' +
+                'a re-run on its own skips hotels that already exist.'
+        );
+        process.exitCode = 1;
+    }
 };
 
 run()

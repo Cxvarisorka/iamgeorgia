@@ -115,7 +115,7 @@ export function Modal({
             aria-label={title}
             tabIndex={-1}
             className={cn(
-              "relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-xl bg-background shadow-modal sm:rounded-sm",
+              "relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-xl bg-background shadow-modal sm:rounded-sm",
               sizes[size],
               className,
             )}
@@ -127,10 +127,10 @@ export function Modal({
             <div
               className={cn(
                 "flex items-start justify-between gap-4 px-6 pt-6",
-                hideTitle && "absolute top-0 right-0 z-10 pt-4 pr-4",
+                hideTitle && "absolute end-0 top-0 z-10 pe-4 pt-4",
               )}
             >
-              {!hideTitle && <h2 className="type-h3 pr-4">{title}</h2>}
+              {!hideTitle && <h2 className="type-h3 pe-4">{title}</h2>}
               <button
                 type="button"
                 onClick={onClose}

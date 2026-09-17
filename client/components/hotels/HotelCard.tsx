@@ -31,7 +31,7 @@ export function HotelCard({ hotel, className, priority }: HotelCardProps) {
             sizes="(max-width: 640px) 90vw, (max-width: 1024px) 45vw, 30vw"
             className="object-cover transition-transform duration-700 ease-(--ease-out-soft) group-hover:scale-[1.04]"
           />
-          <div className="absolute top-4 left-4">
+          <div className="absolute start-4 top-4">
             <Badge tone="light">{hotel.propertyType}</Badge>
           </div>
         </div>
@@ -40,7 +40,7 @@ export function HotelCard({ hotel, className, priority }: HotelCardProps) {
           <div className="flex items-center gap-2">
             <Stars count={hotel.starRating} />
             <span className="type-caption flex items-center gap-1 text-muted">
-              <MapPin size={12} aria-hidden />
+              <MapPin size={12} className="shrink-0" aria-hidden />
               {hotel.location}
             </span>
           </div>
@@ -63,7 +63,7 @@ export function HotelCard({ hotel, className, priority }: HotelCardProps) {
 
           <div className="mt-auto flex items-end justify-between gap-4 border-t border-line pt-5">
             <ScoreBadge score={hotel.guestScore} reviewCount={hotel.reviewCount} size="sm" />
-            <p className="text-right">
+            <p className="text-end">
               <span className="type-caption block text-muted">From</span>
               <span className="type-h4 text-ink">{formatPrice(hotel.priceFrom)}</span>
               <span className="type-caption block text-muted">per night</span>

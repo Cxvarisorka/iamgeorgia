@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Briefcase, Check, Clock, Info, MapPin, Route, Users, X } from "lucide-react";
 
+import { MobileBookingBar } from "@/components/booking/MobileBookingBar";
 import { featureIcons } from "@/components/transfers/featureIcons";
 import { TransferBookingSummary } from "@/components/transfers/TransferBookingSummary";
 import { TransferGallery } from "@/components/transfers/TransferGallery";
@@ -16,6 +17,9 @@ import { ShareSave } from "@/components/ui/ShareSave";
 import { ApiError } from "@/lib/api/client";
 import { getTransferVehicle, quoteTransfers } from "@/lib/api/transfers";
 import { getI18n } from "@/lib/i18n/server";
+import { JsonLd, breadcrumbSchema, transferServiceSchema } from "@/lib/seo/jsonLd";
+import { notFoundMetadata, pageMetadata } from "@/lib/seo/metadata";
+import { redirectToCanonicalSlug } from "@/lib/seo/slug";
 import {
   formatDuration,
   paramsFromSearchParams,
@@ -23,32 +27,54 @@ import {
   serializeTransferQuery,
 } from "@/lib/transfers/query";
 import { formatMoney } from "@/lib/money";
-import type { TransferOffer, TransferQuoteResult } from "@/types/transfer";
+import type { TransferOffer, TransferQuoteResult, TransferVehicle } from "@/types/transfer";
 
 /**
- * A quote for one vehicle class on one journey.
+ * A vehicle class — and, when the URL carries a journey, a quote for it.
  *
- * Deliberately not prerendered: the page reads the journey from the query
- * string, and a price for a specific route, date and party is not something to
- * serve from a cache built at deploy time.
+ * Two pages behind one route. Bare, `/transfers/standard-sedan` is a brochure
+ * for the class: what it seats, what it carries, what is included, how pick-up
+ * works. That is real, stable content and is indexed as such. With a journey
+ * in the query string it is one traveller's quote, which is not — every dated
+ * variant canonicalises to the bare address, so the index holds one page per
+ * class and none per query.
+ *
+ * Deliberately not prerendered: a price for a specific route, date and party
+ * is not something to serve from a cache built at deploy time.
  */
+
+/**
+ * The class, or nothing. A trade-only class 404s for an anonymous visitor
+ * because the endpoint will not return it, which is a stronger guarantee than
+ * a flag checked here would be.
+ */
+const loadVehicle = async (slug: string, locale: string): Promise<TransferVehicle | null> => {
+  try {
+    return await getTransferVehicle(slug, locale);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+};
 
 export async function generateMetadata(
   props: PageProps<"/[locale]/transfers/[slug]">,
 ): Promise<Metadata> {
   const [{ slug }, { t, locale, fill }] = await Promise.all([props.params, getI18n()]);
+  const vehicle = await loadVehicle(slug, locale);
+  if (!vehicle) return notFoundMetadata(t.transfers.detail.notFound);
 
-  try {
-    const vehicle = await getTransferVehicle(slug, locale);
-
-    return {
-      title: fill(t.transfers.detail.metaTitle, { name: vehicle.name }),
-      description: vehicle.summary,
-      robots: { index: false, follow: true },
-    };
-  } catch {
-    return { title: t.transfers.detail.notFound };
-  }
+  /*
+   * No image is passed: the class is shown as a drawing rather than a
+   * photograph, for the reason set out in `VehicleIllustration`, and a link
+   * preview gets the brand card instead of a picture of a car nobody promised.
+   */
+  return pageMetadata({
+    path: `/transfers/${vehicle.slug}`,
+    title: fill(t.transfers.detail.metaTitle, { name: vehicle.name }),
+    description: vehicle.summary,
+    imageAlt: `${vehicle.name} — ${t.transfers.vehicleClasses[vehicle.body]}`,
+  });
 }
 
 export default async function TransferDetailPage(
@@ -62,20 +88,12 @@ export default async function TransferDetailPage(
 
   const query = parseTransferQuery(paramsFromSearchParams(searchParams));
 
-  /**
-   * The class itself, and — when the URL carries a journey — a live quote for
-   * it. The class read is what decides whether the page exists; a trade-only
-   * one 404s for an anonymous visitor because the endpoint will not return it,
-   * which is a stronger guarantee than a flag checked here would be.
-   */
-  let vehicle;
-
-  try {
-    vehicle = await getTransferVehicle(slug, locale);
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) notFound();
-    throw error;
-  }
+  // The class read is what decides whether the page exists.
+  const vehicle = await loadVehicle(slug, locale);
+  if (!vehicle) notFound();
+  // An id or a differently-cased slug resolves on the API; the page answers
+  // with a permanent redirect to the one public address.
+  redirectToCanonicalSlug(slug, vehicle.slug, path(`/transfers/${vehicle.slug}`), searchParams);
 
   let result: TransferQuoteResult | null = null;
 
@@ -190,8 +208,33 @@ export default async function TransferDetailPage(
     },
   ];
 
+  /*
+   * The site's trail, for the `BreadcrumbList` a crawler reads. The visible
+   * breadcrumb adds one more step when the visitor came from a search — a way
+   * back to their own results — which is navigation for that visitor, not a
+   * level of the site, and so is left out of the markup.
+   */
+  const crumbs = [
+    { name: t.common.home, href: path("/") },
+    { name: t.nav.transfers, href: path("/transfers") },
+    { name: vehicle.name },
+  ];
+
   return (
     <>
+      <JsonLd
+        data={[
+          breadcrumbSchema(crumbs),
+          transferServiceSchema({
+            name: vehicle.name,
+            description: vehicle.summary,
+            url: path(`/transfers/${vehicle.slug}`),
+            providerName: vehicle.provider?.name ?? null,
+            locale,
+          }),
+        ]}
+      />
+
       <Container className="pt-8 pb-6">
         <Breadcrumbs
           items={[
@@ -233,7 +276,11 @@ export default async function TransferDetailPage(
           </div>
 
           <div className="shrink-0">
-            <ShareSave title={vehicle.name} />
+            <ShareSave
+              title={vehicle.name}
+              text={t.transfers.vehicleClasses[vehicle.body]}
+              url={path(`/transfers/${vehicle.slug}`)}
+            />
           </div>
         </div>
       </Container>
@@ -386,19 +433,12 @@ export default async function TransferDetailPage(
 
       {/* Mobile action bar — the same pattern as the hotel detail page. */}
       {quote && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-background/95 backdrop-blur-md lg:hidden">
-          <div className="flex items-center justify-between gap-4 px-5 py-3">
-            <p>
-              <span className="type-caption block text-muted">{t.common.total}</span>
-              <span className="type-h4 tabular-nums">
-                {formatMoney(quote.totals.totalCents, currency, intlLocale)}
-              </span>
-            </p>
-            <Button href={continueHref} size="md">
-              {t.actions.continue}
-            </Button>
-          </div>
-        </div>
+        <MobileBookingBar
+          caption={t.common.total}
+          price={formatMoney(quote.totals.totalCents, currency, intlLocale)}
+          href={continueHref}
+          action={t.actions.continue}
+        />
       )}
     </>
   );

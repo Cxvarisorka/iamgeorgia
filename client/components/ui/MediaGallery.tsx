@@ -9,6 +9,18 @@ import type { GalleryImage } from "@/types";
 import { useI18n } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
 
+/**
+ * Desktop mosaic by number of supporting photographs (0–4). Literal class
+ * strings so Tailwind can see them.
+ */
+const MOSAIC = {
+  0: { grid: "lg:grid-cols-1", lead: "aspect-21/9", first: "" },
+  1: { grid: "lg:grid-cols-2", lead: "aspect-4/3", first: "" },
+  2: { grid: "lg:grid-cols-3 lg:grid-rows-2", lead: "col-span-2 row-span-2 aspect-4/3", first: "" },
+  3: { grid: "lg:grid-cols-4 lg:grid-rows-2", lead: "col-span-2 row-span-2 aspect-4/3", first: "col-span-2" },
+  4: { grid: "lg:grid-cols-4 lg:grid-rows-2", lead: "col-span-2 row-span-2 aspect-4/3", first: "" },
+} as const;
+
 interface MediaGalleryProps {
   images: GalleryImage[];
   /** Used for the "show all" label and the lightbox announcement. */
@@ -42,10 +54,12 @@ export function MediaGallery({ images, label, className, priority }: MediaGaller
     const { overflow } = document.body.style;
     document.body.style.overflow = "hidden";
 
+    // In a right-to-left page "next" lies to the left, as the buttons do.
+    const forward = document.documentElement.dir === "rtl" ? "ArrowLeft" : "ArrowRight";
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") close();
-      if (event.key === "ArrowRight") step(1);
-      if (event.key === "ArrowLeft") step(-1);
+      if (event.key === forward) step(1);
+      else if (event.key === "ArrowLeft" || event.key === "ArrowRight") step(-1);
     };
     document.addEventListener("keydown", onKeyDown);
 
@@ -56,6 +70,8 @@ export function MediaGallery({ images, label, className, priority }: MediaGaller
   }, [isOpen, close, step]);
 
   const [lead, ...supporting] = images;
+  const shown = supporting.slice(0, 4);
+  const mosaic = MOSAIC[shown.length as keyof typeof MOSAIC];
 
   /*
    * The rail and the mosaic are two DOM trees for the same photographs, one
@@ -93,13 +109,17 @@ export function MediaGallery({ images, label, className, priority }: MediaGaller
         ))}
       </div>
 
-      {/* Desktop: one lead image with a supporting grid. */}
-      <div className="relative hidden gap-2 lg:grid lg:grid-cols-4 lg:grid-rows-2">
+      {/* Desktop: one lead image with a supporting grid, shaped by how many
+          photographs there are — a fixed four-by-two mosaic left empty cells
+          beside a property with two or three. The corners are rounded once, on
+          the frame, so they stay right whichever cell ends up at an edge and
+          in either reading direction. */}
+      <div className={cn("relative hidden gap-2 overflow-hidden rounded-sm lg:grid", mosaic.grid)}>
         <button
           type="button"
           onClick={() => setLightboxIndex(0)}
           aria-label={`Open ${label} gallery`}
-          className="group relative col-span-2 row-span-2 aspect-4/3 overflow-hidden rounded-l-sm bg-line"
+          className={cn("group relative overflow-hidden bg-line", mosaic.lead)}
         >
           <Image
             src={lead.src}
@@ -111,17 +131,13 @@ export function MediaGallery({ images, label, className, priority }: MediaGaller
           />
         </button>
 
-        {supporting.slice(0, 4).map((image, index) => (
+        {shown.map((image, index) => (
           <button
             key={image.src}
             type="button"
             onClick={() => setLightboxIndex(index + 1)}
             aria-label={`Open ${label} gallery at image ${index + 2}`}
-            className={cn(
-              "group relative overflow-hidden bg-line",
-              index === 1 && "rounded-tr-sm",
-              index === 3 && "rounded-br-sm",
-            )}
+            className={cn("group relative overflow-hidden bg-line", index === 0 && mosaic.first)}
           >
             <Image
               src={image.src}
@@ -136,7 +152,7 @@ export function MediaGallery({ images, label, className, priority }: MediaGaller
         <button
           type="button"
           onClick={() => setLightboxIndex(0)}
-          className="absolute right-4 bottom-4 inline-flex items-center gap-2 rounded-sm bg-background/95 px-4 py-2.5 text-[0.8125rem] font-medium text-ink backdrop-blur-sm transition-colors hover:bg-background"
+          className="absolute end-4 bottom-4 inline-flex items-center gap-2 rounded-sm bg-background/95 px-4 py-2.5 text-[0.8125rem] font-medium text-ink backdrop-blur-sm transition-colors hover:bg-background"
         >
           <Expand size={15} aria-hidden />
           Show all {images.length} photos
@@ -194,17 +210,17 @@ export function MediaGallery({ images, label, className, priority }: MediaGaller
                 type="button"
                 onClick={() => step(-1)}
                 aria-label={t.a11y.previousImage}
-                className="absolute top-1/2 left-2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-on-dark transition-colors hover:bg-ink/85 sm:left-4"
+                className="absolute start-2 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-on-dark transition-colors hover:bg-ink/85 sm:start-4"
               >
-                <ChevronLeft size={22} aria-hidden />
+                <ChevronLeft size={22} className="rtl:-scale-x-100" aria-hidden />
               </button>
               <button
                 type="button"
                 onClick={() => step(1)}
                 aria-label={t.a11y.nextImage}
-                className="absolute top-1/2 right-2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-on-dark transition-colors hover:bg-ink/85 sm:right-4"
+                className="absolute end-2 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-on-dark transition-colors hover:bg-ink/85 sm:end-4"
               >
-                <ChevronRight size={22} aria-hidden />
+                <ChevronRight size={22} className="rtl:-scale-x-100" aria-hidden />
               </button>
             </div>
 

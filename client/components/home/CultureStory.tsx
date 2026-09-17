@@ -25,7 +25,7 @@ export async function CultureStory() {
           />
         </Reveal>
 
-        <div className="flex items-center px-5 py-20 sm:px-8 lg:px-16 lg:py-28">
+        <div className="flex items-center px-5 py-16 sm:px-8 sm:py-20 lg:px-16 lg:py-28">
           <Reveal className="max-w-xl">
             <p className="type-eyebrow text-on-dark/50">{c.eyebrow}</p>
             <h2 className="type-h2 mt-6 text-on-dark text-balance">{c.title}</h2>

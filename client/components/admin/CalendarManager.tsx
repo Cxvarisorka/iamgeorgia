@@ -98,7 +98,7 @@ export function CalendarManager({
           >
             <ChevronLeft size={15} aria-hidden className="rtl:-scale-x-100" />
           </button>
-          <span className="min-w-[13rem] text-center text-[0.8125rem] text-muted">
+          <span className="min-w-0 flex-1 text-center text-[0.8125rem] text-muted sm:min-w-[13rem] sm:flex-none">
             {formatDayMonth(from)} – {formatDayMonth(to)}
           </span>
           <button
@@ -283,7 +283,7 @@ function useRangeForm(from: string, to: string) {
       </label>
       <fieldset className="flex flex-col gap-1">
         <legend className="text-[0.8125rem] font-medium text-ink">Days</legend>
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-1">
           {WEEKDAYS.map((day) => (
             <button
               key={day.value}

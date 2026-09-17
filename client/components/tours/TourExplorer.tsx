@@ -93,11 +93,13 @@ export function TourExplorer({ tours, regions }: TourExplorerProps) {
             className="max-w-xl"
           />
 
-          <div className="mt-8 flex flex-col gap-5">
+          {/* One grid for both rows, so the label column is as wide as the
+              longest label in the reader's language ("Длительность",
+              "ხანგრძლივობა") and the two rows of chips still start on the same
+              line. On a phone each label sits above its chips instead. */}
+          <div className="mt-8 grid items-center gap-x-4 gap-y-2.5 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-y-5">
+            <span className="type-caption text-muted">{t.tours.filterType}</span>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="type-caption me-1 w-16 shrink-0 text-muted">
-                {t.tours.filterType}
-              </span>
               <FilterChip selected={category === null} onClick={() => setCategory(null)}>
                 {t.common.all}
               </FilterChip>
@@ -112,10 +114,8 @@ export function TourExplorer({ tours, regions }: TourExplorerProps) {
               ))}
             </div>
 
+            <span className="type-caption mt-2.5 text-muted sm:mt-0">{t.tours.filterLength}</span>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="type-caption me-1 w-16 shrink-0 text-muted">
-                {t.tours.filterLength}
-              </span>
               <FilterChip selected={duration === null} onClick={() => setDuration(null)}>
                 {t.common.any}
               </FilterChip>

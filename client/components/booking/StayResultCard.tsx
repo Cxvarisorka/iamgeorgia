@@ -83,7 +83,7 @@ export function StayResultCard({ result, stay, nights, priority }: StayResultCar
 
           {result.destination && (
             <p className="type-caption mt-2 flex items-center gap-1.5 text-muted">
-              <MapPin size={13} aria-hidden />
+              <MapPin size={13} className="shrink-0" aria-hidden />
               {result.destination.name}
             </p>
           )}

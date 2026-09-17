@@ -16,9 +16,9 @@ export default async function DriverMePage() {
       <header className="flex items-center gap-4">
         {photo ? (
           // eslint-disable-next-line @next/next/no-img-element -- API-served
-          <img src={photo} alt="" className="h-20 w-20 rounded-full object-cover" />
+          <img src={photo} alt="" className="h-20 w-20 shrink-0 rounded-full object-cover" />
         ) : (
-          <span className="h-20 w-20 rounded-full bg-surface-soft" aria-hidden />
+          <span className="h-20 w-20 shrink-0 rounded-full bg-surface-soft" aria-hidden />
         )}
         <div>
           <h1 className="text-[1.25rem] font-semibold text-ink">

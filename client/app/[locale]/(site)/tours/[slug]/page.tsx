@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { Check, Clock, Gauge, MapPin, Minus, Users } from "lucide-react";
 
+import { MobileBookingBar } from "@/components/booking/MobileBookingBar";
 import { CompleteYourTrip } from "@/components/packages/CompleteYourTrip";
 import { RelatedTours } from "@/components/tours/RelatedTours";
 import { TourDepartures } from "@/components/tours/TourDepartures";
@@ -24,7 +24,9 @@ import { plural } from "@/lib/i18n/plural";
 import { getI18n } from "@/lib/i18n/server";
 import { formatMoney, roundToWholeUnits } from "@/lib/money";
 import { JsonLd, breadcrumbSchema, tourSchema } from "@/lib/seo/jsonLd";
-import { pageMetadata } from "@/lib/seo/metadata";
+import { notFoundMetadata, pageMetadata } from "@/lib/seo/metadata";
+import { redirectToCanonicalSlug } from "@/lib/seo/slug";
+import { socialImage } from "@/lib/seo/social";
 import { cheapestTourOffer, tourStayFromParams, tourWindowFor, type TourStay } from "@/lib/tours/query";
 import type { GalleryImage } from "@/types/common";
 import type { Tour, TourAvailability, TourCategory } from "@/types/tour";
@@ -85,20 +87,21 @@ const galleryOf = (tour: Tour): GalleryImage[] =>
 export async function generateMetadata(props: PageProps<"/[locale]/tours/[slug]">): Promise<Metadata> {
   const [{ slug }, { t, locale }] = await Promise.all([props.params, getI18n()]);
   const tour = await loadTour(slug, locale);
-  if (!tour) return { title: t.tours.notFound, robots: { index: false, follow: true } };
-
-  const image = galleryOf(tour)[0]?.src ?? tour.image;
+  if (!tour) return notFoundMetadata(t.tours.notFound);
 
   /*
    * The canonical is the clean journey URL: the dated variants a visitor
    * arrives with — `?date=…&adults=2` — consolidate onto one address instead of
    * splitting the page across a calendar.
+   *
+   * The card image is the uploaded cover, then the first uploaded photograph,
+   * then the editorial frame, in a format every link-preview crawler reads.
    */
   return pageMetadata({
     path: `/tours/${tour.slug}`,
     title: tour.title,
     description: tour.summary,
-    image,
+    image: socialImage([tour.coverImage, tour.images[0], tour.image, tour.gallery[0]?.src]),
     imageAlt: `${tour.title}, ${tour.location}`,
   });
 }
@@ -118,6 +121,9 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
     stay ? loadAvailability(slug, stay, locale) : null,
   ]);
   if (!tour) notFound();
+  // An id or a differently-cased slug resolves on the API; the page answers
+  // with a permanent redirect to the one public address.
+  redirectToCanonicalSlug(slug, tour.slug, path(`/tours/${tour.slug}`), searchParams);
 
   const cheapest = cheapestTourOffer(availability);
   const hasDepartures = (availability?.options ?? []).some((entry) => entry.dates.length > 0);
@@ -215,12 +221,17 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
             </div>
             <h1 className="type-h1 mt-4 max-w-3xl text-balance">{tour.title}</h1>
             <p className="type-body mt-3 flex items-center gap-2 text-muted">
-              <MapPin size={15} aria-hidden />
+              <MapPin size={15} className="shrink-0" aria-hidden />
               {tour.location}
             </p>
           </div>
 
-          <ShareSave title={tour.title} className="shrink-0" />
+          <ShareSave
+            title={tour.title}
+            text={tour.location}
+            url={path(`/tours/${tour.slug}`)}
+            className="shrink-0"
+          />
         </div>
       </Container>
 
@@ -422,32 +433,21 @@ export default async function TourDetailPage(props: PageProps<"/[locale]/tours/[
       </Container>
 
       {/* Mobile booking bar — the pattern travellers expect on a phone. */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-background/95 backdrop-blur-md lg:hidden">
-        <div className="flex items-center justify-between gap-4 px-5 py-3">
-          <p>
-            <span className="type-caption block text-muted">{t.common.from}</span>
-            <span className="type-h4 tabular-nums">
-              {cheapest
-                ? formatMoney(cheapest.quote.totals.totalCents, cheapest.quote.currency, intlLocale)
-                : tour.priceFrom
-                  ? formatMoney(tour.priceFrom.amountCents, tour.priceFrom.currency, intlLocale, {
-                      maximumFractionDigits: 0,
-                    })
-                  : "—"}
-              {!cheapest && tour.priceFrom && (
-                <span className="type-caption font-normal text-muted"> {t.tours.perPerson}</span>
-              )}
-            </span>
-          </p>
-
-          <Link
-            href={stay ? "#departures" : "#tour-search"}
-            className="inline-flex h-11 items-center justify-center rounded-sm bg-brand px-6 text-[0.9375rem] font-medium text-on-dark transition-colors hover:bg-brand-hover"
-          >
-            {stay ? t.tours.results.viewDepartures : t.tours.availability.noDatesTitle}
-          </Link>
-        </div>
-      </div>
+      <MobileBookingBar
+        caption={t.common.from}
+        price={
+          cheapest
+            ? formatMoney(cheapest.quote.totals.totalCents, cheapest.quote.currency, intlLocale)
+            : tour.priceFrom
+              ? formatMoney(tour.priceFrom.amountCents, tour.priceFrom.currency, intlLocale, {
+                  maximumFractionDigits: 0,
+                })
+              : "—"
+        }
+        note={!cheapest && tour.priceFrom ? t.tours.perPerson : undefined}
+        href={stay ? "#departures" : "#tour-search"}
+        action={stay ? t.tours.results.viewDepartures : t.tours.availability.noDatesTitle}
+      />
 
       {/* Both rails depend on a second API call and stream in rather than
           holding the journey behind them. The cross-sell needs a real date to

@@ -55,7 +55,7 @@ export async function FeaturedHotels() {
   if (hotels.length === 0) return null;
 
   return (
-    <section className="bg-surface-earth py-24 lg:py-32">
+    <section className="bg-surface-earth py-16 sm:py-24 lg:py-32">
       <Container>
         <Reveal>
           <SectionHeading
@@ -106,7 +106,7 @@ export async function FeaturedHotels() {
 
                     {view.location && (
                       <p className="type-caption mt-2 flex items-center gap-1.5 text-muted">
-                        <MapPin size={13} aria-hidden />
+                        <MapPin size={13} className="shrink-0" aria-hidden />
                         {view.location}
                       </p>
                     )}

@@ -2310,6 +2310,10 @@ export const en = {
   share: {
     copied: "Link copied to clipboard",
     pageLink: "Page link",
+    title: "Share",
+    native: "Share…",
+    nativeHint: "Send with an app on this device",
+    copyLink: "Copy link",
   },
 };
 

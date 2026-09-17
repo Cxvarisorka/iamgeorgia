@@ -2,9 +2,10 @@ import type { MetadataRoute } from "next";
 
 import { locales } from "@/lib/i18n/config";
 import { languageUrls, localeUrl } from "@/lib/seo/urls";
+import { listPublicPackagesAnonymous } from "@/lib/api/packages";
 import { listPublicHotelsAnonymous } from "@/lib/api/search";
 import { listPublicToursAnonymous } from "@/lib/api/tours";
-import { listTransferRoutesForBuild } from "@/lib/api/transfers";
+import { listTransferRoutesForBuild, listTransferVehiclesAnonymous } from "@/lib/api/transfers";
 import type { RequestOptions } from "@/lib/api/client";
 import type { Paginated } from "@/types/partner";
 
@@ -13,7 +14,11 @@ import type { Paginated } from "@/types/partner";
  *
  * Everything here is a real record read from the API — a hand-maintained list
  * goes stale within a week of the operator adding a property, and a sitemap
- * that names URLs which 404 is worse than none at all. The retired
+ * that names URLs which 404 is worse than none at all. Five sections: hotels,
+ * tours, packages, transfer routes and the vehicle classes, each read through
+ * the same public endpoint the pages themselves render from, so an entity
+ * that is unpublished or archived drops out of here the moment it drops out
+ * of the catalogue. The retired
  * `/destinations` and `/experiences` trees are absent for that reason: both
  * routes answer 404 today.
  *
@@ -123,24 +128,34 @@ const modified = (value: string | undefined): Date | undefined => {
 };
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [hotels, tours, routes] = await Promise.all([
+  const [hotels, tours, packages, routes, vehicles] = await Promise.all([
     section("hotels", () =>
       collect((page) => listPublicHotelsAnonymous({ page, pageSize: PAGE_SIZE }, CACHE)),
     ),
     section("tours", () =>
       collect((page) => listPublicToursAnonymous({ page, pageSize: PAGE_SIZE }, CACHE)),
     ),
+    section("packages", () =>
+      collect((page) => listPublicPackagesAnonymous({ page, pageSize: PAGE_SIZE }, CACHE)),
+    ),
     section("transfer routes", () =>
       collect((page) => listTransferRoutesForBuild({ page, pageSize: PAGE_SIZE }, CACHE)),
     ),
+    // Unpaginated: a fleet is a handful of classes, and the endpoint already
+    // answers with only the ACTIVE, B2C-enabled ones for an anonymous caller.
+    section("transfer vehicles", async () => (await listTransferVehiclesAnonymous({}, CACHE)).data),
   ]);
 
   return [
     ...STATIC_PATHS.flatMap((path) => entries(path)),
     ...hotels.flatMap((hotel) => entries(`/hotels/${hotel.slug}`, modified(hotel.updatedAt))),
     ...tours.flatMap((tour) => entries(`/tours/${tour.slug}`, modified(tour.updatedAt))),
+    ...packages.flatMap((pkg) => entries(`/packages/${pkg.slug}`, modified(pkg.updatedAt))),
     ...routes.flatMap((route) =>
       entries(`/transfers/routes/${route.slug}`, modified(route.updatedAt)),
     ),
+    // A vehicle class carries no `updatedAt` on the public shape; the entry
+    // goes out without a date rather than with an invented one.
+    ...vehicles.flatMap((vehicle) => entries(`/transfers/${vehicle.slug}`)),
   ];
 }

@@ -46,7 +46,18 @@ export function TransferJourneyBar({
 }: TransferJourneyBarProps) {
   const { t, locale, intlLocale } = useI18n();
   const [editing, setEditing] = useState(false);
+  /*
+   * The panel clips its contents only while its height is animating. Left on
+   * permanently, `overflow-hidden` cut the passenger popover — which hangs
+   * below the form — down to its first row, so luggage could not be changed.
+   */
+  const [expanded, setExpanded] = useState(false);
   const reduceMotion = useReducedMotion();
+
+  const toggleEditing = (next: boolean) => {
+    setExpanded(false);
+    setEditing(next);
+  };
 
   return (
     <div className={cn("border border-line bg-surface", className)}>
@@ -96,7 +107,7 @@ export function TransferJourneyBar({
         {editable && (
           <button
             type="button"
-            onClick={() => setEditing((current) => !current)}
+            onClick={() => toggleEditing(!editing)}
             aria-expanded={editing}
             className="inline-flex h-10 shrink-0 items-center gap-2 rounded-sm border border-ink/25 px-4 text-[0.8125rem] font-semibold text-ink transition-colors hover:border-ink hover:bg-surface-soft"
           >
@@ -113,13 +124,14 @@ export function TransferJourneyBar({
             animate={reduceMotion ? { opacity: 1 } : { opacity: 1, height: "auto" }}
             exit={reduceMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
             transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-            className="overflow-hidden border-t border-line"
+            onAnimationComplete={() => setExpanded(editing)}
+            className={cn("border-t border-line", !expanded && "overflow-hidden")}
           >
             <div className="p-4 sm:p-5">
               <TransferSearch
                 initialQuery={query}
                 submitLabel={t.transfers.search.update}
-                onSubmitted={() => setEditing(false)}
+                onSubmitted={() => toggleEditing(false)}
                 className="shadow-none"
               />
             </div>

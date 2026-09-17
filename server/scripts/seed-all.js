@@ -8,6 +8,7 @@
  *   node scripts/seed-all.js --no-images           # fleet without generated photographs
  *   node scripts/seed-all.js --bookings 60         # more demo transfer bookings
  *   node scripts/seed-all.js --dry-run             # print the plan, touch nothing
+ *   node scripts/seed-all.js --low-memory          # each step capped for a 512 MB instance
  *
  * Each step is the existing script, run as its own process with the same
  * environment — so `DATABASE_URL=... node scripts/seed-all.js` seeds whichever
@@ -19,10 +20,17 @@
  * placed by made-up passengers and the drivers and cars that serve them, all
  * under `@demo.iamgeorgia.test`. `--no-demo` leaves those out for a production
  * seed. Everything else is the platform's real editorial catalogue.
+ *
+ * `--low-memory` starts every step with allocator, heap and image-cache
+ * settings that take the heaviest step from ~700 MB to ~275 MB, so a small
+ * instance can seed itself from its shell. Without it nothing changes. What
+ * each setting does is in scripts/lib/seed-process.js.
  */
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+
+import { isHeapExhaustion, seedProcess } from './lib/seed-process.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -35,6 +43,7 @@ const value = (flag) => {
 
 const noDemo = has('--no-demo');
 const dryRun = has('--dry-run');
+const lowMemory = has('--low-memory');
 const adminEmail = value('--admin');
 
 const fleetArgs = [];
@@ -74,7 +83,9 @@ const plan = [
 
 const label = (step) => `${step.script}${step.args?.length ? ' ' + step.args.join(' ') : ''}`;
 
-console.log(`Seeding ${plan.length} steps${noDemo ? ' (no demo data)' : ''}${dryRun ? ' — dry run' : ''}:\n`);
+console.log(
+    `Seeding ${plan.length} steps${noDemo ? ' (no demo data)' : ''}${lowMemory ? ' (low-memory mode)' : ''}${dryRun ? ' — dry run' : ''}:\n`
+);
 for (const [i, step] of plan.entries()) {
     console.log(`  ${String(i + 1).padStart(2)}. ${label(step).padEnd(48)} ${step.why}`);
 }
@@ -90,10 +101,14 @@ for (const [i, step] of plan.entries()) {
     const started = Date.now();
     console.log(`\n=== [${i + 1}/${plan.length}] ${label(step)}\n`);
 
-    const result = spawnSync(process.execPath, [path.join(here, step.script), ...(step.args ?? [])], {
-        stdio: 'inherit',
-        env: process.env
+    const child = seedProcess({
+        script: path.join(here, step.script),
+        args: step.args ?? [],
+        env: process.env,
+        lowMemory
     });
+
+    const result = spawnSync(process.execPath, child.args, { stdio: 'inherit', env: child.env });
 
     const seconds = ((Date.now() - started) / 1000).toFixed(1);
 
@@ -103,6 +118,14 @@ for (const [i, step] of plan.entries()) {
                 `Stopping — the ${plan.length - i - 1} remaining step(s) depend on it. ` +
                 `Fix the cause and re-run; every script is idempotent.`
         );
+
+        if (lowMemory && isHeapExhaustion(result)) {
+            console.error(
+                '\nThis looks like the --low-memory heap limit (96 MB) being too small for this step. ' +
+                    'Run it without --low-memory on an instance with more memory.'
+            );
+        }
+
         process.exit(result.status ?? 1);
     }
 

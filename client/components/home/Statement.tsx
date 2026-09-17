@@ -10,7 +10,7 @@ export async function Statement() {
   const { t } = await getI18n();
 
   return (
-    <section className="py-24 lg:py-36">
+    <section className="py-16 sm:py-24 lg:py-36">
       <Container>
         <Reveal className="max-w-4xl">
           <p className="type-eyebrow text-brand-text">{t.home.statement.eyebrow}</p>

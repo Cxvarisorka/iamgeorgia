@@ -47,7 +47,7 @@ export default async function AboutPage() {
         imageAlt={about.heroImageAlt}
       />
 
-      <section className="py-24 lg:py-32">
+      <section className="py-16 sm:py-24 lg:py-32">
         <Container>
           <Reveal className="max-w-4xl">
             <p className="type-eyebrow text-brand-text">{about.introEyebrow}</p>
@@ -62,7 +62,7 @@ export default async function AboutPage() {
 
       <section className="bg-ink text-on-dark">
         <div className="grid lg:grid-cols-2">
-          <div className="flex items-center px-5 py-20 sm:px-8 lg:px-16 lg:py-28">
+          <div className="flex items-center px-5 py-16 sm:px-8 sm:py-20 lg:px-16 lg:py-28">
             <Reveal className="max-w-xl">
               <p className="type-eyebrow text-on-dark/50">{about.howEyebrow}</p>
               <h2 className="type-h2 mt-6 text-on-dark text-balance">{about.howTitle}</h2>
@@ -86,7 +86,7 @@ export default async function AboutPage() {
         </div>
       </section>
 
-      <section className="py-24 lg:py-32">
+      <section className="py-16 sm:py-24 lg:py-32">
         <Container>
           <div className="grid gap-14 lg:grid-cols-12 lg:gap-16">
             {/* Same pinned-intro treatment as the home page's "Why travel with
@@ -119,7 +119,7 @@ export default async function AboutPage() {
         </Container>
       </section>
 
-      <section className="bg-surface-earth py-24 lg:py-28">
+      <section className="bg-surface-earth py-16 sm:py-24 lg:py-28">
         <Container>
           <Reveal>
             <SectionHeading
@@ -145,7 +145,7 @@ export default async function AboutPage() {
         </Container>
       </section>
 
-      <section className="py-24 lg:py-28">
+      <section className="py-16 sm:py-24 lg:py-28">
         <Container>
           <Reveal className="max-w-2xl">
             <h2 className="type-h2 text-balance">{about.ctaTitle}</h2>

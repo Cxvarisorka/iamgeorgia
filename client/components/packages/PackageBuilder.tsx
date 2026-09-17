@@ -147,7 +147,7 @@ export function PackageBuilder({ slug, name, search, quote }: PackageBuilderProp
   const busy = repricing || holding;
 
   return (
-    <div className="grid gap-10 lg:grid-cols-[1fr_22rem] lg:gap-12">
+    <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-12">
       {/* --- the slots ---------------------------------------------------- */}
       <div>
         <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-line pb-4">
@@ -227,7 +227,7 @@ export function PackageBuilder({ slug, name, search, quote }: PackageBuilderProp
 
             <div className="mt-2 flex items-baseline justify-between gap-4 border-t border-line pt-3">
               <dt className="type-body font-semibold text-ink">{t.packages.quote.total}</dt>
-              <dd className="type-h5 tabular-nums text-ink">{money(quote.totals.totalCents)}</dd>
+              <dd className="type-h4 tabular-nums text-ink">{money(quote.totals.totalCents)}</dd>
             </div>
 
             {typeof quote.totals.marginCents === "number" && (

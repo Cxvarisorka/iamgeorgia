@@ -164,11 +164,13 @@ export function CancelTourBooking({ reference, email, status, quote, freeUntil }
             <span className="type-caption mt-1 block text-subtle">{t.booking.cancel.reasonHint}</span>
           </label>
 
-          <div className="mt-6 flex gap-3">
-            <Button variant="outline" fullWidth onClick={() => setOpen(false)} disabled={submitting}>
+          {/* Side by side while both labels fit, stacked when a translation is
+              too long for one row — decided by the text, not a breakpoint. */}
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Button variant="outline" className="grow" onClick={() => setOpen(false)} disabled={submitting}>
               {t.booking.cancel.keep}
             </Button>
-            <Button fullWidth onClick={() => void confirm()} disabled={submitting}>
+            <Button className="grow" onClick={() => void confirm()} disabled={submitting}>
               {submitting ? t.booking.cancel.cancelling : t.booking.cancel.confirm}
             </Button>
           </div>

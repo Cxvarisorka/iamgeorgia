@@ -26,8 +26,14 @@ export const site = {
    * locale dictionaries; only what is the same in every language belongs here.
    */
   seo: {
-    /** Fallback Open Graph / Twitter card image, resolved against `url`. */
-    image: "/images/home/hero.jpg",
+    /**
+     * Fallback Open Graph / Twitter card image, resolved against `url`.
+     *
+     * A 1200×630 JPEG cut from the hero photograph for this one purpose:
+     * every link-preview crawler reads JPEG, and the declared dimensions
+     * below are the file's real ones — a preview crops to what is declared.
+     */
+    image: "/images/social/default.jpg",
     imageAlt: "The Greater Caucasus above a Georgian valley at first light",
     /** 1200×630 is the card size both Facebook and X crop to. */
     imageWidth: 1200,

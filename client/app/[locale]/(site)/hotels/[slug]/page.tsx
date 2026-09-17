@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { Check, MapPin, Navigation } from "lucide-react";
 
+import { MobileBookingBar } from "@/components/booking/MobileBookingBar";
 import { RoomOffers } from "@/components/booking/RoomOffers";
 import { StayPanel } from "@/components/booking/StayPanel";
 import { StaySearchForm } from "@/components/booking/StaySearchForm";
@@ -33,7 +33,9 @@ import { getSession } from "@/lib/auth/session";
 import { getI18n } from "@/lib/i18n/server";
 import { plural } from "@/lib/i18n/plural";
 import { JsonLd, breadcrumbSchema, hotelSchema } from "@/lib/seo/jsonLd";
-import { pageMetadata } from "@/lib/seo/metadata";
+import { notFoundMetadata, pageMetadata } from "@/lib/seo/metadata";
+import { redirectToCanonicalSlug } from "@/lib/seo/slug";
+import { socialImage } from "@/lib/seo/social";
 import { formatMoney } from "@/lib/money";
 import { formatPrice } from "@/lib/utils";
 import { adaptHotelDetail } from "@/lib/site/hotelAdapter";
@@ -103,7 +105,7 @@ const cheapestOffer = (availability: HotelAvailability | null): Offer | null =>
 export async function generateMetadata(props: PageProps<"/[locale]/hotels/[slug]">): Promise<Metadata> {
   const [{ slug }, { t }] = await Promise.all([props.params, getI18n()]);
   const api = await loadHotel(slug);
-  if (!api) return { title: t.hotels.notFound, robots: { index: false, follow: true } };
+  if (!api) return notFoundMetadata(t.hotels.notFound);
 
   const hotel = adaptHotelDetail(api);
 
@@ -111,12 +113,16 @@ export async function generateMetadata(props: PageProps<"/[locale]/hotels/[slug]
    * The canonical is the clean property URL, so the dated variants a visitor
    * arrives with — `?checkIn=…&adults=2` — all consolidate onto one address
    * rather than splitting the page's authority across a date range.
+   *
+   * The card image is the cover, then the first gallery photograph, in a
+   * format every link-preview crawler can read; the brand card only when the
+   * property has no photograph at all.
    */
   return pageMetadata({
     path: `/hotels/${hotel.slug}`,
     title: hotel.name,
     description: hotel.summary,
-    image: hotel.image || null,
+    image: socialImage([api.coverImage, api.images[0], hotel.image]),
     imageAlt: `${hotel.name}, ${hotel.location}`,
   });
 }
@@ -142,6 +148,9 @@ export default async function HotelDetailPage(props: PageProps<"/[locale]/hotels
     getSession(),
   ]);
   if (!api) notFound();
+  // An id or a differently-cased slug resolves on the API; the page answers
+  // with a permanent redirect to the one public address.
+  redirectToCanonicalSlug(slug, api.slug, path(`/hotels/${api.slug}`), searchParams);
 
   const isTrade = Boolean(session?.partner) || Boolean(session?.user?.role);
 
@@ -270,14 +279,18 @@ export default async function HotelDetailPage(props: PageProps<"/[locale]/hotels
             </div>
             <h1 className="type-h1 mt-4 text-balance">{hotel.name}</h1>
             <p className="type-body-sm mt-3 flex items-center gap-2 text-muted">
-              <MapPin size={15} aria-hidden />
+              <MapPin size={15} className="shrink-0" aria-hidden />
               {hotel.address}
             </p>
           </div>
 
           <div className="flex shrink-0 flex-wrap items-center gap-6">
             <ScoreBadge score={hotel.guestScore} reviewCount={hotel.reviewCount} />
-            <ShareSave title={hotel.name} />
+            <ShareSave
+              title={hotel.name}
+              text={hotel.location}
+              url={path(`/hotels/${hotel.slug}`)}
+            />
           </div>
         </div>
       </Container>
@@ -295,12 +308,13 @@ export default async function HotelDetailPage(props: PageProps<"/[locale]/hotels
         </div>
       </Container>
 
-      <Container className="pt-8">
+      {/* The section nav shares a container with the sections it points at:
+          `sticky` can only travel within its parent, and in a container of its
+          own it had nowhere to go and scrolled away with the page. */}
+      <Container className="pt-8 pb-28 lg:pb-32">
         <HotelSectionNav hasKosher={Boolean(api.kosher?.offersKosher)} />
-      </Container>
 
-      <Container className="pt-12 pb-28 lg:pb-32">
-        <div className="grid gap-12 lg:grid-cols-12 lg:gap-12 xl:gap-16">
+        <div className="mt-12 grid gap-12 lg:grid-cols-12 lg:gap-12 xl:gap-16">
           <div className="min-w-0 lg:col-span-8">
             <section id="overview" className="scroll-mt-36">
               <h2 className="type-h2">{t.hotels.about}</h2>
@@ -469,31 +483,17 @@ export default async function HotelDetailPage(props: PageProps<"/[locale]/hotels
       </Container>
 
       {/* Mobile booking bar — the pattern travellers expect on a phone. */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-background/95 backdrop-blur-md lg:hidden">
-        <div className="flex items-center justify-between gap-4 px-5 py-3">
-          <p>
-            <span className="type-caption block text-muted">{t.common.from}</span>
-            <span className="type-h4 tabular-nums">
-              {cheapest
-                ? formatMoney(cheapest.quote.totals.totalCents, cheapest.quote.currency, intlLocale)
-                : formatPrice(hotel.priceFrom, intlLocale)}
-              <span className="type-caption font-normal text-muted">
-                {" "}
-                {cheapest
-                  ? `· ${plural(locale, nights, t.units.night)}`
-                  : t.common.perNightShort}
-              </span>
-            </span>
-          </p>
-
-          <Link
-            href={stay ? "#rooms" : "#stay-search"}
-            className="inline-flex h-11 items-center justify-center rounded-sm bg-brand px-6 text-[0.9375rem] font-medium text-on-dark transition-colors hover:bg-brand-hover"
-          >
-            {stay ? t.hotels.seeRooms : t.booking.availability.selectDates}
-          </Link>
-        </div>
-      </div>
+      <MobileBookingBar
+        caption={t.common.from}
+        price={
+          cheapest
+            ? formatMoney(cheapest.quote.totals.totalCents, cheapest.quote.currency, intlLocale)
+            : formatPrice(hotel.priceFrom, intlLocale)
+        }
+        note={cheapest ? `· ${plural(locale, nights, t.units.night)}` : t.common.perNightShort}
+        href={stay ? "#rooms" : "#stay-search"}
+        action={stay ? t.hotels.seeRooms : t.booking.availability.selectDates}
+      />
 
       {/* Both rails depend on a second API call and stream in rather than
           holding the property behind them. The cross-sell needs real dates to

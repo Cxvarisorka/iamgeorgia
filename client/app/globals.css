@@ -150,6 +150,12 @@
    ========================================================================== */
 
 @layer base {
+  :root {
+    /* Height of the fixed mobile booking bar on the page, published by
+       `MobileBookingBar`; zero wherever there is none. */
+    --booking-bar-offset: 0px;
+  }
+
   html {
     scroll-behavior: smooth;
     -webkit-font-smoothing: antialiased;
@@ -161,6 +167,11 @@
     font-family: var(--font-sans);
     font-size: 1rem;
     line-height: 1.6;
+    /* A word wider than its line breaks instead of running out of the box.
+       Only ever kicks in when a word cannot fit — a Georgian compound in a
+       44px headline on a 320px phone, a long email or booking reference — so
+       text that already fits sets exactly as before. */
+    overflow-wrap: break-word;
   }
 
   ::selection {
@@ -193,7 +204,9 @@
   .type-display {
     font-family: var(--font-display);
     font-weight: 300;
-    font-size: clamp(2.75rem, 7vw, 5.75rem);
+    /* The floor is what a phone gets: at 2.75rem a single long Georgian word
+       was wider than a 320px screen. From ~630px up the size is unchanged. */
+    font-size: clamp(2.25rem, 7vw, 5.75rem);
     line-height: 0.98;
     letter-spacing: -0.025em;
   }
@@ -379,6 +392,27 @@
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* ==========================================================================
+   TOUCH FORM CONTROLS
+   iOS Safari zooms the page into any focused field set below 16px, and every
+   form here sets its fields at 14px. The page then sits zoomed and shifted
+   sideways until the reader pinches it back — worst in the middle of a
+   checkout. On touch screens fields are raised to 16px.
+
+   Deliberately unlayered: Tailwind utilities live in a cascade layer, and an
+   unlayered declaration wins over any layered one, so this reaches every
+   `text-sm` field without editing each form. Mouse-driven screens keep the
+   14px design.
+   ========================================================================== */
+
+@media (hover: none) and (pointer: coarse) {
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"]),
+  select,
+  textarea {
+    font-size: 1rem;
+  }
 }
 
 /* ==========================================================================

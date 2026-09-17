@@ -299,11 +299,11 @@ export function TransferResults({
             priceBounds={priceBounds}
             currency={currency}
           />
-          <div className="mt-8 flex gap-3">
-            <Button variant="outline" fullWidth onClick={reset}>
+          <div className="mt-8 flex flex-wrap gap-3">
+            <Button variant="outline" className="grow" onClick={reset}>
               {t.actions.clearAll}
             </Button>
-            <Button fullWidth onClick={() => setFiltersOpen(false)}>
+            <Button className="grow" onClick={() => setFiltersOpen(false)}>
               {fill(t.transfers.results.show, {
                 count: plural(locale, results.length, t.units.transfer),
               })}

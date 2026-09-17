@@ -23,7 +23,10 @@ import {
   packageSearchFromParams,
   type PackageSearch,
 } from "@/lib/packages/query";
-import { pageMetadata } from "@/lib/seo/metadata";
+import { JsonLd, breadcrumbSchema, packageSchema } from "@/lib/seo/jsonLd";
+import { notFoundMetadata, pageMetadata } from "@/lib/seo/metadata";
+import { redirectToCanonicalSlug } from "@/lib/seo/slug";
+import { socialImage } from "@/lib/seo/social";
 import type { GalleryImage } from "@/types/common";
 import type { PackageComponent, PackageDetail, PackageQuote } from "@/types/package";
 
@@ -75,23 +78,55 @@ const galleryOf = (pkg: PackageDetail): GalleryImage[] =>
     ? pkg.images.map((image) => ({ src: image.url, alt: image.altText ?? pkg.name }))
     : pkg.gallery;
 
+/** What a slot names on the brochure: the fixed product, or the journey. */
+const componentName = (component: PackageComponent): string | null =>
+  component.hotel?.name ??
+  component.tour?.title ??
+  component.service?.name ??
+  (component.fromPoint && component.toPoint
+    ? `${component.fromPoint.name} → ${component.toPoint.name}`
+    : null);
+
+/**
+ * The search description when the operator wrote no summary: the facts the
+ * page states — nights, destination, the named hotels, tours and journeys —
+ * and nothing that is not on it. A package with none of those falls back to
+ * the catalogue's own line rather than to an invented one.
+ */
+const describePackage = (
+  pkg: PackageDetail,
+  nightsLabel: string,
+  fallback: string,
+): string => {
+  if (pkg.summary) return pkg.summary;
+
+  const named = [...new Set(pkg.components.map(componentName).filter(Boolean))] as string[];
+  const parts = [nightsLabel, pkg.destination?.name ?? null, ...named].filter(Boolean);
+
+  return parts.length > 1 ? parts.join(" · ") : fallback;
+};
+
 export async function generateMetadata(
   props: PageProps<"/[locale]/packages/[slug]">,
 ): Promise<Metadata> {
-  const [{ slug }, { t, locale }] = await Promise.all([props.params, getI18n()]);
+  const [{ slug }, { t, locale, fill }] = await Promise.all([props.params, getI18n()]);
   const pkg = await loadPackage(slug, locale);
 
-  if (!pkg) return { title: t.packages.notFound, robots: { index: false, follow: true } };
-
-  const image = galleryOf(pkg)[0]?.src ?? packageImageUrl(pkg) ?? undefined;
+  if (!pkg) return notFoundMetadata(t.packages.notFound);
 
   // The canonical is the clean package URL: the dated variants a buyer arrives
   // with consolidate onto one address instead of splitting across a calendar.
+  // The card image is the uploaded cover, then the first uploaded photograph,
+  // then the editorial frame, in a format every link-preview crawler reads.
   return pageMetadata({
     path: `/packages/${pkg.slug}`,
     title: pkg.name,
-    description: pkg.summary ?? t.packages.metaDescription,
-    image,
+    description: describePackage(
+      pkg,
+      fill(t.packages.nights, { count: pkg.nights }),
+      t.packages.metaDescription,
+    ),
+    image: socialImage([pkg.coverImage, pkg.images[0], packageImageUrl(pkg), pkg.gallery[0]?.src]),
     imageAlt: pkg.destination ? `${pkg.name}, ${pkg.destination.name}` : pkg.name,
   });
 }
@@ -110,12 +145,17 @@ export default async function PackageDetailPage(props: PageProps<"/[locale]/pack
   ]);
 
   if (!pkg) notFound();
+  // An id or a differently-cased slug resolves on the API; the page answers
+  // with a permanent redirect to the one public address.
+  redirectToCanonicalSlug(slug, pkg.slug, path(`/packages/${pkg.slug}`), searchParams);
 
   const gallery = galleryOf(pkg);
+  /* One trail, rendered twice — as the visible breadcrumb and as the
+     `BreadcrumbList` a crawler reads, so the two cannot drift apart. */
   const crumbs = [
-    { label: t.common.home, href: path("/") },
-    { label: t.packages.crumb, href: path("/packages") },
-    { label: pkg.name },
+    { name: t.common.home, href: path("/") },
+    { name: t.packages.crumb, href: path("/packages") },
+    { name: pkg.name },
   ];
 
   /** Slots grouped by the day they fall on, for the brochure itinerary. */
@@ -128,10 +168,55 @@ export default async function PackageDetailPage(props: PageProps<"/[locale]/pack
   }, new Map());
   const days = [...byDay.entries()].sort(([a], [b]) => a - b);
 
+  const dayLabel = (dayOffset: number) =>
+    dayOffset === 0 ? t.packages.arrivalDay : fill(t.packages.day, { n: dayOffset + 1 });
+
+  /*
+   * The brochure's "from" price, and only when the brochure is what renders:
+   * with a party in the URL the page shows a live quote instead, which is one
+   * buyer's price on one date and not a claim about the package.
+   */
+  const offer =
+    !search && pkg.priceFrom
+      ? {
+          priceCents: pkg.priceFrom.amountCents,
+          currency: pkg.priceFrom.currency,
+          url: path(`/packages/${pkg.slug}`),
+        }
+      : null;
+
   return (
     <>
+      <JsonLd
+        data={[
+          breadcrumbSchema(crumbs),
+          packageSchema({
+            name: pkg.name,
+            description: describePackage(
+              pkg,
+              fill(t.packages.nights, { count: pkg.nights }),
+              t.packages.metaDescription,
+            ),
+            url: path(`/packages/${pkg.slug}`),
+            images: gallery.slice(0, 6).map((image) => image.src),
+            destination: pkg.destination?.name ?? null,
+            // The day-by-day the brochure renders, and no more.
+            itinerary: days.map(([dayOffset, components]) => ({
+              name: dayLabel(dayOffset),
+              description: components
+                .map((component) => componentName(component) ?? component.label)
+                .join(" · "),
+            })),
+            offer,
+            locale,
+          }),
+        ]}
+      />
+
       <Container className="pt-8">
-        <Breadcrumbs items={crumbs} />
+        <Breadcrumbs
+          items={crumbs.map((crumb) => ({ label: crumb.name, href: crumb.href }))}
+        />
       </Container>
 
       <Container className="pt-6">
@@ -140,7 +225,7 @@ export default async function PackageDetailPage(props: PageProps<"/[locale]/pack
             <div className="type-caption flex flex-wrap items-center gap-x-3 gap-y-1 text-muted">
               {pkg.destination && (
                 <span className="inline-flex items-center gap-1.5">
-                  <MapPin size={13} aria-hidden />
+                  <MapPin size={13} className="shrink-0" aria-hidden />
                   {pkg.destination.name}
                 </span>
               )}
@@ -169,13 +254,17 @@ export default async function PackageDetailPage(props: PageProps<"/[locale]/pack
             )}
           </div>
 
-          <ShareSave title={pkg.name} />
+          <ShareSave
+            title={pkg.name}
+            text={pkg.destination?.name}
+            url={path(`/packages/${pkg.slug}`)}
+          />
         </div>
       </Container>
 
       {gallery.length > 0 && (
         <Container className="mt-8">
-          <MediaGallery images={gallery} label={pkg.name} />
+          <MediaGallery images={gallery} label={pkg.name} priority />
         </Container>
       )}
 
@@ -192,7 +281,7 @@ export default async function PackageDetailPage(props: PageProps<"/[locale]/pack
         {search && quote ? (
           <PackageBuilder slug={pkg.slug} name={pkg.name} search={search} quote={quote} />
         ) : (
-          <div className="grid gap-10 lg:grid-cols-[1fr_22rem] lg:gap-12">
+          <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-12">
             <div>
               {pkg.description.length > 0 && (
                 <section>
@@ -214,9 +303,7 @@ export default async function PackageDetailPage(props: PageProps<"/[locale]/pack
                   {days.map(([dayOffset, components]) => (
                     <li key={dayOffset} className="border-s-2 border-line ps-5">
                       <p className="type-caption font-semibold tracking-wide text-brand-text uppercase">
-                        {dayOffset === 0
-                          ? t.packages.arrivalDay
-                          : fill(t.packages.day, { n: dayOffset + 1 })}
+                        {dayLabel(dayOffset)}
                       </p>
                       <ul className="mt-2 flex flex-col gap-2.5">
                         {components.map((component) => {
@@ -234,12 +321,8 @@ export default async function PackageDetailPage(props: PageProps<"/[locale]/pack
                                   {component.label}
                                 </span>
                                 <span className="type-caption block text-muted">
-                                  {component.hotel?.name ??
-                                    component.tour?.title ??
-                                    component.service?.name ??
-                                    (component.fromPoint && component.toPoint
-                                      ? `${component.fromPoint.name} → ${component.toPoint.name}`
-                                      : t.orders.componentTypes[component.componentType])}
+                                  {componentName(component) ??
+                                    t.orders.componentTypes[component.componentType]}
                                   {component.required ? "" : ` · ${t.packages.optional}`}
                                 </span>
                               </span>
