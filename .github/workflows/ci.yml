@@ -32,7 +32,10 @@ jobs:
           cache: npm
           cache-dependency-path: client/package-lock.json
       - run: npm ci
-      - run: npx tsc --noEmit
+      # `next typegen` first: PageProps, LayoutProps and next-env.d.ts are
+      # generated files that are not committed, so a bare `tsc` on a fresh
+      # checkout cannot find them.
+      - run: npm run typecheck
       - run: npm run lint
       - run: npm run build
         env:
